@@ -136,6 +136,17 @@
             android:theme="@style/AppTheme" />
 
         <!--
+          ★ 车端诊断台（DoIP/UDS + RS485 离线解码）—— 能力来自 zeeho-diag（Electron 桌面端）。
+            连车机 AP 后走 TCP 192.168.49.1:13400；只读随时可跑，写操作默认硬禁（需 allowWrite）。
+            adb: am start -n com.github.zeehospeedhunter/.ui.DiagActivity
+        -->
+        <activity
+            android:name=".ui.DiagActivity"
+            android:exported="false"
+            android:label="车端诊断"
+            android:theme="@style/AppTheme" />
+
+        <!--
           推送期间的前台服务：106MB / 约 26000 帧要跑一两分钟，
           进程被回收会导致车机侧「已收 != 总长」、文件停在半截且不可回退。
         -->

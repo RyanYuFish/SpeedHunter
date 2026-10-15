@@ -115,56 +115,17 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="车机 Wi-Fi 设置"
+                        android:text="连接车机 · 网络诊断"
                         android:textAppearance="?attr/textAppearanceTitleSmall"
                         android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         style="@style/ParamHelp"
                         android:layout_marginTop="2dp"
-                        android:text="车机 AP 一般为 ZEEHO-xxxx，车机侧固定 192.168.0.1。推送前不要用官方 App 投屏（会拆掉 10950）。" />
+                        android:text="首选「系统 Wi-Fi 直连」去系统设置连车机热点（ZEEHO-xxxx，优先 5GHz），回来点「网络诊断」自动探测组主地址（可能是 192.168.0.1 或 49.1，以诊断为准）。推送前不要用官方 App 投屏（会拆掉 10950）。" />
 
-                    <EditText
-                        android:id="@+id/et_car_ssid"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:hint="SSID（如 ZEEHO-204dfd）"
-                        android:inputType="textCapCharacters"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <EditText
-                        android:id="@+id/et_car_pw"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:hint="密码（开放网络留空）"
-                        android:inputType="textPassword"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_save_wifi"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="保存" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_connect_car"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            android:text="连接车辆" />
-                    </LinearLayout>
+                    <!-- 系统 Wi-Fi 直连（主）+ App 内直连（兜底）+ 网络诊断，共用连接条 -->
+                    <include layout="@layout/view_carnet" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_grant_perms"
@@ -173,16 +134,6 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:text="去授权（写设置 / 所有文件访问）" />
-
-                    <TextView
-                        android:id="@+id/tv_wifi_scan"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:fontFamily="monospace"
-                        android:text=""
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

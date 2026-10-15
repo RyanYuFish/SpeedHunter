@@ -47,14 +47,12 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
 
     private TextView tvLog;
     private TextView tvStatus;
-    private TextView tvScan;
     private EditText etUrl;
-    private EditText etSsid;
-    private EditText etPw;
-    private View btnParse, btnSave, btnConnect, btnStart, btnStop, btnEcProbe;
+    private View btnParse, btnStart, btnStop, btnEcProbe;
 
     private Handler main;
     private final StringBuilder log = new StringBuilder();
+    private CarNetController carNet;
 
     private final ActivityResultLauncher<String> reqNearbyWifi =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(),
@@ -71,20 +69,13 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
 
         tvLog = findViewById(R.id.tv_log);
         tvStatus = findViewById(R.id.tv_status);
-        tvScan = findViewById(R.id.tv_wifi_scan);
         etUrl = findViewById(R.id.et_mirror_url);
-        etSsid = findViewById(R.id.et_car_ssid);
-        etPw = findViewById(R.id.et_car_pw);
         btnParse = findViewById(R.id.btn_parse_url);
-        btnSave = findViewById(R.id.btn_save_wifi);
-        btnConnect = findViewById(R.id.btn_connect_car);
         btnStart = findViewById(R.id.btn_start_mirror);
         btnStop = findViewById(R.id.btn_stop_mirror);
         btnEcProbe = findViewById(R.id.btn_ec_probe);
 
         android.content.SharedPreferences prefs = getSharedPreferences("mirror_car_wifi", MODE_PRIVATE);
-        etSsid.setText(prefs.getString("car_ssid", CarWifi.DEFAULT_SSID));
-        etPw.setText(prefs.getString("car_pw", ""));
 
         setupLogScrolling(tvLog);
 
@@ -92,11 +83,26 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
         findViewById(R.id.btn_clear_log).setOnClickListener(v -> clearLog());
 
         btnParse.setOnClickListener(v -> parseUrl());
-        btnSave.setOnClickListener(v -> saveWifi());
-        btnConnect.setOnClickListener(v -> connectCar());
         btnStart.setOnClickListener(v -> startMirror());
         btnStop.setOnClickListener(v -> stopMirror());
         btnEcProbe.setOnClickListener(v -> runEcProbe());
+
+        // 共享连接条：系统 Wi-Fi 直连（主） + App 内直连（兜底） + 网络诊断
+        carNet = new CarNetController(this, findViewById(android.R.id.content),
+                new CarNetController.Callback() {
+                    @Override
+                    public void onDiagnosed(com.github.zeehospeedhunter.ota.CarNet.DiagReport report,
+                                            String groupOwner) {
+                        tvStatus.setText(report.hasCar()
+                                ? ("组主 " + report.groupOwner + " · " + report.mode)
+                                : ("未探到组主 · " + report.mode));
+                    }
+
+                    @Override
+                    public void onStage(String s) {
+                        append(s);
+                    }
+                }, prefs);
     }
 
     // ==================== 二维码 URL 解析 ====================
@@ -123,10 +129,9 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
                 append("⚠ URL 里没找到 ssid= 参数（不是投屏二维码？）");
                 return;
             }
-            etSsid.setText(ssid);
-            etPw.setText(pwd == null ? "" : pwd);
+            carNet.setSsidPw(ssid, pwd == null ? "" : pwd);
             append("✔ 已解析：SSID=" + ssid
-                    + (TextUtils.isEmpty(pwd) ? "（开放网络）" : "（密码已填）")
+                    + (TextUtils.isEmpty(pwd) ? "（开放网络）" : "（密码已填，可点「系统 Wi-Fi 直连」去系统设置连）")
                     + (action != null ? "  action=" + action : ""));
             if (!"9".equals(action)) {
                 append("⚠ action=" + action + "（非 9）；投屏一般是 action=9(AP_MODE)，确认这是投屏二维码");
@@ -136,62 +141,6 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
         }
     }
 
-    private void saveWifi() {
-        String ssid = etSsid.getText().toString().trim();
-        String pw = etPw.getText().toString();
-        if (TextUtils.isEmpty(ssid)) {
-            append("SSID 不能为空");
-            return;
-        }
-        getSharedPreferences("mirror_car_wifi", MODE_PRIVATE).edit()
-                .putString("car_ssid", ssid).putString("car_pw", pw).apply();
-        append("已保存：SSID=" + ssid + (TextUtils.isEmpty(pw) ? "（开放网络）" : "（密码已存）"));
-    }
-
-    // ==================== 加入车机 AP ====================
-
-    private void connectCar() {
-        ensureWifiPermission(() -> {
-            append("=== 连接车机热点 ===");
-            setBusy(true);
-            tvStatus.setText("连接车机热点…");
-            doConnect();
-        });
-    }
-
-    private void doConnect() {
-        List<String> aps = CarWifi.scanCarAp(this);
-        String ssid = etSsid.getText().toString().trim();
-        if (aps.isEmpty()) {
-            tvScan.setText("未扫到 ZEEHO-* AP（确认车机投屏已开、手机其它热点已关）");
-            append("   附近未扫到 ZEEHO-* AP");
-        } else {
-            tvScan.setText("附近车机 AP：" + TextUtils.join("  ", aps));
-            append("   附近车机 AP：" + TextUtils.join(", ", aps));
-            if (!aps.contains(ssid)) {
-                ssid = aps.get(0);
-                etSsid.setText(ssid);
-                append("   用扫到的 " + ssid);
-            }
-        }
-        String pw = etPw.getText().toString();
-        CarWifi.connect(this, ssid, pw, new CarWifi.ConnectResult() {
-            @Override
-            public void onResult(boolean ok, String msg) {
-                append("   " + msg);
-                main.post(() -> {
-                    if (ok) {
-                        tvStatus.setText("已连车机热点 · 等几秒拿 IP 后点「开始投屏」");
-                        append("✔ 连上车机 AP；稍候本机应拿到 192.168.0.x");
-                    } else {
-                        setBusy(false);
-                        tvStatus.setText("连接车机热点失败");
-                    }
-                });
-            }
-        });
-    }
-
     // ==================== 启动投屏（交给 hook） ====================
 
     /**
@@ -199,10 +148,10 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
      * 本进程（模块 UI）无法启动 app 内未 exported 的投屏 Activity，必须走这条同 UID 路径。
      */
     private void startMirror() {
-        String ssid = etSsid.getText().toString().trim();
-        String pw = etPw.getText().toString();
+        String ssid = carNet.getSsid();
+        String pw = carNet.getPw();
         if (TextUtils.isEmpty(ssid)) {
-            append("SSID 为空，先填或解析二维码");
+            append("SSID 为空，先解析二维码或在上方「App 内直连(备用)」填入车机热点 SSID");
             return;
         }
         append("=== 开始投屏 ===");
@@ -282,7 +231,6 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
 
     private void setBusy(boolean busy) {
         btnStart.setEnabled(!busy);
-        btnConnect.setEnabled(!busy);
     }
 
     // ==================== 权限（连车机 AP 只需附近 Wi-Fi） ====================

@@ -104,57 +104,8 @@
                         android:layout_marginTop="10dp"
                         android:text="解析二维码 URL" />
 
-                    <EditText
-                        android:id="@+id/et_car_ssid"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:hint="SSID（如 ZEEHO-204dfd）"
-                        android:inputType="textCapCharacters"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <EditText
-                        android:id="@+id/et_car_pw"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:hint="密码（开放网络留空）"
-                        android:inputType="textPassword"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_save_wifi"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="保存" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_connect_car"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            android:text="连接车机热点" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/tv_wifi_scan"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:fontFamily="monospace"
-                        android:text=""
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
+                    <!-- 系统 Wi-Fi 直连（主）+ App 内直连（兜底）+ 网络诊断，共用连接条 -->
+                    <include layout="@layout/view_carnet" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -63,15 +63,16 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
     private TextView tvStatus;
     private LinearProgressIndicator pb;
     private TextView tvProgress;
-    private View btnPick, btnProbe, btnPush, btnVehicle, btnConnect, btnOneStop, btnSaveWifi;
+    private View btnPick, btnProbe, btnPush, btnVehicle, btnOneStop;
     private com.google.android.material.button.MaterialButton btnGrant;
-    private EditText etSsid, etPw;
-    private TextView tvScan;
 
     private SharedPreferences prefs;
     private Handler main;
     private final StringBuilder log = new StringBuilder();
     private volatile File picked;
+    private CarNetController carNet;
+    /** 网络诊断探测到的车机组主地址（0.1 / 49.1），探测车辆时优先尝试。 */
+    private volatile String lastGroupOwner = "";
 
     private final ActivityResultLauncher<String> pickFile =
             registerForActivityResult(new ActivityResultContracts.GetContent(), this::onPicked);
@@ -110,17 +111,10 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         btnProbe = findViewById(R.id.btn_socket_probe);
         btnPush = findViewById(R.id.btn_socket_push);
         btnVehicle = findViewById(R.id.btn_vehicle_probe);
-        btnConnect = findViewById(R.id.btn_connect_car);
         btnOneStop = findViewById(R.id.btn_one_stop);
-        btnSaveWifi = findViewById(R.id.btn_save_wifi);
         btnGrant = findViewById(R.id.btn_grant_perms);
-        etSsid = findViewById(R.id.et_car_ssid);
-        etPw = findViewById(R.id.et_car_pw);
-        tvScan = findViewById(R.id.tv_wifi_scan);
 
         prefs = getSharedPreferences("ota_car_wifi", MODE_PRIVATE);
-        etSsid.setText(prefs.getString("car_ssid", CarWifi.DEFAULT_SSID));
-        etPw.setText(prefs.getString("car_pw", ""));
 
         // ★ 固定高度的日志区要能自己滚（同 TuneActivity 的套路）：
         //   ① ScrollingMovementMethod 提供滚动行为；② 按下时让父级 NestedScrollView
@@ -139,10 +133,33 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         });
         btnPush.setOnClickListener(v -> startPush());
         btnVehicle.setOnClickListener(v -> probeVehicle());
-        btnConnect.setOnClickListener(v -> connectVehicle());
-        btnSaveWifi.setOnClickListener(v -> saveWifi());
         btnGrant.setOnClickListener(v -> openGrantSettings());
         btnOneStop.setOnClickListener(v -> runOneStop());
+
+        // 共享连接条：系统 Wi-Fi 直连（主） + App 内直连（兜底） + 网络诊断。
+        // 诊断出的组主地址在此回填，供探测车辆时优先尝试。
+        carNet = new CarNetController(this, findViewById(android.R.id.content),
+                new CarNetController.Callback() {
+                    @Override
+                    public void onDiagnosed(com.github.zeehospeedhunter.ota.CarNet.DiagReport report,
+                                            String groupOwner) {
+                        if (groupOwner != null && !groupOwner.isEmpty()) {
+                            lastGroupOwner = groupOwner;
+                            // 推送/探测改用探测到的组主地址（可能是 0.1 而非硬编码 49.1）
+                            OtaSocketPusher.setResolvedCarHost(groupOwner);
+                        }
+                        if (report.hasCar()) {
+                            tvVehicle.setText("组主 " + report.groupOwner + "\n" + report.mode);
+                        } else {
+                            tvVehicle.setText("未探到组主 · " + report.mode);
+                        }
+                    }
+
+                    @Override
+                    public void onStage(String s) {
+                        append(s);
+                    }
+                }, prefs);
 
         // adb 直接跑：am start ... --ez vehicle_probe true
         if (getIntent().getBooleanExtra("vehicle_probe", false)) {
@@ -159,19 +176,7 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         refreshGrantButton();
     }
 
-    // ==================== 车机 Wi-Fi 设置 / 连接 ====================
-
-    private void saveWifi() {
-        String ssid = etSsid.getText().toString().trim();
-        String pw = etPw.getText().toString();
-        if (TextUtils.isEmpty(ssid)) {
-            append("车机 Wi-Fi 设置：SSID 不能为空");
-            return;
-        }
-        prefs.edit().putString("car_ssid", ssid).putString("car_pw", pw).apply();
-        append("车机 Wi-Fi 设置已保存：SSID=" + ssid
-                + (TextUtils.isEmpty(pw) ? "（开放网络）" : "（WPA2 密码已存）"));
-    }
+    // ==================== 权限（special，设置页授权）====================
 
     /**
      * 主动去系统设置页授予两个 <b>special</b> 权限（普通弹窗申请不到，只能去设置页开）：
@@ -214,79 +219,6 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
                     : (!ws ? "写设置" : "所有文件访问");
             btnGrant.setText("去授权（还差：" + miss + "）");
         }
-    }
-
-    /** 一键「连车机 Wi-Fi」：先确保权限（写设置/存储/附近设备），再扫 AP、自动挑、连上。 */
-    private void connectVehicle() {
-        ensureAllPermissions(() -> {
-            append("=== 连接车辆 Wi-Fi ===");
-            setBusy(true);
-            tvStatus.setText("连接车辆 Wi-Fi…");
-            doConnectVehicle();
-        });
-    }
-
-    private void doConnectVehicle() {
-        List<String> aps = CarWifi.scanCarAp(this);
-        String ssid = prefs.getString("car_ssid", CarWifi.DEFAULT_SSID);
-        if (aps.isEmpty()) {
-            tvScan.setText("未扫到 ZEEHO-* AP（确认车机 Wi-Fi 已开、手机热点已关）");
-            append("   附近未扫到 ZEEHO-* AP");
-        } else {
-            tvScan.setText("附近车机 AP：" + TextUtils.join("  ", aps));
-            append("   附近车机 AP：" + TextUtils.join(", ", aps));
-            if (!aps.contains(ssid)) {
-                ssid = aps.get(0);
-                append("   用扫到的 " + ssid);
-            }
-        }
-        String pw = prefs.getString("car_pw", "");
-        CarWifi.connect(this, ssid, pw, new CarWifi.ConnectResult() {
-            @Override
-            public void onResult(boolean ok, String msg) {
-                append("   " + msg);
-                if (ok) {
-                    waitForCarNet(new StepCb() {
-                        @Override
-                        public void next(boolean ok2, String msg2) {
-                            main.post(() -> {
-                                setBusy(false);
-                                if (ok2) {
-                                    tvStatus.setText("已连车机 · " + msg2);
-                                    append("✔ 连上车机网段 " + msg2);
-                                } else {
-                                    tvStatus.setText("连上 AP 但还没拿到 IP");
-                                    append("⚠ 已连 AP 但本机还没 192.168.0.x，稍等几秒再探测");
-                                }
-                            });
-                        }
-                    });
-                } else {
-                    main.post(() -> {
-                        setBusy(false);
-                        tvStatus.setText("连接车辆失败");
-                    });
-                }
-            }
-        });
-    }
-
-    /** 轮询本机是否拿到车机网段地址（最多 ~12s）。 */
-    private void waitForCarNet(StepCb cb) {
-        final long deadline = System.currentTimeMillis() + 12000;
-        new Thread(() -> {
-            OtaSocketPusher.NetInfo n;
-            while ((n = OtaSocketPusher.localNetOnCarNet()) == null
-                    && System.currentTimeMillis() < deadline) {
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException ignored) {
-                    break;
-                }
-            }
-            n = OtaSocketPusher.localNetOnCarNet();
-            cb.next(n != null, n != null ? (n.iface + " " + n.ip) : "");
-        }, "wait-carnet").start();
     }
 
     /** 步骤回调：一步的结束（ok + 说明）。 */
@@ -356,40 +288,17 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
     }
 
     private void stepOneEnsureNetwork(StepCb cb) {
-        OtaSocketPusher.NetInfo n = OtaSocketPusher.localNetOnCarNet();
-        if (n != null) {
-            append("① 已在车机网段：" + n.iface + " " + n.ip);
-            cb.next(true, n.iface + " " + n.ip);
+        java.util.List<com.github.zeehospeedhunter.ota.CarNet.NetInfo> ips =
+                com.github.zeehospeedhunter.ota.CarNet.localPrivateIps();
+        if (!ips.isEmpty()) {
+            append("① 已在车机网段：" + ips.get(0).iface + " " + ips.get(0).ip);
+            cb.next(true, ips.get(0).ip);
             return;
         }
-        append("① 手机不在车机网段，自动连车机 AP …");
-        doConnectVehicleThen(new StepCb() {
-            @Override
-            public void next(boolean ok, String msg) {
-                cb.next(ok, msg);
-            }
-        });
-    }
-
-    /** 与「连接车辆」按钮同逻辑，但结束时用回调而非直接 setBusy。 */
-    private void doConnectVehicleThen(StepCb cb) {
-        List<String> aps = CarWifi.scanCarAp(this);
-        String ssid = prefs.getString("car_ssid", CarWifi.DEFAULT_SSID);
-        if (!aps.isEmpty() && !aps.contains(ssid)) {
-            ssid = aps.get(0);
-        }
-        String pw = prefs.getString("car_pw", "");
-        CarWifi.connect(this, ssid, pw, new CarWifi.ConnectResult() {
-            @Override
-            public void onResult(boolean ok, String msg) {
-                append("   " + msg);
-                if (ok) {
-                    waitForCarNet(cb);
-                } else {
-                    cb.next(false, "连接车机 Wi-Fi 失败：" + msg);
-                }
-            }
-        });
+        // 系统 WLAN 直连要把用户送去系统设置，这会离开本页，一站式无法自动续跑 —— 明确提示
+        append("① 手机不在车机网段 —— 请先用「系统 Wi-Fi 直连」连车机热点（连接交给系统设置），"
+                + "再回来重新点「一键 OTA」");
+        cb.next(false, "未在车机网段（先用系统 Wi-Fi 直连连上车机）");
     }
 
     private void stepTwoEnsurePackage(StepCb cb) {

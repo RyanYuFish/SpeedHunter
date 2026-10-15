@@ -6,7 +6,9 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），实现如下功能：
 2. **OTA 界面解锁 + 全链路流量记录** —— 用于研究车辆 OTA 链路的只读 hook；
 3. **自带 Material You 设置界面** —— 实时切换挂载方式与各 gate；
 4. **OTA 推送控制台（socket_l）** —— 纯 Wi-Fi 直连 `192.168.0.1:10950` 推送固件包，不依赖官方 App / BLE / 厂商服务端；
-5. **仪表投屏独立入口** —— 解析投屏二维码、自动连车机 AP、模块内一键拉起投屏，绕过官方 App GUI。
+5. **仪表投屏独立入口** —— 解析投屏二维码、自动连车机 AP、模块内一键拉起投屏，绕过官方 App GUI；
+6. **车端诊断（DoIP/UDS + RS485 解码）** —— 连车机 AP 读车辆信息 / 故障码 / ECU 身份 / 扫 DID / 看数据流；RS485 抓包离线解码；写操作默认硬禁；
+7. **系统 Wi-Fi 直连 + 网络诊断** —— 连接交给系统设置（优先 5GHz），组主地址靠 TCP 握手探测（0.1 / 49.1）而非硬编码，OTA / 投屏 / 诊断三页共用。
 
 ## 骑行记录恢复（主机制：网络层能力位改写）
 
@@ -104,6 +106,60 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），实现如下功能：
 把「通道通不通、鉴权过不过」从猜测变成事实。头部模板可替换（`setHeaderTemplate`）——
 `cmdType` 数值与 magic 是 Carbit 私有常量，静态拿不到，**真车抓一帧回包即可对齐**（见 `docs/49` §5.3）。
 
+## 车端诊断（DoIP / UDS + RS485 解码）
+
+把桌面端研究工具 **zeeho-diag**（Electron）的诊断能力搬进手机。入口：模块主界面「车端诊断」→ `ui/DiagActivity`。
+
+### 两条总线、两套协议（不要混）
+
+| 通道 | 载体 | 协议 | 用途 |
+|---|---|---|---|
+| WiFi / DoIP | TCP `192.168.49.1:13400` | ISO 13400 + UDS | 实时诊断（读 / 写） |
+| RS485 | OBD 针 7/15 @115200 8N1 | 私协议 `43 46 … 45 44` | 仅离线抓包解码 |
+
+### 能力（对应 zeeho-diag `lib/`）
+
+| 功能 | 实现 | 说明 |
+|---|---|---|
+| DoIP/UDS 传输 | `diag/DiagClient` + `diag/DiagProtocol` | 路由激活 → 2s 心跳 → 诊断消息；源 IP 自动绑同网段 |
+| ECU 全景表 | `diag/Ecus` | 10 个 ECU；DoIP 地址已验证优先，未知回退 CAN 并标 ⚠，绝不臆造 |
+| 车辆信息 / 故障码 / ECU 身份 / DID 扫描 | `diag/VehicleService` | 还原自 ZeeCare `WifiVehicleInfoService` |
+| 数据流（看数据流） | `diag/DataStreams` | 5 组 112 项；自研安全算术求值器（无 eval） |
+| 写类维修操作 | `diag/Routines` | 清故障码 0x14 / ECU 复位 0x11 / 例程 0x31 |
+| RS485 解码 | `diag/Rs485` | 15B 链路帧 XOR → 应用帧重组 / 校验和；纯函数 |
+
+### 红线
+
+- **只读随时可跑**：车辆信息 / 故障码 / ECU 身份 / DID 扫描 / 数据流 / RS485 解码；
+- **写类默认硬禁**：清码 / 复位 / 例程必须勾选 `allowWrite` 并二次确认 —— `diag/Routines` 复刻本项目 `rs485`/`diagpc` 的「写类硬禁」红线；
+- 不臆造 ABS 排气 / 胎压匹配的 routine ID，由用户填实测抓到的值；
+- 连车机 AP 复用 `ota/CarWifi`；DoIP 的 `192.168.49.1` 与 OTA 推送的 `192.168.0.1:10950` **不是同一通道**。
+
+### 数据流求值器（为什么不直接用 JS）
+
+桌面端用 `new Function(...)` eval 表达式；Android 没有 JS 引擎，`diag/DataStreams` 用一个**自研递归下降算术求值器**（只支持 `+ - * /`、括号、小数、变量 `x/x1/x2/x3`、可选 `y=` 前缀），语义与 JS 一致且无代码执行风险。数据表由 `tools/gen_datastreams_java.js` 从 `zeeho-diag/lib/datastreams.js` 生成，并用 Node `new Function` 做 **112 条差分测试全部通过**。
+
+## 系统 Wi-Fi 直连 + 网络诊断（连接方式统一）
+
+依据第三方「极核仪表 OTA 工具」的实况改造：车机地址**并不固定**，组主随模式在
+`192.168.0.1` / `192.168.49.1` 之间浮动（该工具实测本车组主是 `0.1`，并注明
+「以**网络诊断**显示的为准」）。此前模块各处硬编码地址、且每页各写一套手填 SSID 密码表单，
+现统一为 `ota/CarNet`（探测中枢）+ `ui/CarNetController` + 共享连接条 `res/layout/view_carnet.xml`。
+
+三种动作（OTA 推送 / 仪表投屏 / 车端诊断 **三页共用**）：
+
+| 动作 | 做什么 |
+|---|---|
+| **系统 Wi-Fi 直连（主）** | 断开当前 Wi-Fi → 拉起系统 WLAN 面板 → 用户连车机热点 `ZEEHO-xxxx`（优先 5GHz）→ 回本页点「网络诊断」 |
+| **App 内直连（兜底）** | 保留原 `WifiNetworkSpecifier` / `addNetwork` 路径，缺附近设备/定位权限自动申请 |
+| **网络诊断** | TCP 握手判定组主地址与端口（10950 / 13400 / 5555）、识别 P2P vs WLAN 模式与 5GHz，结果回填 DoIP 目标与推送通道 |
+
+**红线**：诊断只做 TCP 握手判断端口是否监听，**不发任何非本协议帧**、不改网络配置；
+`disconnectCurrentWifi()` 只断开当前连接、**不忘记**其它已存 Wi-Fi。
+
+地址回填：诊断出的组主地址会写入 `OtaSocketPusher`（推送 / 探测车辆）与 `DiagActivity` 的
+DoIP 目标，不再把 `192.168.49.1` 当固定值。硬编码地址仅保留为兜底候选。
+
 ## 日志
 
 模块把日志写进目标 App 的文件：
@@ -140,7 +196,7 @@ adb shell cat $LOG | grep ZeehoCfg                                  # 配置通�
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ./gradlew assembleRelease
-# 产物：release/zeeho-speedhunter-v3.0.apk（编完自动从 build 目录拷出）
+# 产物：release/zeeho-speedhunter-v3.1.apk（编完自动从 build 目录拷出）
 ```
 
 ## 隐私与安全

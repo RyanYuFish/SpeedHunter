@@ -259,6 +259,70 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- ===== 车端诊断（DoIP/UDS + RS485 解码，来自 zeeho-diag） ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <LinearLayout style="@style/SettingRow">
+                    <ImageView
+                        style="@style/SettingRowIcon"
+                        android:src="@drawable/ic_public"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
+                    <LinearLayout style="@style/SettingRowText">
+                        <TextView
+                            style="@style/SettingRowTitle"
+                            android:text="车端诊断（DoIP / UDS）" />
+                        <TextView
+                            style="@style/SettingRowSubtitle"
+                            android:text="连车机 AP 读车辆信息 / 故障码 / ECU 身份 / 扫 DID / 看数据流；RS485 抓包离线解码；写操作默认硬禁" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_diag"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:text="诊断"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <View style="@style/SettingDivider" />
+
+                <LinearLayout style="@style/SettingRow">
+                    <ImageView
+                        style="@style/SettingRowIcon"
+                        android:src="@drawable/ic_info"
+                        app:tint="?attr/colorOnSurfaceVariant"
+                        android:importantForAccessibility="no" />
+                    <LinearLayout style="@style/SettingRowText">
+                        <TextView
+                            style="@style/SettingRowTitle"
+                            android:text="前提" />
+                        <TextView
+                            style="@style/SettingRowSubtitle"
+                            android:text="手机连车机 AP（ZEEHO-xxxx，热点关）；DoIP 走 192.168.49.1:13400，与 OTA 的 0.1:10950 不是同一通道" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- ===== 仪表投屏（EasyConnect 镜像，绕过官方 App） ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

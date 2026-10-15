@@ -42,6 +42,8 @@ public final class HookLog {
     public static final String RIDE = "[ZeehoRide]";
     /** 仪表投屏（EasyConnect 镜像，绕过官方 App 手动入口）。 */
     public static final String MIRROR = "[ZeehoMirror]";
+    /** 车端诊断（DoIP/UDS + RS485 离线解码，见 diag/ 包）。 */
+    public static final String DIAG = "[ZeehoDiag]";
 
     private static final String FILE_NAME = "zeeho_hook.log";
     private static final long MAX_BYTES = 4L * 1024 * 1024;

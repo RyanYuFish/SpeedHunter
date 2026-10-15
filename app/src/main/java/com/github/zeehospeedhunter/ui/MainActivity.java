@@ -128,6 +128,20 @@ public final class MainActivity extends AppCompatActivity {
             }
         });
 
+        // 车端诊断：DoIP/UDS 只读 + RS485 解码 + 写操作闸门（来自 zeeho-diag）
+        findViewById(R.id.btn_diag).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new android.content.Intent(
+                            MainActivity.this, DiagActivity.class));
+                } catch (Throwable t) {
+                    Toast.makeText(MainActivity.this, "打不开诊断台：" + t,
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+
         updateStatus();
     }
 

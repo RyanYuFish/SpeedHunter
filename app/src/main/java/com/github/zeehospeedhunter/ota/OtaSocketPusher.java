@@ -93,6 +93,30 @@ public final class OtaSocketPusher {
     /** 车机候选地址：车机 AP 一般是 192.168.0.1；本机当 P2P GO 时车机是 192.168.49.1。 */
     private static final String[] CAR_HOSTS = {"192.168.0.1", "192.168.49.1"};
 
+    /**
+     * 网络诊断（{@link CarNet#diagnose}）探测到的组主地址；非空时优先用它做推送/探测。
+     * 依据第三方工具实测：组主不固定（可能是 0.1 而非标准 49.1），以诊断为准。
+     */
+    private static volatile String sResolvedCarHost = null;
+
+    /** 供网络诊断回填组主地址。 */
+    public static void setResolvedCarHost(String host) {
+        sResolvedCarHost = (host == null || host.isEmpty()) ? null : host;
+    }
+
+    /** 推送/探测实际使用的主机：优先诊断结果，否则 CAR_IP。 */
+    public static String carHost() {
+        return sResolvedCarHost != null ? sResolvedCarHost : CAR_IP;
+    }
+
+    /** 探测/连接时的候选顺序：诊断结果优先，再退回两个默认候选。 */
+    private static String[] carHostCandidates() {
+        String r = sResolvedCarHost;
+        if (r == null || r.isEmpty()) return CAR_HOSTS;
+        for (String h : CAR_HOSTS) if (h.equals(r)) return CAR_HOSTS;
+        return new String[]{r, CAR_HOSTS[0], CAR_HOSTS[1]};
+    }
+
     /** 车辆探测结果。 */
     public static final class VehicleInfo {
         public boolean ok;
@@ -155,7 +179,7 @@ public final class OtaSocketPusher {
                 }
                 l.onStage("   本机网卡 " + (ni != null ? ni.iface : "?") + " = " + info.localIp);
                 l.onStage("② 本机 " + info.localIp + "，试连车机 …");
-                for (String h : CAR_HOSTS) {
+                for (String h : carHostCandidates()) {
                     l.onStage("   → " + h + ":" + CAR_PORT);
                     Socket s = null;
                     try {
@@ -469,7 +493,7 @@ public final class OtaSocketPusher {
         if (ip != null) {
             s.bind(new InetSocketAddress(ip, 0));
         }
-        s.connect(new InetSocketAddress(CAR_IP, CAR_PORT), 8000);
+        s.connect(new InetSocketAddress(carHost(), CAR_PORT), 8000);
         cb.onLog("已连接 " + s.getLocalSocketAddress() + " → "
                 + s.getRemoteSocketAddress());
         return s;
@@ -512,7 +536,7 @@ public final class OtaSocketPusher {
                     s = connect(cb);
                     step(s, CMD_VERSION, json(new JSONObject()
                                     .put("versionCode", 1)
-                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", CAR_IP)),
+                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", carHost())),
                             "版本协商", 3000, cb, 1);
                 } catch (Exception e) {
                     cb.onLog("连不上 —— " + e);
@@ -631,7 +655,7 @@ public final class OtaSocketPusher {
                     s = connect(cb);
                     step(s, CMD_VERSION, json(new JSONObject()
                                     .put("versionCode", 1)
-                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", CAR_IP)),
+                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", carHost())),
                             "版本协商", 1500, cb, 1);
                     step(s, CMD_END, endPayload(),
                             "结束传输", 25000, cb, 1);
@@ -674,7 +698,7 @@ public final class OtaSocketPusher {
 
                     step(s, CMD_VERSION, json(new JSONObject()
                                     .put("versionCode", 1)
-                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", CAR_IP)),
+                                    .put("SP_CONFIG_MODEL_GEMINI_PROJECT_CODE", carHost())),
                             "版本协商", 2000, cb, 1);
 
                     // OTA 启动：车机据此打开 /media/flash/userdata/<name>
