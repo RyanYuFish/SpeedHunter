@@ -10,16 +10,16 @@ public final class OtaHooks {
 
     public static void installAll() {
         try {
-            if (OtaOptions.UNLOCK_UI) OtaPageUnlock.install();
             if (OtaOptions.LOG_HTTP) OtaTraffic.hookRequests();
             if (OtaOptions.LOG_RESPONSE) OtaTraffic.hookResponseBodies();
             if (OtaOptions.LOG_DOWNLOAD) OtaTraffic.hookDownloadProbe();
             if (OtaOptions.LOG_WEBVIEW) OtaTraffic.hookWebView();
             if (OtaOptions.LOG_SERVICE) OtaTraffic.hookServices();
             if (OtaOptions.DISCOVER_CLASSES) OtaTraffic.hookClassDiscovery();
-            OtaInject.installAll();          // ★ 网络层注入升级任务（默认关）
-            OtaMmiInject.installAll();       // ★ 注入 mmi/info 任务单（外置 JSON 控制）
-            OtaForceUpdate.installAll();     // ★ 强制「立即更新」可点
+            // ★ 已移除：OtaPageUnlock（界面解锁）/ OtaInject / OtaMmiInject / OtaForceUpdate。
+            //   它们只为「让官方 App 的 OTA 界面显示出来并走完流程」服务；
+            //   现在写包走自建的 10086 推送台（ui/OtaActivity），官方 App 的 OTA UI 已无用，
+            //   且注入类默认是开的，留着只会无谓改写服务端响应。
             // ★ 不再装 OtaPushUi：推送面板已改为独立界面 OtaPushActivity。
             //   理由见该类 javadoc —— 官方 App 进程实测抓不到 10950 流量（hook 抓包路线
             //   已被证伪），且挂在别人的 Activity 里扛不住 106MB 长传输。

@@ -10,6 +10,7 @@ import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
 
+import com.github.zeehospeedhunter.core.HookLog;
 import com.github.zeehospeedhunter.ui.OtaActivity;
 
 /**
@@ -30,7 +31,13 @@ public final class OtaPushService extends android.app.Service {
     private static final int NOTIF_ID = 0x0A7A;
 
     public static final String ACTION_START = "com.github.zeehospeedhunter.ota.PUSH_START";
+    public static final String ACTION_PROBE = "com.github.zeehospeedhunter.ota.PROBE_10950";
+    public static final String ACTION_WATCH_PUSH = "com.github.zeehospeedhunter.ota.WATCH_PUSH";
     public static final String ACTION_STOP = "com.github.zeehospeedhunter.ota.PUSH_STOP";
+
+    public static final String EXTRA_FILE = "file";
+    public static final String EXTRA_ALLOW_DOWNGRADE = "allowDowngrade";
+    public static final String EXTRA_AUTO_FLASH = "autoFlash";
 
     public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_STATUS = "status";
@@ -44,19 +51,68 @@ public final class OtaPushService extends android.app.Service {
         void onPushDone(boolean ok, String summary);
     }
 
+    /** 10950 持续探测回报；前台服务可在用户切到官方投屏时继续工作。 */
+    public interface ProbeProgress {
+        void onProbeStage(String line);
+
+        void onProbeResult(OtaSocketPusher.VehicleInfo info);
+    }
+
     private static volatile Progress sink;
+    private static volatile ProbeProgress probeSink;
+    private static volatile boolean sProbeRunning;
 
     private volatile boolean running;
+    private volatile boolean probeRunning;
+    private volatile boolean watchMode;
+
+    private String watchTitle() {
+        return watchMode ? "守候 10950 · 连上即推送" : "正在推送固件到车机";
+    }
 
     public static void setSink(Progress p) {
         sink = p;
     }
 
+    public static void setProbeSink(ProbeProgress p) {
+        probeSink = p;
+    }
+
+    public static boolean isProbeRunning() {
+        return sProbeRunning;
+    }
+
     /** 启动前台服务并开始推送。 */
-    public static void start(Context ctx, String filePath) {
+    public static void start(Context ctx, String filePath, boolean autoFlash) {
         Intent i = new Intent(ctx, OtaPushService.class);
         i.setAction(ACTION_START);
-        i.putExtra("file", filePath);
+        i.putExtra(EXTRA_FILE, filePath);
+        i.putExtra(EXTRA_AUTO_FLASH, autoFlash);
+        ctx.startForegroundService(i);
+    }
+
+    /**
+     * <b>守候即推</b>：前台服务持续探测 10950，连上即在同一连接内完成整条推送。
+     *
+     * <p>10950 是短命窗口（投屏 init 主机后才有，网络一切换就被拆掉），
+     * 「先探测再回界面点推送」中间隔着人的反应时间，窗口早关了。这个模式消掉那道缝。</p>
+     */
+    public static void startWatchPush(Context ctx, String filePath, boolean allowDowngrade,
+                                      boolean autoFlash) {
+        Intent i = new Intent(ctx, OtaPushService.class);
+        i.setAction(ACTION_WATCH_PUSH);
+        i.putExtra(EXTRA_FILE, filePath);
+        i.putExtra(EXTRA_ALLOW_DOWNGRADE, allowDowngrade);
+        i.putExtra(EXTRA_AUTO_FLASH, autoFlash);
+        ctx.startForegroundService(i);
+    }
+
+    /** 用前台服务保活 10950 监听窗口，允许用户切换到官方投屏再退出。 */
+    public static void startProbe(Context ctx, ProbeProgress progress) {
+        probeSink = progress;
+        sProbeRunning = true;
+        Intent i = new Intent(ctx, OtaPushService.class);
+        i.setAction(ACTION_PROBE);
         ctx.startForegroundService(i);
     }
 
@@ -77,13 +133,32 @@ public final class OtaPushService extends android.app.Service {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_STOP.equals(action)) {
             running = false;
+            probeRunning = false;
+            sProbeRunning = false;
             stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        final String path = intent == null ? null : intent.getStringExtra("file");
-        startForeground(NOTIF_ID, notify(0, 0, "准备中…"));
+        if (ACTION_PROBE.equals(action)) {
+            if (probeRunning) {
+                return START_NOT_STICKY;
+            }
+            probeRunning = true;
+            sProbeRunning = true;
+            startForeground(NOTIF_ID, probeNotification("正在持续扫描 10950", "请用官方 App 投屏一次并干净退出", true));
+            startProbe();
+            return START_NOT_STICKY;
+        }
+
+        final String path = intent == null ? null : intent.getStringExtra(EXTRA_FILE);
+        final boolean watch = ACTION_WATCH_PUSH.equals(action);
+        watchMode = watch;
+        if (watch) {
+            startForeground(NOTIF_ID, notify(0, 0, "守候 10950…连上即自动推送"));
+        } else {
+            startForeground(NOTIF_ID, notify(0, 0, "准备中…"));
+        }
 
         if (path == null) {
             done(false, "没有指定包");
@@ -95,16 +170,57 @@ public final class OtaPushService extends android.app.Service {
             return START_NOT_STICKY;
         }
 
+        final OtaSocketPusher.PkgInfo known = null;
+        final boolean allowDowngrade =
+                intent != null && intent.getBooleanExtra(EXTRA_ALLOW_DOWNGRADE, false);
+        final boolean autoFlash =
+                intent != null && intent.getBooleanExtra(EXTRA_AUTO_FLASH, false);
+
         running = true;
-        startPush(f);
+        startPush(f, watch, known, allowDowngrade, autoFlash);
         return START_NOT_STICKY;
     }
 
-    private void startPush(final java.io.File f) {
+    private void startProbe() {
+        OtaSocketPusher.probeVehicle(new OtaSocketPusher.VehicleProbeListener() {
+            @Override
+            public void onStage(String line) {
+                HookLog.log(HookLog.OTA + " probe-service " + line);
+                ProbeProgress p = probeSink;
+                if (p != null) {
+                    p.onProbeStage(line);
+                }
+                updateProbeNotification("扫描中", line, true);
+            }
+
+            @Override
+            public void onResult(OtaSocketPusher.VehicleInfo info) {
+                HookLog.log(HookLog.OTA + " probe-service result " + info.summary());
+                ProbeProgress p = probeSink;
+                if (p != null) {
+                    p.onProbeResult(info);
+                }
+                String title = info.ok ? "10950 已连接" : "未发现 10950";
+                String text = info.ok
+                        ? "已读到车机版本，可回 SpeedHunter 推送（也可直接用守候即推）"
+                        : info.error;
+                updateProbeNotification(title, text, false);
+                probeRunning = false;
+                sProbeRunning = false;
+                probeSink = null;
+                stopForeground(false);
+                stopSelf();
+            }
+        });
+    }
+
+    private void startPush(final java.io.File f, final boolean watch,
+                            final OtaSocketPusher.PkgInfo known, final boolean allowDowngrade,
+                            final boolean autoFlash) {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                OtaSocketPusher.push(f, false, new OtaSocketPusher.Callback() {
+                final OtaSocketPusher.Callback cb = new OtaSocketPusher.Callback() {
                     @Override
                     public void onLog(final String line) {
                         updateNotif(-1, -1, line);
@@ -127,9 +243,18 @@ public final class OtaPushService extends android.app.Service {
                     public void onDone(final boolean ok, final String summary) {
                         done(ok, summary);
                     }
-                });
+                };
+                final OtaSocketPusher.PushOptions opt = new OtaSocketPusher.PushOptions();
+                opt.pkg = known;
+                opt.allowDowngrade = allowDowngrade;
+                opt.autoFlash = autoFlash;
+                if (watch) {
+                    OtaSocketPusher.pushWhenReady(f, opt, cb);
+                } else {
+                    OtaSocketPusher.push(f, opt, cb);
+                }
             }
-        }, "ota-push-svc").start();
+        }, watch ? "ota-watch-svc" : "ota-push-svc").start();
     }
 
     private void done(boolean ok, String summary) {
@@ -145,6 +270,8 @@ public final class OtaPushService extends android.app.Service {
     @Override
     public void onDestroy() {
         running = false;
+        probeRunning = false;
+        sProbeRunning = false;
         super.onDestroy();
     }
 
@@ -182,13 +309,38 @@ public final class OtaPushService extends android.app.Service {
                     + " MB  " + text;
         }
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("正在推送固件到车机")
+                .setContentTitle(watchTitle())
                 .setContentText(t)
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setOngoing(true)
                 .setContentIntent(pi)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
+    }
+
+    private Notification probeNotification(String title, String text, boolean ongoing) {
+        Intent open = new Intent(this, OtaActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, open,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.ic_menu_search)
+                .setOngoing(ongoing)
+                .setContentIntent(pi)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+    }
+
+    private void updateProbeNotification(String title, String text, boolean ongoing) {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) {
+            try {
+                nm.notify(NOTIF_ID, probeNotification(title, text, ongoing));
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     private void updateNotif(int pct, long sent, String text) {

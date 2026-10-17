@@ -8,7 +8,6 @@ import android.text.TextUtils;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -19,7 +18,6 @@ import com.github.zeehospeedhunter.core.HookLog;
 import com.github.zeehospeedhunter.ota.CarNet;
 import com.github.zeehospeedhunter.ota.CarWifi;
 
-import java.util.List;
 
 /**
  * 车机连接条的共享控制器 —— 「系统 Wi-Fi 直连（主） + App 内直连（兜底） + 网络诊断」。
@@ -114,7 +112,8 @@ public final class CarNetController {
      */
     private void systemDirect() {
         String ssid = etSsid.getText().toString().trim();
-        if (!TextUtils.isEmpty(ssid) && !ssid.equals(CarWifi.DEFAULT_SSID)) {
+        // 只要用户填了非空 SSID 就记住（DEFAULT_SSID 已是空串，不再有「等于默认值」的特例）
+        if (!TextUtils.isEmpty(ssid)) {
             prefs.edit().putString("car_ssid", ssid).apply();
         }
         setStatus("① 已断开当前 Wi-Fi，正在打开系统 WLAN 设置…\n"

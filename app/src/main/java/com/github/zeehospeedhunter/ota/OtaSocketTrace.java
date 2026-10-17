@@ -1,6 +1,5 @@
 package com.github.zeehospeedhunter.ota;
 
-import com.github.zeehospeedhunter.core.HookKit;
 import com.github.zeehospeedhunter.core.HookLog;
 
 import java.lang.reflect.Method;

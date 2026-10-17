@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  车辆信息表的一行（对齐参考工具的「设备名 / P2P MAC / 组主地址 / 本机角色」）。
+  value 统一用等宽字体 + 可选中，方便直接抄 IP 去填「手动指定 IP」。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:baselineAligned="false"
+    android:orientation="horizontal"
+    android:paddingTop="5dp"
+    android:paddingBottom="5dp">
+
+    <TextView
+        android:id="@+id/info_key"
+        android:layout_width="88dp"
+        android:layout_height="wrap_content"
+        android:text="组主地址"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/info_value"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:fontFamily="monospace"
+        android:text="192.168.0.1"
+        android:textColor="?attr/colorOnSurface"
+        android:textIsSelectable="true"
+        android:textSize="13sp" />
+</LinearLayout>

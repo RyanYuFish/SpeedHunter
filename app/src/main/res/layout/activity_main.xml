@@ -195,7 +195,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 自制固件 OTA（最后一公里） ===== -->
+        <!-- ===== 仪表 OTA 推送 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -220,13 +220,43 @@
                     <LinearLayout style="@style/SettingRowText">
                         <TextView
                             style="@style/SettingRowTitle"
-                            android:text="自制固件 OTA（最后一公里）" />
+                            android:text="仪表OTA推送" />
                         <TextView
                             style="@style/SettingRowSubtitle"
-                            android:text="Wi-Fi Direct 建连 → 手写 ADB 推包 → 触发仪表刷写，四步全在手机上完成" />
+                            android:text="Wi-Fi Direct 建连 → 推送 OTA 包 → 触发仪表刷写，四步全在手机上完成" />
                     </LinearLayout>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ota_flash"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:text="操作台"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <View style="@style/SettingDivider" />
+
+                <LinearLayout style="@style/SettingRow">
+                    <ImageView
+                        style="@style/SettingRowIcon"
+                        android:src="@drawable/ic_public"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
+                    <LinearLayout style="@style/SettingRowText">
+                        <TextView
+                            style="@style/SettingRowTitle"
+                            android:text="仪表壁纸推送" />
+                        <TextView
+                            style="@style/SettingRowSubtitle"
+                            android:text="Dashboard Studio ZIP · 独立于固件 OTA 的壁纸通道" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_wallpaper_push"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:insetTop="0dp"

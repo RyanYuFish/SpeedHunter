@@ -2,9 +2,7 @@ package com.github.zeehospeedhunter.ui;
 
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.TextView;
@@ -14,7 +12,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -86,7 +83,7 @@ public final class MainActivity extends AppCompatActivity {
         swView.setOnCheckedChangeListener(listener);
         swRideFill.setOnCheckedChangeListener(listener);
 
-        // 自制固件 OTA：跳「最后一公里」操作台（P2P 建连 / 推包 / 触发 / 看日志）
+        // 仪表 OTA 推送：跳 OTA 操作台（P2P 建连 / 推包 / 触发 / 看日志）
         findViewById(R.id.btn_ota_flash).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -99,6 +96,9 @@ public final class MainActivity extends AppCompatActivity {
                 }
             }
         });
+
+        findViewById(R.id.btn_wallpaper_push).setOnClickListener(v ->
+                startActivity(new android.content.Intent(MainActivity.this, WallpaperActivity.class)));
 
         // 压弯标定：8 个阈值实时可调，每项带「调它会发生什么」说明
         findViewById(R.id.btn_tune).setOnClickListener(new View.OnClickListener() {

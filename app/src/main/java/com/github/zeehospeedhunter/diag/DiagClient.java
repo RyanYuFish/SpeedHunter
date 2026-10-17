@@ -73,6 +73,52 @@ public final class DiagClient {
         return connected && socket != null && socket.isConnected() && !socket.isClosed();
     }
 
+    /**
+     * 轻量通道自检：只做「连上 → 发路由激活 → 等回包」三步，不下发任何诊断业务指令。
+     *
+     * <p><b>为什么需要</b>：TCP 端口 open 只说明有人在监听，不代表 DoIP 路由激活能成功
+     * （组播/路由被占用、网关未上电、协议版本不匹配时端口照样开着）。
+     * 连接状态徽章要在「真正可发诊断消息」时才亮绿，否则等于骗用户。</p>
+     *
+     * <p>红线下：只发 ISO 13400 标准路由激活（{@code 03FD0001...}），<b>只读、不写</b>，
+     * 不触碰车辆状态。约 1.5s 内拿不到 {@code 03FC0006} 响应即判定不可用。</p>
+     *
+     * @return true = 路由激活有响应，诊断通道可用
+     */
+    public boolean verifyChannel() {
+        ArrayBlockingQueue<byte[]> q = new ArrayBlockingQueue<>(1);
+        try {
+            connect();
+            // 挂一个「只等 03FC0006」的等待者，再发路由激活。
+            // ★ 必须复用 pending 队列，不能另起线程直接读 socket —— readerLoop 已在读，
+            //   两个线程抢同一个 InputStream 会互相吃掉数据（实测踩过：响应被 readerLoop 吞掉）。
+            synchronized (pendingLock) {
+                pendingQueue = q;
+                pendingPattern = Pattern.compile("03FC0006", Pattern.CASE_INSENSITIVE);
+            }
+            byte[] pdu = DiagProtocol.buildRouteActivationReqPdu();
+            send(pdu);
+            byte[] resp = q.poll(1500, TimeUnit.MILLISECONDS);
+            if (resp != null && resp.length > 0) {
+                log.accept("通道自检：路由激活有响应（" + DiagProtocol.bytesToHex(resp) + "），DoIP 可用");
+                startHeartbeat();
+                return true;
+            }
+            log.accept("通道自检：端口已开但路由激活无响应 —— DoIP 不可用（网关未上电 / 路由被占 / 版本不匹配）");
+            return false;
+        } catch (Exception e) {
+            log.accept("通道自检失败：" + e.getMessage());
+            return false;
+        } finally {
+            synchronized (pendingLock) {
+                if (pendingQueue == q) {
+                    pendingQueue = null;
+                    pendingPattern = null;
+                }
+            }
+        }
+    }
+
     // ---------- 连接 ----------
 
     /** 找到与目标主机同一 /24 的本机地址（车机网段），用于绑定源 IP；找不到返回 null。 */
@@ -168,6 +214,8 @@ public final class DiagClient {
         String hex = DiagProtocol.bytesToHex(pdu); // 大写
         if (hex.startsWith("03FC0006")) { // 路由激活响应
             log.accept("路由激活响应: " + hex);
+            // 若有等待者在等它（如通道自检），交付过去；正常诊断流程无等待者，直接忽略
+            offerToWaiter(pdu, hex);
             return;
         }
         if (hex.startsWith("03FC0008")) { // alive check 响应
@@ -177,11 +225,16 @@ public final class DiagClient {
             return;
         }
         if (hex.startsWith("03FC8001") || hex.startsWith("03FC8003") || hex.startsWith("03FC8002")) {
-            synchronized (pendingLock) {
-                ArrayBlockingQueue<byte[]> q = pendingQueue;
-                if (q != null && (pendingPattern == null || pendingPattern.matcher(hex).find())) {
-                    q.offer(pdu);
-                }
+            offerToWaiter(pdu, hex);
+        }
+    }
+
+    /** 把 PDU 交给当前等待者（无等待者 / 模式不匹配则丢弃）。 */
+    private void offerToWaiter(byte[] pdu, String hex) {
+        synchronized (pendingLock) {
+            ArrayBlockingQueue<byte[]> q = pendingQueue;
+            if (q != null && (pendingPattern == null || pendingPattern.matcher(hex).find())) {
+                q.offer(pdu);
             }
         }
     }

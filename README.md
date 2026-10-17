@@ -1,14 +1,20 @@
 # ZEEHO Speed Hunter
 
-LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），实现如下功能：
+LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上的兼容性研究与界面恢复。
+**与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
 
-1. **恢复骑行记录里被隐藏的统计** —— 骑行分析入口、极速、急加速、急刹、压弯；
-2. **OTA 界面解锁 + 全链路流量记录** —— 用于研究车辆 OTA 链路的只读 hook；
-3. **自带 Material You 设置界面** —— 实时切换挂载方式与各 gate；
-4. **OTA 推送控制台（socket_l）** —— 纯 Wi-Fi 直连 `192.168.0.1:10950` 推送固件包，不依赖官方 App / BLE / 厂商服务端；
-5. **仪表投屏独立入口** —— 解析投屏二维码、自动连车机 AP、模块内一键拉起投屏，绕过官方 App GUI；
-6. **车端诊断（DoIP/UDS + RS485 解码）** —— 连车机 AP 读车辆信息 / 故障码 / ECU 身份 / 扫 DID / 看数据流；RS485 抓包离线解码；写操作默认硬禁；
-7. **系统 Wi-Fi 直连 + 网络诊断** —— 连接交给系统设置（优先 5GHz），组主地址靠 TCP 握手探测（0.1 / 49.1）而非硬编码，OTA / 投屏 / 诊断三页共用。
+## 能力清单
+
+| # | 能力 | 说明 |
+|---|---|---|
+| 1 | **骑行记录恢复** | 解开被服务端隐藏的骑行统计：骑行分析入口、极速、急加速、急刹、压弯 |
+| 2 | **OTA 全链路流量记录** | 只读 hook，用于研究车辆 OTA 链路；不伪造、不改写任何服务端数据 |
+| 3 | **OTA 推送控制台** | 走 `cfmoto_P2p_server`（TCP 10086）写包，**推送前强制六项自洽性检查** |
+| 4 | **仪表投屏独立入口** | 解析投屏二维码、自动连车机 AP、模块内一键拉起投屏 |
+| 5 | **车端诊断** | DoIP/UDS + BLE 透传（RS485 / CAN）+ 离线解码；写类操作默认硬禁 |
+| 6 | **系统 Wi-Fi 直连 + 网络诊断** | 连接交给系统设置，组主地址靠 TCP 握手探测而非硬编码 |
+
+---
 
 ## 骑行记录恢复
 
@@ -17,197 +23,145 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），实现如下功能：
 | G1 | `vehicleKinds` | `1` | `2` | 骑行分析入口 + 极速 |
 | G2 | `cyclingEventStatisticFlag` | `false` | `true` | 急加速 / 急刹 / 压弯 |
 
-- 实现：`app/src/main/java/com/github/zeehospeedhunter/net/`，hook okhttp `Response$Builder#build()`；
-- **不按 URL 过滤**，按「响应体里有没有这两个 key」判定，递归不限层级（列表响应里值为 `null` 也改写）；
+- hook okhttp `Response$Builder#build()`，**不按 URL 过滤**，按「响应体里有没有这两个 key」判定，递归不限层级；
 - **不改任何数据字段**，显示的数值是服务端真值；
-- **不改车型标识**（`vehicleType` / `vehType` / `regulationType`）—— 冗余，且会让 App 按别的车型发控制指令。
+- **不改车型标识**（`vehicleType` 等）—— 冗余，且会让 App 按别的车型发控制指令。
 
-旧方案（沿祖先链点亮被 GONE 的控件）保留为**兜底**，默认关闭：`ride/RideOptions#VIEW_FALLBACK`。
-只在网络层失效时打开（App 换了判定源时）。
+旧方案（点亮被 GONE 的控件）保留为兜底，默认关闭。
 
-## OTA 抓包 / 解锁
+## OTA 流量记录（只读）
 
-来自AndroidManifest。
+| 开关 | 默认 | 作用 |
+|---|---|---|
+| `LOG_HTTP` | 开 | 打印所有 okhttp 请求 |
+| `LOG_RESPONSE` | 开 | 响应体捕获，OTA 接口族全打 |
+| `LOG_DOWNLOAD` | 开 | 固件包探针：URL + 体积 + Content-Type |
+| `LOG_WEBVIEW` | 开 | 抓 WebView 加载的 OTA 说明页地址 |
+| `LOG_SERVICE` | 开 | 打印 OTA 服务 Intent extras |
 
-| 开关           | 默认 | 作用                                  |
-| -------------- | ---- | ------------------------------------- |
-| `UNLOCK_UI`    | 开   | 强制显示升级入口与「立即升级」按钮    |
-| `LOG_HTTP`     | 开   | 打印所有 okhttp 请求                  |
-| `LOG_RESPONSE` | 开   | 响应体捕获，OTA 接口族全打            |
-| `LOG_DOWNLOAD` | 开   | 固件包探针：URL + 体积 + Content-Type |
-| `LOG_WEBVIEW`  | 开   | 抓 WebView 加载的 OTA 说明页地址      |
-| `LOG_SERVICE`  | 开   | 打印 OTA 服务 Intent extras           |
+**只读，不改写任何响应** —— 升级包是否存在由服务端决定，OTA 红点接口的 `fileInfoList` 为 `null` 时就不会有下载动作。
 
-### 边界
+> 早期版本另有「OTA 界面解锁」与「OTA 包注入」两类能力，用于让官方 App 的 OTA 界面显示出来并走完下载流程。
+> 写包现在走自建的 10086 推送台（见下节），官方 App 的 OTA UI 已无用，**相关代码与开关已于 2026-10-18 全部移除**
+> （原 `OtaPageUnlock` / `OtaInject` / `OtaMmiInject` / `OtaForceUpdate` 四个类）。那几个注入开关原本默认是开的，留着只会无谓改写服务端响应。
 
-这一组 hook 只做界面解锁和流量记录，不伪造任何服务端数据。升级包是否存在由服务端决定——OTA 红点接口返回的 `fileInfoList` 为 `null` 时，即使界面解锁了也不会有下载动作。
+## OTA 推送控制台（TCP 10086）
 
-升级按钮只改 `setEnabled`，不碰点击监听，不会破坏 App 原有逻辑。
-
-## OTA 推送控制台（socket_l 直连）
-
-模块内置**纯 socket_l 链路**的固件推送控制台，走车机独立的 TCP 通道
-`192.168.0.1:10950`，**不依赖官方 App、不依赖 BLE、不依赖厂商服务端**。
-
-- 入口：模块主界面「仪表 OTA 推送」→ `ui/OtaActivity`；
-- 实现：`ota/OtaSocketPusher.java`（探测 + 推送）+ `ota/OtaPushService.java`（进度回调）；
-  协议已与官方 OTA 流程交叉核对（runbook 与车边测试记录在仓库内部文档中）；
-- 桌面端同构工具：`tools/ota/push-ota-socket.py`（Mac 版，默认 dry-run）。
-
-### 推送流程
+### 流程
 
 ```
-探测（车机是否在 10950 监听）
-  → 选包（SAF 选 .zip，免存储权限；或放应用私有目录直读）
-  → START 0x10000001 {fileName, vehicleType, version, md5, fileSize}
-  → 推数据帧 0x10000005（head[1]=0，fwrite 落 /media/flash/userdata/update.zip）
-  → END 0x10000003 { recvOtaFileFinishedFlag:1 }      ★ 必须带 finished 标志
-  → 收车机 0x10000004（otaVerifyMessage）→ 回 0x80000004 { recvVerifyAckFlag:1 }
-  → 车机校验 md5 / 解压 / 重启进 U-Boot 刷写
+进入 OTA Update 窗口（10086 随之常开）
+  → Wi-Fi Direct 建组，取组主地址
+  → SAF 选包（唯一入口，不猜路径）
+  → 六项检查 ── 任何一项不过 ⇒ 禁止推送
+  → 确认弹窗（摊开包身份 + 六项结论 + 红线）
+  → 推裸 GEMINI_PACK.BIN 到 10086
+       ① 十进制长度
+       ② 文件名        ★ 与①之间、②之间必须有秒级间隔
+       ③ 文件体（1MB 分块）
+       ④ 3 字节 "OTA"  ★ 与③之间同样必须隔开
+  → 仪表跑进度条 → 写完关机 → 上电
 ```
 
-### 边界
+### 六项检查
 
-- `10950` 是单逻辑客户端：被占用时新连接会收到中文「服务器忙碌，已有客户端连接」。
-  推包前必须先让官方 App / 投屏断开这条通道。
-- 不触发刷写的红线（电量 ≥25%、非充电、非 Ready、原装电池、size/MD5 不符不触发、
-  无成功判据不重复触发）由 `ota/OtaOptions` 把关。
+车机提示的「升级包校验失败」**只覆盖第 ① 项**，其余几项由 U-Boot 执行，
+**失败时仪表毫无信息**（进度条停住、不报错）⇒ 只能推送前在手机上验完。
+
+| # | 检查 | 失败后果 |
+|---|---|---|
+| ① | 内层 `MD5SUM*` = `md5(pack[0x400:])` | 车机提示校验失败，**根本没开始刷**（最轻） |
+| ② | main 脚本 uImage `dataCRC` + `headerCRC` | U-Boot 拒执行 main ⇒ init 照跑擦了分区 ⇒ **只擦不写** |
+| ③ | 分区表 MD5（核对识别数量） | 刷到该分区后 `exit -1`，**半刷** |
+| ④ | main 脚本内硬编码 MD5（核对识别数量） | 同上，半刷 |
+| ⑤ | SPAPP SquashFS superblock | Android 挂载失败 / 可执行文件失 +x |
+| ⑥ | GD32_APP S-record 记录校验 | 仪表 MCU 编程拿到垃圾数据 |
+
+**判定只看六项是否全过，与包是否原厂无关** —— 自制包改对了就放行，原厂包改错了照样拦。
+原厂包也可能出厂即不自洽，所以别信「原厂」这个标签。
+
+实现：`ota/OtaPackVerify.java`（六项检查）+ `ota/OtaP2pToolPusher.java`（推包 + LOG 取证）
++ `ota/CarP2p.java`（Wi-Fi Direct）。
+
+
 
 ## 仪表投屏
 
-模块提供一个**独立投屏入口**，把官方 App 里「扫码 → 连热点 → 点投屏」的手工流程拆出来，由模块一键完成。
+- 入口：`ui/MirrorActivity`；
+- 实现：`ota/CarWifi.java`（自动连车机 AP）+ `ota/MirrorTrigger.java`（hook 在 `com.cfmoto` 内拉起投屏）；
+- 能独立完成：解析投屏二维码拿 SSID / 密码 / action、手机自动加入车机 AP；
 
-- 入口：模块主界面「仪表投屏（独立入口）」→ `ui/MirrorActivity`；
-- 实现：`ota/CarWifi.java`（自动连车机 AP）+ `ota/MirrorTrigger.java`（hook 在 `com.cfmoto` 内拉起投屏）
-  + `ota/EcHandshakeProbe.java`（EC 握手探针）。
 
-| 能力 | 结论 |
-|---|---|
-| 解析投屏二维码 URL（拿 SSID / 密码 / action） | ✅ 模块独立完成 |
-| 手机自动加入车机 AP（192.168.0.x） | ✅ 由 `CarWifi` 完成（API 29+ `WifiNetworkSpecifier`，24–28 `addNetwork`） |
-| 推镜像帧（H26x 编码 / 私有 PXC 协议） | ❌ 不可重写 —— 手机侧 EC 编排层在爱加密的 `libexec.so` 内，唯一 `classes.dex` 仅 13KB 壳 |
-| 不打开官方 App GUI 也能投屏 | 🔶 能做到，但 EC 客户端必须跑在 `com.cfmoto`（唯一加载 EC SDK 的进程），由 hook 驱动 |
 
-### 二维码 URL 
+## 车端诊断（DoIP/UDS + BLE 透传 + RS485 解码）
 
-车机用二维码递 Wi-Fi 凭据的壳：`action=9` = AP_MODE（车机开热点`ZEEHO-xxxxxx`）、`ssid/name` = AP 名、`pwd` = WPA2 密钥、`mac` = AP MAC。
-真正的握手在 `libECSDK.so` 里：`initialize{uuid,pwd}` → `openTransport(EC_TRANSPORT_ANDROID_WIFI)`
-→ `sendConnectType` → `C2PService::sendClientInfo{...}`（首帧鉴权）→ `LicenseManager`
-→ `onSdkConnectStatus` → `openMirror`/`startMirror`。PXC 帧 = **16 字节固定头 + JSON**。
+界面：**顶栏三态状态胶囊 →「一键连接」→ 2 列功能宫格 → 车辆链路切换 → 折叠高级设置 → 写操作红卡 → 日志**。
 
-### EC 握手探针
-
-`EcHandshakeProbe` 用与官方同构的 `sendClientInfo` JSON 去敲车机 PXC 口，只发一帧只听回包，
-把「通道通不通、鉴权过不过」从猜测变成事实。头部模板可替换（`setHeaderTemplate`）——
-`cmdType` 数值与 magic 是 Carbit 私有常量，静态拿不到，需在实车上抓取一帧回包对齐。
-
-## 车端诊断（DoIP / UDS + RS485 解码）
-
-模块主界面「车端诊断」→ `ui/DiagActivity`。
-
-### 两条总线、两套协议
-
-| 通道 | 载体 | 协议 | 用途 |
-|---|---|---|---|
-| WiFi / DoIP | TCP `192.168.49.1:13400` | ISO 13400 + UDS | 实时诊断（读 / 写） |
-| RS485 | OBD 针 7/15 @115200 8N1 | 私协议 `43 46 … 45 44` | 仅离线抓包解码 |
-
-### 能力
-
-| 功能 | 实现 | 说明 |
+| 链路 | 物理路径 | 协议 |
 |---|---|---|
-| DoIP/UDS 传输 | `diag/DiagClient` + `diag/DiagProtocol` | 路由激活 → 2s 心跳 → 诊断消息；源 IP 自动绑同网段 |
-| ECU 全景表 | `diag/Ecus` | 10 个 ECU；DoIP 地址优先，未知回退 CAN 并标 ⚠，绝不臆造 |
-| 车辆信息 / 故障码 / ECU 身份 / DID 扫描 | `diag/VehicleService` | 还原自 ZeeCare `WifiVehicleInfoService` |
-| 数据流（看数据流） | `diag/DataStreams` | 5 组 112 项；自研安全算术求值器（无 eval） |
-| 写类维修操作 | `diag/Routines` | 清故障码 0x14 / ECU 复位 0x11 / 例程 0x31 |
-| RS485 解码 | `diag/Rs485` | 15B 链路帧 XOR → 应用帧重组 / 校验和；纯函数 |
+| RS485 | 手机 → BLE 透传模块 → 车辆 RS485 | 私协议 `43 46 … 45 44` |
+| CAN | 手机 → BLE 透传模块 → 车辆 CAN | ISO-TP（ISO 15765-2） |
+| WIFI | 手机 → 车机热点 → DoIP 网关 | ISO 13400 + UDS |
 
-### 红线
+能力：车辆信息 / 故障码（SAE J2012 中文码表）/ ECU 全景 / DID 扫描 / 数据流 / RS485 离线解码 /
+ABS 排气 / 胎压匹配 / NFC 学车。RS485 与 CAN 共用同一条 BLE 连接，切换不断连。
 
-- **只读随时可跑**：车辆信息 / 故障码 / ECU 身份 / DID 扫描 / 数据流 / RS485 解码；
-- **写类默认硬禁**：清码 / 复位 / 例程必须勾选 `allowWrite` 并二次确认 —— `diag/Routines` 复刻本项目 `rs485`/`diagpc` 的「写类硬禁」红线；
-- 不臆造 ABS 排气 / 胎压匹配的 routine ID，由用户填实际抓到的值；
-- 连车机 AP 复用 `ota/CarWifi`；DoIP 的 `192.168.49.1` 与 OTA 推送的 `192.168.0.1:10950` **不是同一通道**。
+**红线**：只读随时可跑；写类默认硬禁，需勾选 `allowWrite` 并二次确认；ABS 泵会真实转动 10 秒，需盯住放气螺丝。
+不臆造 ECU 地址与 routine ID，由用户填实际抓到的值。
 
-## 系统 Wi-Fi 直连 + 网络诊断（连接方式统一）
 
-车机地址**并不固定**，组主随模式在`192.168.0.1` / `192.168.49.1` 之间浮动（以**网络诊断**显示的为准）。此前模块各处硬编码地址、且每页各写一套手填 SSID 密码表单，
-现统一为 `ota/CarNet`（探测中枢）+ `ui/CarNetController` + 共享连接条 `res/layout/view_carnet.xml`。
 
-三种动作（OTA 推送 / 仪表投屏 / 车端诊断 **三页共用**）：
+## 系统 Wi-Fi 直连 + 网络诊断
 
-| 动作 | 做什么 |
-|---|---|
-| **系统 Wi-Fi 直连（主）** | 断开当前 Wi-Fi → 拉起系统 WLAN 面板 → 用户连车机热点 `ZEEHO-xxxx`（优先 5GHz）→ 回本页点「网络诊断」 |
-| **App 内直连（兜底）** | 保留原 `WifiNetworkSpecifier` / `addNetwork` 路径，缺附近设备/定位权限自动申请 |
-| **网络诊断** | TCP 握手判定组主地址与端口（10950 / 13400 / 5555）、识别 P2P vs WLAN 模式与 5GHz，结果回填 DoIP 目标与推送通道 |
+车机地址**并不固定**，组主随模式浮动（以网络诊断显示为准）。三个动作（OTA / 投屏 / 诊断三页共用）：
 
-**红线**：诊断只做 TCP 握手判断端口是否监听，**不发任何非本协议帧**、不改网络配置；
-`disconnectCurrentWifi()` 只断开当前连接、**不忘记**其它已存 Wi-Fi。
+- **系统 Wi-Fi 直连（主）**：断开当前 Wi-Fi → 拉起系统 WLAN 面板 → 用户连车机热点 → 回页点「网络诊断」；
+- **App 内直连（兜底）**：保留 `WifiNetworkSpecifier` / `addNetwork` 路径；
+- **网络诊断**：TCP 握手判定组主地址与端口，结果回填推送通道与 DoIP 目标。
 
-地址回填：诊断出的组主地址会写入 `OtaSocketPusher`（推送 / 探测车辆）与 `DiagActivity` 的
-DoIP 目标，不再把 `192.168.49.1` 当固定值。硬编码地址仅保留为兜底候选。
+诊断只做 TCP 握手判断端口是否监听，**不发任何非本协议帧**、不改网络配置。
+
+---
 
 ## 日志
 
-模块把日志写进目标 App 的文件：
+日志写进目标 App 的文件：
 
 ```
 /sdcard/Android/data/com.cfmoto/files/zeeho_hook.log
 ```
 
-```bash
-LOG=/sdcard/Android/data/com.cfmoto/files/zeeho_hook.log
-adb shell cat $LOG | grep ZeehoHTTP | sed 's/[?&].*//' | sort -u   # 去重后的接口清单
-adb shell cat $LOG | grep '★'                                      # 固件下载线索
-adb shell cat $LOG | grep 'body '                                   # 响应体
-
-./tools/net-gate-watch.sh                                           # G1/G2 OLD + patched 速查
-adb shell cat $LOG | grep ZeehoCfg                                  # 配置通道
-```
-
-排查口诀：App 升级后失效 → 看 `G1/G2 OLD` 两行。**还在** = 判定值变了；**消失** = 换了判定源。
-
-> ⚠️ **日志可能含个人信息**：上面这个文件会记录接口参数、响应体与固件线索，可能包含车辆识别码（VIN）、骑行记录、账号相关字段等。对外分享或提交 issue 前，请先脱敏或删除该文件。
+> ⚠️ **日志可能含个人信息**：会记录接口参数、响应体与固件线索，可能包含车辆识别码、骑行记录、账号字段等。
 
 ## 安装
 
-1. 在 XPosed 中安装发布包。
-2. 将作用域限定为 ZEEHO：`com.cfmoto`。
-3. 启用模块后强制停止并重新打开 ZEEHO。
-4. 进入「我的骑行」或「历史轨迹」查看结果。
-
-发布包使用本地调试密钥签名，适合个人设备测试。
+1. 在 XPosed 中安装发布包，作用域限定为 `com.cfmoto`；
+2. 启用模块后强制停止并重新打开 ZEEHO；
+3. 进入「我的骑行」或「历史轨迹」查看结果。
 
 ## 从源码构建
 
-包名 `com.github.zeehospeedhunter`，环境要求：JDK 17、Android SDK 35、Gradle 9.7.1（wrapper 自带）。
+包名 `com.github.zeehospeedhunter`，要求 JDK 17、Android SDK 35。
 
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ./gradlew assembleRelease
-# 产物：release/zeeho-speedhunter-v3.1.apk（编完自动从 build 目录拷出）
+# 产物在 release/
 ```
 
 ## 隐私与安全
 
-- 模块网络权限仅用作投屏/推送OTA，不上传骑行记录、车辆信息、位置或账号数据；
-- 模块不修改 ZEEHO APK，不绕过账号权限，也不改变车辆控制逻辑；
+- 模块网络权限仅用作投屏 / 推送 OTA，不上传骑行记录、车辆信息、位置或账号数据；
+- 不修改 ZEEHO APK，不绕过账号权限，不改变车辆控制逻辑；
 - 速度数据只用于界面显示，不能作为仪表或安全决策的替代品；
-- 请勿在骑行过程中操作手机或依赖本模块读数；
+- **请勿在骑行过程中操作手机或依赖本模块读数**；
+- 刷写固件有变砖风险，推送前务必确认六项检查全过，并保证电量充足、非充电、非 Ready；
 - LSPosed、Root、加固 App 和第三方模块存在兼容性风险，使用者应自行备份并承担风险。
 
-## 非官方声明
+## 非官方声明与许可证
 
-本项目与 ZEEHO、CFMOTO 及其关联公司没有隶属、授权、赞助或合作关系。ZEEHO、CFMOTO 及相关图标、名称和产品资料归其各自权利人所有。本项目仅用于个人设备上的兼容性研究和界面恢复，不提供任何官方支持，也不保证持续兼容。
+本项目与 ZEEHO、CFMOTO 及其关联公司没有隶属、授权、赞助或合作关系。相关名称、图标归各自权利人所有。
+本项目仅用于个人设备上的兼容性研究和界面恢复，不提供任何官方支持，也不保证持续兼容。
+使用者应确保对目标设备具有合法使用权，并自行遵守所在地法律与厂商保修政策。
 
-使用者应确保对目标设备、系统和 App 具有合法使用权，并自行遵守所在地法律、软件许可协议、服务条款和厂商保修政策。作者不对因安装、使用、修改或分发本项目造成的数据丢失、设备异常、账号限制、保修影响或其他直接、间接损失承担责任。
-
-## 许可证
-
-本项目原创代码及文档以 AGPL-3.0 授权，许可证全文见仓库根目录 LICENSE 文件。
-
-该许可证仅适用于本仓库中的原创代码和文档，不适用于 ZEEHO/CFMOTO 的 APK、商标、图标、地图素材，以及通过其接口获取的实际数据内容；这些内容仍受各自权利人和适用许可条款约束。
-
-本项目使用的第三方依赖，其许可证见各依赖项自带的 LICENSE 文件或相关清单文件。
+原创代码及文档以 AGPL-3.0 授权；该许可不适用于 ZEEHO/CFMOTO 的 APK、商标及通过其接口获取的数据内容。

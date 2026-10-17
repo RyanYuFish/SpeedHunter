@@ -111,7 +111,9 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
      * 投屏二维码规律（固件实证，见 docs/39 §16.2）：
      * 车机 {@code libeasyconnectmodule.so::openWifiEcService_generateQRCodeUrl()} 生成，
      * 形如 {@code https://zhbackend.zeehoev.com/app_download/?...&action=9
-     * &ssid=ZEEHO-204dfd&pwd=071284a88d&auth=wpa2-psk&mac=...&name=ZEEHO-204dfd}
+     * &ssid=ZEEHO-xxxxxx&pwd=<WPA2密钥>&auth=wpa2-psk&mac=<AP MAC>&name=ZEEHO-xxxxxx}
+     *
+     * <p>（隐私脱敏：SSID / 密钥 / MAC 的真实取值属车辆凭据，不写入代码，运行时从二维码读。）</p>
      * ⇒ action=9 = AP_MODE：车机开热点，手机来连。这里把 ssid/pwd 抽出来填进输入框。
      */
     private void parseUrl() {

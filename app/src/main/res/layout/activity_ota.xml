@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  OTA 操作台。分五张卡，按操作顺序自上而下（卡片标题不带序号）：
+
+    选择升级包   SAF 选包 + 六项检查自检（不过就禁推）
+    连接仪表     Tab：Wi-Fi Direct 扫描 / 手动指定 IP
+    车机信息     设备名·组主地址·本机角色·通道状态（一眼看清连上了没）
+    推送与刷写   进度 + 开始OTA流程 + 「传完自动触发刷写」开关
+    运行日志     带时间戳，可复制
+
+  ★ 刷写有变砖风险，且不可逆：包不自洽会在刷到一半时中断，主机起不来。
+    车机只提示最前面那道 MD5SUM*，其余几项失败时仪表毫无信息（进度条停住、不报错）。
+    ⇒ 六项检查必须在手机上跑完才允许推送。这是刷自制固件唯一的护栏。
+
+  ★ 图标一律用项目原有或 material 库内置的，不自制矢量图。
+-->
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -11,8 +26,8 @@
         android:id="@+id/page_scroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fillViewport="true"
         android:clipToPadding="false"
+        android:fillViewport="true"
         android:scrollbars="none">
 
         <LinearLayout
@@ -22,8 +37,9 @@
             android:paddingStart="18dp"
             android:paddingTop="10dp"
             android:paddingEnd="18dp"
-            android:paddingBottom="24dp">
+            android:paddingBottom="28dp">
 
+            <!-- ==================== 顶栏 ==================== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -42,8 +58,15 @@
                     android:layout_weight="1" />
 
                 <ImageButton
+                    android:id="@+id/btn_bluetooth"
+                    style="@style/TopIconButton"
+                    android:contentDescription="系统设置（蓝牙/WLAN）"
+                    android:src="@drawable/ic_tune" />
+
+                <ImageButton
                     android:id="@+id/btn_clear_log"
                     style="@style/TopIconButton"
+                    android:layout_marginStart="2dp"
                     android:contentDescription="清空日志"
                     android:src="@drawable/ic_clear" />
             </LinearLayout>
@@ -51,265 +74,576 @@
             <TextView
                 style="@style/PageTitle"
                 android:layout_marginTop="8dp"
-                android:text="OTA 操作台" />
+                android:text="仪表OTA推送" />
 
             <TextView
                 android:id="@+id/tv_subtitle"
                 style="@style/ParamHelp"
-                android:layout_marginTop="2dp"
-                android:text="socket_l · 192.168.0.1:10950" />
+                android:text="p2pTool · cfmoto_P2p_server（实测唯一可用写包通道）" />
 
-            <com.google.android.material.card.MaterialCardView
+            <!-- ==================== 风险警告 ==================== -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="22dp"
-                app:cardElevation="0dp"
-                app:strokeColor="?attr/colorOutline"
-                app:strokeWidth="1dp">
+                android:background="@drawable/bg_warn"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚠"
+                    android:textColor="#B7791F"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:layout_marginStart="10dp"
+                    android:orientation="vertical">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="一站式 OTA"
-                        android:textAppearance="?attr/textAppearanceTitleSmall"
-                        android:textColor="?attr/colorOnSurface" />
+                        android:text="刷写有变砖风险，且不可逆"
+                        android:textColor="#8A5A00"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
 
                     <TextView
-                        style="@style/ParamHelp"
-                        android:layout_marginTop="2dp"
-                        android:text="连接车辆 → 选包 → 探测车辆 → 推送写入，一键跑完" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_one_stop"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="一键 OTA（自动连车机 + 推送）" />
+                        android:layout_marginTop="4dp"
+                        android:lineSpacingMultiplier="1.25"
+                        android:text="① 请确认仪表已经进入 OTA Update（否则写不进去）\n② 升级包直接推给仪表并触发底层刷写。包不自洽会在刷到一半时中断，导致主机起不来、整块仪表报废\n③ 请确认电量 ≥25%、车辆已停车、升级包来源可靠，且传输全程供电稳定"
+                        android:textColor="#7A5B00"
+                        android:textSize="12sp" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
 
-            <com.google.android.material.card.MaterialCardView
+            <!-- ==================== ① 选择升级包 ==================== -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="22dp"
-                app:cardElevation="0dp"
-                app:strokeColor="?attr/colorOutline"
-                app:strokeWidth="1dp">
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_info" />
 
                     <TextView
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="连接车机 · 网络诊断"
+                        android:layout_marginStart="10dp"
+                        android:text="选择升级包"
                         android:textAppearance="?attr/textAppearanceTitleSmall"
                         android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
 
-                    <TextView
-                        style="@style/ParamHelp"
-                        android:layout_marginTop="2dp"
-                        android:text="首选「系统 Wi-Fi 直连」去系统设置连车机热点（ZEEHO-xxxx，优先 5GHz），回来点「网络诊断」自动探测组主地址（可能是 192.168.0.1 或 49.1，以诊断为准）。推送前不要用官方 App 投屏（会拆掉 10950）。" />
+                <TextView
+                    android:id="@+id/tv_pkg"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:fontFamily="monospace"
+                    android:text="尚未选择升级包"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="13sp" />
 
-                    <!-- 系统 Wi-Fi 直连（主）+ App 内直连（兜底）+ 网络诊断，共用连接条 -->
-                    <include layout="@layout/view_carnet" />
+                <TextView
+                    android:id="@+id/tv_pkg_inspect"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_inspect"
+                    android:fontFamily="monospace"
+                    android:lineSpacingMultiplier="1.25"
+                    android:padding="10dp"
+                    android:text="未自检。选中包后会在手机上跑六项检查（与 U-Boot / 固件同一套）：\n① 内层 MD5SUM*　② main 脚本 dataCRC+headerCRC\n③ 分区表 MD5（核对识别数量）　④ 脚本内硬编码 MD5（核对识别数量）\n⑤ SPAPP SquashFS superblock　⑥ GD32_APP S-record 记录校验\n\n★ 全部通过才允许推送。"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="11sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_grant_perms"
-                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:id="@+id/btn_pick"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="选择文件" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_sha256"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:enabled="false"
+                        android:text="计算 SHA-256" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ==================== ② 连接仪表 ==================== -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_visibility" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="连接仪表"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tab_link"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    app:tabMode="fixed">
+
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Wi-Fi Direct 扫描" />
+
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="手动指定 IP" />
+                </com.google.android.material.tabs.TabLayout>
+
+                <TextView
+                    android:id="@+id/tv_link_help"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:lineSpacingMultiplier="1.3"
+                    android:text="让仪表先进 Key OTA 状态，再扫描 Wi-Fi Direct。设备名与 AP 的 SSID 是两套命名，扫到即可连。"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+
+                <!-- ============ Tab 1：Wi-Fi Direct ============ -->
+                <LinearLayout
+                    android:id="@+id/box_p2p"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:text="去授权（写设置 / 所有文件访问）" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="22dp"
-                app:cardElevation="0dp"
-                app:strokeColor="?attr/colorOutline"
-                app:strokeWidth="1dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="固件包"
-                        android:textAppearance="?attr/textAppearanceTitleSmall"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <TextView
-                        android:id="@+id/tv_pkg"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="5dp"
-                        android:fontFamily="monospace"
-                        android:text="未选择"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_socket_pick"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:id="@+id/btn_p2p_scan"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="选包" />
+                            android:text="扫描仪表"
+                            app:icon="@drawable/ic_search_black_24" />
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_socket_probe"
+                            android:id="@+id/btn_p2p_disconnect"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_marginStart="8dp"
                             android:layout_weight="1"
-                            android:text="探测车机" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_socket_push"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            android:text="开始推送" />
+                            android:enabled="false"
+                            android:text="断开" />
                     </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/box_peers"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+
+                    <TextView
+                        android:id="@+id/tv_p2p_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:fontFamily="monospace"
+                        android:text="尚未扫描到设备"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
 
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="22dp"
-                app:cardElevation="0dp"
-                app:strokeColor="?attr/colorOutline"
-                app:strokeWidth="1dp">
-
+                <!-- ============ Tab 2：手动指定 IP ============ -->
                 <LinearLayout
+                    android:id="@+id/box_manual"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:visibility="gone">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="车辆探测"
-                        android:textAppearance="?attr/textAppearanceTitleSmall"
-                        android:textColor="?attr/colorOnSurface" />
+                        android:layout_marginTop="10dp"
+                        android:text="车机地址"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
 
-                    <TextView
-                        android:id="@+id/tv_vehicle"
+                    <RadioGroup
+                        android:id="@+id/rg_host"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="5dp"
+                        android:orientation="horizontal">
+
+                        <RadioButton
+                            android:id="@+id/rb_host_0"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="192.168.0.1" />
+
+                        <RadioButton
+                            android:id="@+id/rb_host_49"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:text="192.168.49.1" />
+                    </RadioGroup>
+
+                    <TextView
+                        android:id="@+id/tv_wifi"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
                         android:fontFamily="monospace"
-                        android:text="未探测"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
+                        android:text="当前 Wi-Fi：未知"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="10dp"
                         android:orientation="horizontal">
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_vehicle_probe"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:id="@+id/btn_open_wifi"
+                            style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="探测车辆" />
+                            android:text="系统 WLAN" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_diag"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="网络诊断" />
                     </LinearLayout>
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
 
-            <TextView
-                android:id="@+id/tv_status"
+            <!-- ==================== ③ 车机信息 ==================== -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="就绪 · 先确认车机已进入 OTA Update"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorOnSurface" />
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/pb_ota"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_check_circle" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="车机信息"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <Space
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <!-- 「探测 10950」按钮已随该通道一同移除；车机信息靠 P2P 扫描/建组结果渲染 -->
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/box_carinfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/tv_link_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="尚未连接"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- ==================== ④ 推送与刷写 ==================== -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="9dp"
-                android:indeterminate="false"
-                android:max="100"
-                android:progress="0"
-                app:trackThickness="8dp"
-                app:trackCornerRadius="4dp" />
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:id="@+id/tv_progress"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_public" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="推送与刷写"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="就绪 · 选包 → 六项检查全过 → 连上仪表 → 开始推送"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/pb_ota"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:indeterminate="false"
+                    android:max="100"
+                    android:progress="0"
+                    app:trackCornerRadius="4dp"
+                    app:trackThickness="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_progress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:text="0%"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
+
+                <!-- 「传完自动触发刷写」开关：默认关（先只把 OTA 包送到车机） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_inspect"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="传完自动触发刷写"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_autoflash_hint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="关闭：仅推送 OTA 包到车机，不触发刷写"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/sw_autoflash"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp" />
+                </LinearLayout>
+
+                <!-- p2pTool 通道：OTA Update 模式下真正能写包，已是主通道 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_p2ptool_watch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:enabled="false"
+                    android:text="开始OTA流程（推荐 · 连上即自动推）"
+                    app:icon="@drawable/ic_flash" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_p2ptool_log"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="拉取车机日志（LOG · 只读，不推包不刷写）"
+                    app:icon="@drawable/ic_flash" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingMultiplier="1.2"
+                    android:text="★ LOG 只发 3 字节，只读回传 log_service.tar。★ 这是判定刷写为何没发生的唯一手段：车机校验失败只在自己的日志里写，手机侧永远看不到。推包后先点它，再看里面 totalFileSize / recv file size / checksum 三行。"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingMultiplier="1.2"
+                    android:text="★ 写包由仪表 OTA Update 窗口拉起的 p2pTool 服务完成；该窗口常驻时服务随之常开，无需手动触发。收裸 GEMINI_PACK.BIN + 3 字节命令，经 ioctl 触发刷写。"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="10sp" />
+
+                <!-- socket_l（10950）通道已移除：
+     该通道的 bind+listen 只在车机 OTAModule::initial() 里创建，
+     OTA Update 模式下实测恒为拒绝连接（Ghidra 实证 + 真车反复验证），从未真正可用。
+     已验证可用的唯一写包通道是 p2pTool，见上方按钮。
+     原「补发结束帧」「补 ack」两个 socket_l 专属补救按钮已一并移除。 -->
+            </LinearLayout>
+
+            <!-- ==================== ⑤ 运行日志 ==================== -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="0%"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?attr/colorOnSurfaceVariant" />
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="16dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
-                android:text="传输日志"
-                android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorOnSurface" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/tv_log"
-                android:layout_width="match_parent"
-                android:layout_height="280dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/bg_log_pane"
-                android:fontFamily="monospace"
-                android:padding="12dp"
-                android:scrollbarStyle="insideOverlay"
-                android:scrollbars="vertical"
-                android:fadeScrollbars="false"
-                android:text="等待操作…"
-                android:textColor="#1A1111"
-                android:textSize="11sp" />
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_tune" />
 
-            <TextView
-                style="@style/ParamHelp"
-                android:layout_marginTop="14dp"
-                android:text="流程：控制帧协商 → otaStart → 固件数据块 → 结束帧 → 等车机校验请求并自动 ack。传输完成不等于刷写完成；请以车机校验、升级与重启状态为准。推送期间不要断开 Wi-Fi、关 App 或关闭车机电源。" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:text="运行日志"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <Space
+                        android:layout_width="0dp"
+                        android:layout_height="1dp"
+                        android:layout_weight="1" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_copy_log"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="复制" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_log"
+                    android:layout_width="match_parent"
+                    android:layout_height="260dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_log_pane"
+                    android:fadeScrollbars="false"
+                    android:fontFamily="monospace"
+                    android:padding="12dp"
+                    android:scrollbarStyle="insideOverlay"
+                    android:scrollbars="vertical"
+                    android:text="等待操作…"
+                    android:textColor="#1A1111"
+                    android:textSize="11sp" />
+
+                <TextView
+                    style="@style/ParamHelp"
+                    android:layout_marginTop="10dp"
+                    android:text="协议序列：版本协商 → OTA 启动（fileSize 精确）→ 数据 → 结束帧带 recvOtaFileFinishedFlag:1 → 车机下发 0x10000004 时回 0x80000004。\n\n结束传输 ≠ 刷写完成。唯一成功判据是车机重新上电起来、仪表有响应。传输期间不要断 Wi-Fi、关本 App 或动车机电源；车机起不来且疑在刷写中时禁止反复上电。" />
+            </LinearLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

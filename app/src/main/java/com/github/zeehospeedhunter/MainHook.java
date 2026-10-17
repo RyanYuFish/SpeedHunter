@@ -11,14 +11,9 @@ import com.github.zeehospeedhunter.core.Targets;
 import com.github.zeehospeedhunter.ble.BleHooks;
 import com.github.zeehospeedhunter.net.MqttHooks;
 import com.github.zeehospeedhunter.net.NetPatch;
-import com.github.zeehospeedhunter.ota.EcSdkConfigProbe;
-import com.github.zeehospeedhunter.ota.OtaChannelProbe;
 import com.github.zeehospeedhunter.ota.OtaHooks;
-import com.github.zeehospeedhunter.ota.OtaMdnsProbe;
-import com.github.zeehospeedhunter.ota.OtaMdnsRawProbe;
 import com.github.zeehospeedhunter.ota.OtaSocketProbe;
 import com.github.zeehospeedhunter.ota.OtaSocketTrace;
-import com.github.zeehospeedhunter.ota.PatchServer;
 import com.github.zeehospeedhunter.ride.RideFetch;
 import com.github.zeehospeedhunter.ride.RideHooks;
 
@@ -71,14 +66,14 @@ public final class MainHook implements IXposedHookLoadPackage {
         RideHooks.installAll();      // 视图层兜底（默认关）
         OtaHooks.installAll();
         BleHooks.installAll();
-        OtaChannelProbe.install();   // ★ 车机 OTA 通道知识表 + 只读探针（不下发任何指令）
-        OtaChannelProbe.selfTest();  // 校验和自测：确认本机实现与固件 CFCP 一致
-        EcSdkConfigProbe.install();  // ★ 抓 EasyConnect SDK 的 FTP/P2C 配置参数（只读）
-        OtaMdnsProbe.install(null);  // ★ mDNS 发现车机 _EasyConn._tcp（只发现，不连接）
-        OtaMdnsRawProbe.logInterfaces();
-        OtaMdnsRawProbe.start();     // ★ 直接发标准 mDNS 查询（NsdManager 在 API 36 被拒）
         OtaSocketTrace.install();    // ★ 记录官方 EasyConnect 与车机 10950 的往来帧（只读）
         OtaSocketProbe.runAsync();   // ★ 主动 connect 192.168.0.1:10950（只握手，不发任何字节）
-        PatchServer.start();         // ★ 手机侧 HTTP 服务：等车机来拉 patched zip
+
+        // 2026-10-17 已移除（结论已固化在 docs/53~55，不再维护）：
+        //   OtaChannelProbe / EcSdkConfigProbe —— 通道知识表与 FTP/P2C 参数，逆向已收尾
+        //   OtaMdnsProbe / OtaMdnsRawProbe —— EC PXC 免投屏路已判死（NsdManager 在 API 36 被拒，
+        //      车机只回连官方 App 投屏建立的端口，见 docs/52）
+        //   PatchServer —— 手机侧 HTTP 等车机来拉包，协议换成 socket_l 10950 后无人调用
+        //   OtaFlash + AdbPush —— P2P+ADB 推送已判死（adb 端口不监听，见 docs/33）
     }
 }

@@ -12,7 +12,12 @@
 
 set -euo pipefail
 
-ADB=${ADB:-/Users/ryanfish/Library/Android/sdk/platform-tools/adb}
+# 同上：不写死本机路径，支持 ANDROID_HOME / ANDROID_SDK_ROOT / 默认位置
+if [ -z "$ADB" ]; then
+  ADB="${ANDROID_HOME:+$ANDROID_HOME/platform-tools/adb}"
+  ADB="${ADB:-${ANDROID_SDK_ROOT:+$ANDROID_SDK_ROOT/platform-tools/adb}}"
+  ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
+fi
 LOG=${LOG:-/sdcard/Android/data/com.cfmoto/files/zeeho_hook.log}
 
 MODE=${1:-}

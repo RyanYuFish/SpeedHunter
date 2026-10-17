@@ -1,562 +1,1330 @@
 package com.github.zeehospeedhunter.ui;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
-import android.text.TextUtils;
 import android.view.View;
-import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.RadioGroup;
 import android.widget.TextView;
+import android.net.wifi.p2p.WifiP2pDevice;
+import android.net.wifi.p2p.WifiP2pGroup;
+import android.net.wifi.p2p.WifiP2pInfo;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.core.content.ContextCompat;
 
 import com.github.zeehospeedhunter.R;
 import com.github.zeehospeedhunter.core.HookLog;
-import com.github.zeehospeedhunter.ota.CarWifi;
+import com.github.zeehospeedhunter.ota.CarNet;
+import com.github.zeehospeedhunter.ota.EcPxc;
+import com.github.zeehospeedhunter.ota.OtaP2pToolPusher;
+import com.github.zeehospeedhunter.ota.OtaPackVerify;
 import com.github.zeehospeedhunter.ota.OtaPushService;
 import com.github.zeehospeedhunter.ota.OtaSocketPusher;
+import com.github.zeehospeedhunter.ota.CarP2p;
+import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.security.MessageDigest;
 import java.util.List;
 
 /**
- * 「最后一公里」操作台 —— <b>只保留已经跑通的 {@code socket_l} OTA 通道</b>。
+ * OTA 操作台 —— 信息结构对齐参考工具（极核仪表 OTA 工具）的五段式：
  *
- * <h3>为什么只剩这一条路</h3>
- * <p>车机 OTA 的官方通道是 {@code 192.168.0.1:10950} 上的私有 TCP 帧协议
- * （见 {@code docs/42} / {@code docs/44} / {@code docs/47}）。P2P + ADB 推包、
- * EasyConnect 投屏触发这些路都已经被证伪或卡死在厂商鉴权缺口上，
- * 而 {@code socket_l} 这条路是<b>固件交叉验证过</b>的：帧头字节级一致、
- * {@code otaStart} 会 {@code fopen64} 并打开写块门控、{@code fileSize} 决定收尾。
- * 所以操作台只留它，别的按钮全部砍掉，省得现场在死路上反复试。</p>
- *
- * <h3>本页做的事</h3>
  * <pre>
- *   探测车辆（网段 / 10950 通不通 / 车型 + 版本 + VIN，车型直接用于推送）
- *   → 选包（系统文件选择器，免任何权限） 或 自动定位 Download/ 下的包
- *   → 探测 192.168.0.1:10950（只发版本协商，不触发 OTA）
- *   → 前台服务推送（常驻通知 + 进度条，断电/被杀都不会静默中断）
- *   → 车机校验请求 0x10000004 由手机自动回 ack 0x80000004
+ *   ① 选择升级包  SAF 选包 + 六项检查自检（不过就禁推）
+ *   ② 连接仪表    Tab：Wi-Fi Direct 扫描 / 手动指定 IP
+ *   ③ 车机信息    设备名·组主地址·本机角色·10950 状态
+ *   ④ 推送与刷写  进度 + 开始OTA流程 + 「传完自动触发刷写」开关
+ *   ⑤ 运行日志    带时间戳，可复制
  * </pre>
  *
- * <p>日志在固定 280dp 的窗口内滚动（不撑长整页），推送进度由
- * {@link LinearProgressIndicator} 实时显示。</p>
+ * <p>★ 2026-10-06 那次<b>变砖</b>：协议层全通、车机确实进了刷写，但包内部不自洽
+ * ⇒ U-Boot 逐分区回读 md5 时 exit -1 ⇒ 主机起不来，仪表报废返厂。
+ * 车机只提示最前面那道 MD5SUM*，后三道失败时仪表毫无信息（进度条停住、不报错）
+ * ⇒ 六项检查必须在手机上跑完才允许推送。这是刷自制固件唯一的护栏。</p>
+ *
+ * <p>10950 是短命窗口（10/17 逆向闭环）：只有 {@code OTAModule::initial}（开机）
+ * 与 {@code ecModuleInit}（EC 会话 Connected）两条来路，网络一切换就被
+ * {@code disConnectPhone} 拆掉 ⇒ 默认入口做成「守候即推」。</p>
  */
 public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
-        implements OtaSocketPusher.Callback, OtaPushService.Progress {
+        implements EcPxc.LineSink, EcPxc.Progress, EcPxc.DoneCallback, CarNet.DiagListener,
+        OtaPushService.Progress, OtaPushService.ProbeProgress {
 
-    private static final int LOG_MAX_LINES = 400;
+    private static final int LOG_MAX_CHARS = 60000;
 
     private TextView tvLog;
     private TextView tvPkg;
-    private TextView tvVehicle;
+    private TextView tvPkgInspect;
+    private TextView tvLinkStatus;
     private TextView tvStatus;
-    private LinearProgressIndicator pb;
     private TextView tvProgress;
-    private View btnPick, btnProbe, btnPush, btnVehicle, btnOneStop;
-    private com.google.android.material.button.MaterialButton btnGrant;
+    private TextView tvWifi;
+    private TextView tvP2pStatus;
+    private TextView tvLinkHelp;
+    private TextView tvAutoflashHint;
+    private TextView tvSubtitle;
+    private LinearProgressIndicator pb;
+    private View btnPick, btnSha256, btnOpenWifi, btnDiag;
+    /** 守候即推按钮 —— 连上仪表后自动等服务 OPEN 并推包（主通道的一键形态）。 */
+    private View btnP2pToolWatch;
+    /** 10086 LOG 只读取证按钮 —— 判定「刷写为何没发生」的唯一手段。 */
+    private View btnP2pToolLog;
+    private View btnP2pScan, btnP2pDisconnect;
+    private RadioGroup rgHost;
+    private View boxP2p, boxManual;
+    private LinearLayout boxPeers, boxCarInfo;
+    private com.google.android.material.tabs.TabLayout tabLink;
+    private com.google.android.material.materialswitch.MaterialSwitch swAutoflash;
 
-    private SharedPreferences prefs;
+    private CarP2p carP2p;
+    private WifiP2pDevice selectedP2p;
+    /** P2P 建组后的组主地址；非空时优先于手动单选。 */
+    private volatile String p2pGroupOwner;
+    private volatile boolean p2pConnected;
+    /**
+     * 两条通道的实测状态：{@code 0}=未探测 {@code 1}=OPEN {@code 2}=CLOSED/拒连。
+     *
+     * <p>★ 必须<b>分开</b>显示。10086 是 {@code cfmoto_P2p_server}（Key OTA 服务），
+     * 10950 是 {@code OTAModule}（OTA 推送通道）—— 两者由不同东西拉起，
+     * 实测会出现「10086 OPEN 但 10950 ECONNREFUSED」。
+     * 只显示一个「已连接」，用户会以为连上了却推不动，排查时完全没有抓手。</p>
+     */
+    private volatile int keyOtaPortState;
+    private volatile int otaChannelState;
+    /** 防止 onGroup 反复回调时重复探测 10086。 */
+    private volatile boolean probingKeyOta;
+
     private Handler main;
     private final StringBuilder log = new StringBuilder();
     private volatile File picked;
-    private CarNetController carNet;
-    /** 网络诊断探测到的车机组主地址（0.1 / 49.1），探测车辆时优先尝试。 */
-    private volatile String lastGroupOwner = "";
+    private volatile OtaSocketPusher.PkgInfo pickedInfo;
+    private volatile boolean busy;
+    private volatile boolean probeActive;
+    /** 10086 守候即推进行中（连上仪表后轮询 10086 OPEN → 自动推包）。 */
+    private volatile boolean p2pToolWatching;
 
     private final ActivityResultLauncher<String> pickFile =
             registerForActivityResult(new ActivityResultContracts.GetContent(), this::onPicked);
-
-    /** Android 13+ 连指定 Wi-Fi 需要 NEARBY_WIFI_DEVICES 运行时权限。 */
-    private final ActivityResultLauncher<String> reqNearbyWifi =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(),
-                    this::onNearbyWifiPermission);
-
-    /** 权限到手后要执行的动作（连车机 Wi-Fi / 扫 AP）。 */
-    private volatile Runnable afterWifiPermission;
-
-    /**
-     * 走系统设置页授予的「特殊权限」回程后要继续的动作
-     * （WRITE_SETTINGS / MANAGE_EXTERNAL_STORAGE 都靠离开 App 去设置页点，
-     * onResume 里据此续跑）。
-     */
-    private volatile Runnable pendingAfterPerms;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_ota);
         BackGestureCompat.install(this);
-        // ★ 沉浸式 + 状态栏图标明暗：不调的话浅色底上是白图标，等于白底白字
         EdgeToEdge.setup(this, findViewById(R.id.root_ota));
         main = new Handler(Looper.getMainLooper());
 
         tvLog = findViewById(R.id.tv_log);
         tvPkg = findViewById(R.id.tv_pkg);
-        tvVehicle = findViewById(R.id.tv_vehicle);
+        tvPkgInspect = findViewById(R.id.tv_pkg_inspect);
+        tvLinkStatus = findViewById(R.id.tv_link_status);
         tvStatus = findViewById(R.id.tv_status);
-        pb = findViewById(R.id.pb_ota);
         tvProgress = findViewById(R.id.tv_progress);
-        btnPick = findViewById(R.id.btn_socket_pick);
-        btnProbe = findViewById(R.id.btn_socket_probe);
-        btnPush = findViewById(R.id.btn_socket_push);
-        btnVehicle = findViewById(R.id.btn_vehicle_probe);
-        btnOneStop = findViewById(R.id.btn_one_stop);
-        btnGrant = findViewById(R.id.btn_grant_perms);
+        tvWifi = findViewById(R.id.tv_wifi);
+        tvP2pStatus = findViewById(R.id.tv_p2p_status);
+        tvLinkHelp = findViewById(R.id.tv_link_help);
+        tvAutoflashHint = findViewById(R.id.tv_autoflash_hint);
+        tvSubtitle = findViewById(R.id.tv_subtitle);
+        pb = findViewById(R.id.pb_ota);
+        btnPick = findViewById(R.id.btn_pick);
+        btnSha256 = findViewById(R.id.btn_sha256);
+        btnOpenWifi = findViewById(R.id.btn_open_wifi);
+        btnDiag = findViewById(R.id.btn_diag);
+        btnP2pToolWatch = findViewById(R.id.btn_p2ptool_watch);
+        btnP2pToolLog = findViewById(R.id.btn_p2ptool_log);
+        btnP2pScan = findViewById(R.id.btn_p2p_scan);
+        btnP2pDisconnect = findViewById(R.id.btn_p2p_disconnect);
+        rgHost = findViewById(R.id.rg_host);
+        boxP2p = findViewById(R.id.box_p2p);
+        boxManual = findViewById(R.id.box_manual);
+        boxPeers = findViewById(R.id.box_peers);
+        boxCarInfo = findViewById(R.id.box_carinfo);
+        tabLink = findViewById(R.id.tab_link);
+        swAutoflash = findViewById(R.id.sw_autoflash);
 
-        prefs = getSharedPreferences("ota_car_wifi", MODE_PRIVATE);
+        probeActive = OtaPushService.isProbeRunning();
+        if (probeActive) {
+            OtaPushService.setProbeSink(this);
+        }
 
-        // ★ 固定高度的日志区要能自己滚（同 TuneActivity 的套路）：
-        //   ① ScrollingMovementMethod 提供滚动行为；② 按下时让父级 NestedScrollView
-        //   别拦截事件，手指划的是日志区而不是整页。
         setupLogScrolling(tvLog);
+        setupLinkTabs();
+        renderCarInfo();      // 先渲染占位行，避免"连接了但信息区空白"
 
         findViewById(R.id.btn_back).setOnClickListener(v -> finish());
         findViewById(R.id.btn_clear_log).setOnClickListener(v -> clearLog());
+        findViewById(R.id.btn_copy_log).setOnClickListener(v -> copyLog());
+        findViewById(R.id.btn_bluetooth).setOnClickListener(v -> openBluetoothSettings());
 
+        // ① 选包
         btnPick.setOnClickListener(v -> pickFile.launch("*/*"));
-        btnProbe.setOnClickListener(v -> {
-            tvStatus.setText("探测中…");
-            append("=== 探测 ===");
-            // 探测只发版本协商，走 OtaSocketPusher.Callback（本类实现）
-            OtaSocketPusher.probe(this);
+        btnSha256.setOnClickListener(v -> calcSha256());
+
+        // ② 连接仪表
+        if (rgHost != null) {
+            rgHost.setOnCheckedChangeListener((g, id) -> {
+                append("车机地址 → " + carHost());
+                renderCarInfo();
+            });
+        }
+        btnOpenWifi.setOnClickListener(v -> CarNet.openSystemWifiSettings(this));
+        btnDiag.setOnClickListener(v -> {
+            append("=== 网络诊断 ===");
+            CarNet.diagnoseAsync(this, this);
         });
-        btnPush.setOnClickListener(v -> startPush());
-        btnVehicle.setOnClickListener(v -> probeVehicle());
-        btnGrant.setOnClickListener(v -> openGrantSettings());
-        btnOneStop.setOnClickListener(v -> runOneStop());
+        btnP2pScan.setOnClickListener(v -> {
+            if (carP2p == null) {
+                append("P2P 不可用 —— 缺少 Wi-Fi Direct 权限或系统不支持");
+                return;
+            }
+            append("=== 扫描仪表 Wi-Fi Direct（只建网络，不发 OTA） ===");
+            btnP2pScan.setEnabled(false);
+            main.postDelayed(() -> btnP2pScan.setEnabled(true), 1200);
+            carP2p.scan();
+        });
+        btnP2pDisconnect.setOnClickListener(v -> {
+            if (carP2p != null) {
+                carP2p.disconnect();
+            }
+        });
 
-        // 共享连接条：系统 Wi-Fi 直连（主） + App 内直连（兜底） + 网络诊断。
-        // 诊断出的组主地址在此回填，供探测车辆时优先尝试。
-        carNet = new CarNetController(this, findViewById(android.R.id.content),
-                new CarNetController.Callback() {
-                    @Override
-                    public void onDiagnosed(com.github.zeehospeedhunter.ota.CarNet.DiagReport report,
-                                            String groupOwner) {
-                        if (groupOwner != null && !groupOwner.isEmpty()) {
-                            lastGroupOwner = groupOwner;
-                            // 推送/探测改用探测到的组主地址（可能是 0.1 而非硬编码 49.1）
-                            OtaSocketPusher.setResolvedCarHost(groupOwner);
-                        }
-                        if (report.hasCar()) {
-                            tvVehicle.setText("组主 " + report.groupOwner + "\n" + report.mode);
-                        } else {
-                            tvVehicle.setText("未探到组主 · " + report.mode);
-                        }
-                    }
-
-                    @Override
-                    public void onStage(String s) {
-                        append(s);
-                    }
-                }, prefs);
-
-        // adb 直接跑：am start ... --ez vehicle_probe true
-        if (getIntent().getBooleanExtra("vehicle_probe", false)) {
-            probeVehicle();
+        // ④ 推送与刷写 —— p2pTool 是实测唯一可用通道，socket_l 入口已全部移除
+        if (btnP2pToolWatch != null) {
+            btnP2pToolWatch.setOnClickListener(v -> confirmP2pToolWatchPush());
         }
-
-        // 预填 Download / 应用私有目录里已知的包，省得每次都手选
-        File f = OtaSocketPusher.locatePackage(this);
-        if (f != null) {
-            picked = f;
-            showPkg(f);
+        if (btnP2pToolLog != null) {
+    btnP2pToolLog.setOnClickListener(v -> p2pToolLog());
         }
+        swAutoflash.setOnCheckedChangeListener((b, on) -> {
+            tvAutoflashHint.setText(on
+                    ? "开启：传完自动触发刷写（不可逆）"
+                    : "关闭：仅推送 OTA 包到车机，不触发刷写");
+            append((on ? "已开启" : "已关闭") + "「传完自动触发刷写」");
+        });
 
-        refreshGrantButton();
+        initCarP2p();
+
+        // ★ 不自动预填任何包（2026-10-17 移除）：刷写不可逆，必须由用户明确 SAF 选包。
+        tvPkg.setText("尚未选择升级包");
+
+        // 远程驱动（车边调试 / adb 一键跑）
+        handleAuto(getIntent());
     }
 
-    // ==================== 权限（special，设置页授权）====================
+    // ==================== 连接：Tab 与设备列表 ====================
 
-    /**
-     * 主动去系统设置页授予两个 <b>special</b> 权限（普通弹窗申请不到，只能去设置页开）：
-     * <ol>
-     *   <li>{@code WRITE_SETTINGS} —— OtaP2p 用 {@code WifiManager.setWifiEnabled()} 开关 Wi-Fi，
-     *       API 29+ 必需，否则 {@code SecurityException}；</li>
-     *   <li>{@code MANAGE_EXTERNAL_STORAGE} —— 直读 {@code /sdcard/Download/*.zip} 固件包必需
-     *       （Android 11+ 非媒体文件直读 {@code EACCES}）。</li>
-     * </ol>
-     * 逻辑：缺哪个先开哪个；都给了就提示已授权。回程由 {@link #onResume} 续跑 / 刷新按钮文案。
-     */
-    private void openGrantSettings() {
-        if (!Settings.System.canWrite(this)) {
-            append("去系统设置页授予「修改系统设置」（写设置）…");
-            startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                    Uri.fromParts("package", getPackageName(), null)));
-            return;
-        }
-        if (!Environment.isExternalStorageManager()) {
-            append("去系统设置页授予「所有文件访问」…");
-            Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-            i.setData(Uri.fromParts("package", getPackageName(), null));
-            startActivity(i);
-            return;
-        }
-        append("✔ 写设置 + 所有文件访问 均已授予");
-    }
-
-    /** 根据当前 special 权限状态刷新「去授权」按钮文案，让用户一眼看到还差哪个。 */
-    private void refreshGrantButton() {
-        if (btnGrant == null) return;
-        boolean ws = Settings.System.canWrite(this);
-        boolean mes = Environment.isExternalStorageManager();
-        if (ws && mes) {
-            btnGrant.setEnabled(false);
-            btnGrant.setText("✔ 已授权（写设置 / 所有文件）");
-        } else {
-            btnGrant.setEnabled(true);
-            String miss = (!ws && !mes) ? "写设置 + 所有文件访问"
-                    : (!ws ? "写设置" : "所有文件访问");
-            btnGrant.setText("去授权（还差：" + miss + "）");
-        }
-    }
-
-    /** 步骤回调：一步的结束（ok + 说明）。 */
-    private interface StepCb {
-        void next(boolean ok, String msg);
-    }
-
-    // ==================== 一站式编排 ====================
-
-    /**
-     * 一键 OTA：连接车辆 → 选包 → 探测车辆 → 推送并写入。
-     * 每一步失败都给出明确诊断，不静默吞掉。
-     */
-    private void runOneStop() {
-        append("==== 一键 OTA ====");
-        append("顺序：连车机 Wi-Fi → 定位固件包 → 探测车辆 → 推送并写入");
-        setBusy(true);
-        tvStatus.setText("① 连接车辆…");
-        ensureAllPermissions(() -> {
-            setBusy(true); // 权限绕一圈回来后重新置忙
-            stepOneEnsureNetwork(new StepCb() {
+    /** 两个 Tab 只切「面板可见性」，不重建视图，扫描结果不会因切换而丢。 */
+    private void setupLinkTabs() {
+        tabLink.addOnTabSelectedListener(new com.google.android.material.tabs.TabLayout
+                .OnTabSelectedListener() {
             @Override
-            public void next(boolean ok, String msg) {
-                if (!ok) {
-                    finishOneStop(ok, msg);
-                    return;
+            public void onTabSelected(com.google.android.material.tabs.TabLayout.Tab tab) {
+                boolean p2p = tab.getPosition() == 0;
+                boxP2p.setVisibility(p2p ? View.VISIBLE : View.GONE);
+                boxManual.setVisibility(p2p ? View.GONE : View.VISIBLE);
+                tvLinkHelp.setText(p2p
+                        ? "仪表 OTA Update 窗口常驻时可直接扫描连接（10086 服务随之常开）。"
+                        + "设备名与 AP 的 SSID 是两套命名，扫到即可连。"
+                        : "先在系统设置连仪表 Wi-Fi（ZEEHO-*），再回到这里选地址。"
+                        + "本车 Realtek 组主是 192.168.0.1，不是标准的 192.168.49.1。");
+                // P2P 连上后就不再用手动地址，避免两套地址互相打架
+                if (p2pConnected && p2p) {
+                    append("P2P 已建组（组主 " + p2pGroupOwner + "），推送会用组主地址，忽略手动单选");
                 }
-                tvStatus.setText("② 定位固件包…");
-                stepTwoEnsurePackage(new StepCb() {
-                    @Override
-                    public void next(boolean ok, String msg) {
-                        if (!ok) {
-                            finishOneStop(ok, msg);
-                            return;
-                        }
-                        tvStatus.setText("③ 探测车辆…");
-                        append("③ 探测车辆信息…");
-                        stepThreeProbeVehicle(new StepCb() {
-                            @Override
-                            public void next(boolean ok, String msg) {
-                                if (!ok) {
-                                    finishOneStop(ok, msg);
-                                    return;
-                                }
-                                tvStatus.setText("④ 推送并写入…");
-                                append("④ 开始推送（含自动 ack）…");
-                                startPush(); // 复用现有前台服务推送；结束会触发 onPushDone
-                            }
-                        });
-                    }
-                });
-            }
-        });
-    });
-    }
-
-    private void finishOneStop(boolean ok, String msg) {
-        main.post(() -> {
-            setBusy(false);
-            if (ok) {
-                tvStatus.setText("一站式完成 · 看车机屏幕");
-            } else {
-                tvStatus.setText("一站式中断");
-                append("✖ " + msg);
-            }
-        });
-    }
-
-    private void stepOneEnsureNetwork(StepCb cb) {
-        java.util.List<com.github.zeehospeedhunter.ota.CarNet.NetInfo> ips =
-                com.github.zeehospeedhunter.ota.CarNet.localPrivateIps();
-        if (!ips.isEmpty()) {
-            append("① 已在车机网段：" + ips.get(0).iface + " " + ips.get(0).ip);
-            cb.next(true, ips.get(0).ip);
-            return;
-        }
-        // 系统 WLAN 直连要把用户送去系统设置，这会离开本页，一站式无法自动续跑 —— 明确提示
-        append("① 手机不在车机网段 —— 请先用「系统 Wi-Fi 直连」连车机热点（连接交给系统设置），"
-                + "再回来重新点「一键 OTA」");
-        cb.next(false, "未在车机网段（先用系统 Wi-Fi 直连连上车机）");
-    }
-
-    private void stepTwoEnsurePackage(StepCb cb) {
-        File pkg = picked != null ? picked : OtaSocketPusher.locatePackage(this);
-        if (pkg != null) {
-            picked = pkg;
-            showPkg(pkg);
-            append("② 固件包：" + pkg.getName() + "（" + pkg.length() + " 字节）");
-            cb.next(true, pkg.getName());
-            return;
-        }
-        // 没找到：自动弹出系统选择器，选完再继续
-        append("② 没自动找到包，弹出系统选择器（选 OTA_zip_PATCHED_185_v3.zip）…");
-        pendingAfterPick = cb;
-        pickFile.launch("*/*");
-    }
-
-    /** onPicked 完成后若是一站式在等，继续下一步。 */
-    private volatile StepCb pendingAfterPick;
-
-    private void stepThreeProbeVehicle(StepCb cb) {
-        OtaSocketPusher.probeVehicle(new OtaSocketPusher.VehicleProbeListener() {
-            @Override
-            public void onStage(String s) {
-                append(s);
             }
 
             @Override
-            public void onResult(final OtaSocketPusher.VehicleInfo info) {
-                main.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        tvVehicle.setText(info.summary());
-                        if (info.ok) {
-                            if (info.vehicleType != null) {
-                                append("★ 探测到车型 " + info.vehicleType
-                                        + "，推送时用它（车型不符仪表不出进度条）");
-                            }
-                            append("③ 探测成功：" + info.summary().replace("\n", " "));
-                            cb.next(true, info.host);
-                        } else {
-                            append("③ 探测失败：" + info.error);
-                            cb.next(false, info.error + "\n" + info.hint);
-                        }
-                    }
-                });
+            public void onTabUnselected(com.google.android.material.tabs.TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(com.google.android.material.tabs.TabLayout.Tab tab) {
             }
         });
     }
 
-    // ==================== 权限 ====================
+    private void initCarP2p() {
+        try {
+            carP2p = new CarP2p(this, main, new CarP2p.Listener() {
+                @Override
+                public void onLine(String line) {
+                    append("P2P：" + line);
+                }
 
-    private void ensureWifiPermission(Runnable action) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this,
-                    android.Manifest.permission.NEARBY_WIFI_DEVICES)
-                    != PackageManager.PERMISSION_GRANTED) {
-                afterWifiPermission = action;
-                reqNearbyWifi.launch(android.Manifest.permission.NEARBY_WIFI_DEVICES);
-                return;
-            }
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            // 29–32 连指定 Wi-Fi 需要精确定位权限
-            if (ContextCompat.checkSelfPermission(this,
-                    android.Manifest.permission.ACCESS_FINE_LOCATION)
-                    != PackageManager.PERMISSION_GRANTED) {
-                afterWifiPermission = action;
-                reqNearbyWifi.launch(android.Manifest.permission.ACCESS_FINE_LOCATION);
-                return;
-            }
+                @Override
+                public void onPeers(List<WifiP2pDevice> peers) {
+                    renderPeers(peers);
+                }
+
+                @Override
+                public void onGroup(WifiP2pInfo info, WifiP2pGroup group) {
+                    if (!info.groupFormed) {
+                        p2pConnected = false;
+                        p2pGroupOwner = null;
+                        keyOtaPortState = 0;
+                        refreshDisconnectButton();
+                        renderCarInfo();
+                        return;
+                    }
+                    String owner = info.groupOwnerAddress == null
+                            ? null : info.groupOwnerAddress.getHostAddress();
+                    boolean sameGroup = p2pConnected && p2pGroupOwner != null
+                            && p2pGroupOwner.equals(owner);
+                    p2pConnected = true;
+                    p2pGroupOwner = owner;
+                    OtaSocketPusher.setGroupOwner(owner, info.isGroupOwner);
+                    refreshDisconnectButton();
+                    renderCarInfo();
+
+                    // ★ 把「已建组」明确写到状态行上。
+                    //   之前 onGroup 只往日志里写，而日志会被后续探测刷屏，
+                    //   用户只看到前面那句「P2P 连接失败」就以为没连上 —— 实测就这么误判过。
+                    String net = group == null || group.getNetworkName() == null
+                            ? "" : "（" + group.getNetworkName() + "）";
+                    tvP2pStatus.setText("✔ 已建组 " + net + " · 组主 " + owner
+                            + (info.isGroupOwner ? "（手机）" : "（仪表）"));
+                    tvLinkStatus.setText("已连接，仪表地址 " + owner);
+
+                    if (sameGroup) {
+                        // 系统会重复回调，别重复打日志/重复探测
+                        return;
+                    }
+                    append("P2P：建组成功，组主 " + owner
+                            + "（" + (info.isGroupOwner ? "手机" : "仪表") + "当组主）");
+                    probeKeyOtaOnce(owner);
+                }
+            });
+            // ★ 不要在这里把「断开」置灰。
+            //   P2P 组可能早就存在 —— 冷启动时 Android 系统会自动恢复上次的组
+            //   （WifiP2pManager 记住了 group owner），此时并不需要我们发过连接请求。
+            //   置灰会让按钮永远是灰的，用户想「先断开好投屏」时根本点不了（2026-10-17 实测）。
+            //   真正的状态由 onGroup 按 groupFormed 维护。
+        } catch (Throwable t) {
+            carP2p = null;
+            append("P2P 初始化失败：" + t.getMessage() + " —— 可改用「手动指定 IP」页签");
         }
-        action.run();
     }
-
-    private void onNearbyWifiPermission(boolean granted) {
-        Runnable a = afterWifiPermission;
-        afterWifiPermission = null;
-        if (a == null) {
-            return;
-        }
-        if (granted) {
-            a.run();
-        } else {
-            append("⚠ 未授予 Wi-Fi 附近设备权限，无法自动连车机 AP；请去系统设置授权，"
-                    + "或手动在系统 Wi-Fi 里连 ZEEHO-xxxx");
-            tvStatus.setText("缺少 Wi-Fi 权限");
-            setBusy(false);
-        }
-    }
-
-    // ==================== 特殊权限（设置页授权） ====================
 
     /**
-     * 统一权限闸门：把三类「自动连车机 + 读包 + 控制 Wi-Fi」必需、但分属不同申请方式的权限
-     * 一次性跑齐，再执行真正动作 {@code action}：
-     * <ol>
-     *   <li><b>WRITE_SETTINGS</b>（API 23+，special 级）：OtaP2p 用
-     *       {@code WifiManager.setWifiEnabled()} 开关 Wi-Fi，API 29+ 必须有它，否则
-     *       SecurityException。只能去系统设置页授予（ACTION_MANAGE_WRITE_SETTINGS）。</li>
-     *   <li><b>MANAGE_EXTERNAL_STORAGE</b>（API 30+，special 级）：读 {@code /sdcard/Download/}
-     *       下的固件包必需（Android 11+ 非媒体文件直读 EACCES）。同样去设置页授予。</li>
-     *   <li><b>NEARBY_WIFI_DEVICES / ACCESS_FINE_LOCATION</b>（dangerous 级）：自动连车机 AP
-     *       走的 WifiNetworkSpecifier 需要，普通弹窗申请（见 {@link #ensureWifiPermission}）。</li>
-     * </ol>
-     * 前两类要离开 App 去设置页，回来后在 {@link #onResume} 里续跑；第三类弹窗后回调续跑。
+     * 渲染设备列表。<b>整行可点</b>（不必精确命中按钮），并把设备名/MAC/状态分开显示 ——
+     * 参考工具就是这三行；只显示一行「已选 xxx」会让人分不清到底选了哪个。
      */
-    private void ensureAllPermissions(Runnable action) {
-        // ① WRITE_SETTINGS（写系统设置）—— special，设置页授权
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && !Settings.System.canWrite(this)) {
-            pendingAfterPerms = action;
-            try {
-                startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                        Uri.parse("package:" + getPackageName())));
-            } catch (Exception e) {
-                append("⚠ 无法打开系统设置页，请手动授予「修改系统设置」权限");
-            }
-            append("需要「修改系统设置」权限（WRITE_SETTINGS）才能控制 Wi-Fi 开关；"
-                    + "已打开设置页，授予后返回本页");
-            tvStatus.setText("等待系统设置授权");
-            setBusy(false);
+    private void renderPeers(List<WifiP2pDevice> peers) {
+        if (boxPeers == null) {
             return;
         }
-        // ② MANAGE_EXTERNAL_STORAGE（所有文件访问）—— special，设置页授权
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-                && !Environment.isExternalStorageManager()) {
-            pendingAfterPerms = action;
-            try {
-                Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                i.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(i);
-            } catch (Exception e) {
-                append("⚠ 无法打开系统设置页，请手动授予「所有文件访问」权限");
+        boxPeers.removeAllViews();
+        if (peers.isEmpty()) {
+            if (carP2p != null && carP2p.isConnecting()) {
+                // ★ 连接进行中：系统可能短暂回空列表，此时不能回退成「未扫描到设备」、
+                //   也不能清空已选设备 —— 否则点完连接列表变空、车机信息也跟着丢，像设备消失了。
+                tvP2pStatus.setText("正在连接仪表，请稍候…");
+                return;
             }
-            append("需要「所有文件访问」权限才能读取 Download/ 下的固件包；"
-                    + "已打开设置页，授予后返回本页");
-            tvStatus.setText("等待文件访问授权");
-            setBusy(false);
+            tvP2pStatus.setText("尚未扫描到设备 —— 确认仪表 OTA Update 窗口已开启、定位开关是否打开");
+            selectedP2p = null;
             return;
         }
-        // ③ Wi-Fi 附近设备 / 定位 —— 危险级，弹窗申请
-        ensureWifiPermission(action);
+        selectedP2p = null;
+        for (WifiP2pDevice d : peers) {
+            if (CarP2p.isCarName(d.deviceName)) {
+                selectedP2p = d;
+                break;
+            }
+        }
+        if (selectedP2p == null) {
+            selectedP2p = peers.get(0);
+        }
+        final WifiP2pDevice target = selectedP2p;
+        for (final WifiP2pDevice d : peers) {
+            View row = getLayoutInflater().inflate(R.layout.view_peer_row, boxPeers, false);
+            ((TextView) row.findViewById(R.id.peer_name)).setText(
+                    d.deviceName == null ? "(无名设备)" : d.deviceName);
+            ((TextView) row.findViewById(R.id.peer_mac)).setText(
+                    d.deviceAddress == null ? "MAC 未知" : d.deviceAddress);
+            boolean isCar = CarP2p.isCarName(d.deviceName);
+            ((TextView) row.findViewById(R.id.peer_state)).setText(
+                    isCar ? "仪表设备 · 优先连接"
+                            : (d.status == WifiP2pDevice.CONNECTED
+                            ? "已连接" : "可用"));
+            View btn = row.findViewById(R.id.peer_connect);
+            if (d == target) {
+                ((com.google.android.material.button.MaterialButton) btn).setText("连接");
+            } else {
+                ((com.google.android.material.button.MaterialButton) btn).setText("选择");
+            }
+            View.OnClickListener act = v -> {
+                selectedP2p = d;
+                if (carP2p != null) {
+                    carP2p.connect(d);
+                }
+                tvP2pStatus.setText("已请求连接 " + (d.deviceName == null ? d.deviceAddress : d.deviceName)
+                        + "，等待系统建组…");
+                // 连接中要允许「断开」来取消
+                main.postDelayed(this::refreshDisconnectButton, 300);
+            };
+            row.setOnClickListener(act);
+            btn.setOnClickListener(act);
+            boxPeers.addView(row);
+        }
+        tvP2pStatus.setText("发现 " + peers.size() + " 台，已选 "
+                + (selectedP2p.deviceName == null ? selectedP2p.deviceAddress
+                : selectedP2p.deviceName));
     }
 
-    /** 从设置页授权回来后，续跑被挂起的权限闸门。 */
+    // ==================== 车机信息表 ====================
+
+    /** 往信息表里塞一行（key/value）。 */
+    private void infoRow(String key, String value) {
+        View row = getLayoutInflater().inflate(R.layout.view_info_row, boxCarInfo, false);
+        ((TextView) row.findViewById(R.id.info_key)).setText(key);
+        ((TextView) row.findViewById(R.id.info_value)).setText(
+                value == null || value.isEmpty() ? "—" : value);
+        boxCarInfo.addView(row);
+    }
+
+    /**
+     * 探一次 Key OTA 服务（10086），结果写进 {@link #keyOtaPortState}。
+     *
+     * <p>只探 10086，<b>不</b>探 10950 —— 10950 由「探测 10950」按钮和守候推送去管，
+     * 这里的目的只是回答「仪表到底在 Key OTA 模式还是 OTA 模式」。</p>
+     */
+    private void probeKeyOtaOnce(final String host) {
+        if (host == null || probingKeyOta) {
+            return;
+        }
+        probingKeyOta = true;
+        new Thread(() -> {
+            final boolean open = OtaSocketPusher.probeTcp(host, CarNet.PORT_P2P_TOOL, 1500);
+            main.post(() -> {
+                probingKeyOta = false;
+                keyOtaPortState = open ? 1 : 2;
+                renderCarInfo();
+                append("P2P：" + host + ":" + CarNet.PORT_P2P_TOOL
+                        + (open ? " OPEN（Key OTA 服务已就绪）" : " CLOSED（Keys OTA 服务未启动）"));
+                if (!open) {
+                    append("  ⇒ 仪表不在 OTA Update 模式：请确认 OTA Update 窗口已开启后再扫描/连接");
+                }
+            });
+        }, "keyota-probe").start();
+    }
+
+    /** 端口状态 → 展示文案。 */
+    private static String portLabel(int state, int port, String what) {
+        switch (state) {
+            case 1:
+                return "OPEN · " + what;
+            case 2:
+                return "拒连 · " + what;
+            default:
+                return "未探测";
+        }
+    }
+
+    /**
+     * 渲染「车机信息」表。
+     *
+     * <p>参考工具在这里列出设备名 / P2P MAC / 网卡尾号 / 主类型 / 发现状态 / 组主地址 /
+     * 本机角色 —— 这些都是判断「连的到底是不是仪表、地址填对没」的关键信息，
+     * 之前只塞在日志里，界面上看不到。</p>
+     */
+    private void renderCarInfo() {
+        if (boxCarInfo == null) {
+            return;
+        }
+        boxCarInfo.removeAllViews();
+        WifiP2pDevice d = selectedP2p;
+        infoRow("设备名", d == null ? null : d.deviceName);
+        infoRow("P2P MAC", d == null ? null : d.deviceAddress);
+        if (d != null && d.deviceAddress != null && d.deviceAddress.length() >= 12) {
+            infoRow("网卡尾号", d.deviceAddress.substring(d.deviceAddress.length() - 6));
+        }
+        infoRow("主类型", d == null ? null : d.primaryDeviceType);
+        infoRow("发现状态", p2pConnected ? "已连接" : (d == null ? "未扫描" : "待连接"));
+        infoRow("推送地址", carHost() + ":" + OtaSocketPusher.CAR_PORT);
+        infoRow("本机角色", p2pConnected
+                ? (OtaSocketPusher.isLocalGroupOwner() ? "组主（手机）" : "客户端（仪表是组主）")
+                : "未建组");
+        // ★ 两条通道分开写：10086=Key OTA 服务，10950=OTA 推送通道。
+        //   实测会「10086 OPEN 但 10950 拒连」，只有一个状态时根本看不出卡在哪。
+        infoRow("Key OTA · 10086",
+                portLabel(keyOtaPortState, CarNet.PORT_P2P_TOOL, "P2P 服务"));
+        infoRow("OTA 通道 · 10950",
+                portLabel(otaChannelState, OtaSocketPusher.CAR_PORT, "推送通道"));
+        if (tvSubtitle != null) {
+            tvSubtitle.setText("socket_l · " + carHost() + ":" + OtaSocketPusher.CAR_PORT);
+        }
+    }
+
     @Override
-    protected void onResume() {
-        super.onResume();
-        refreshGrantButton();
-        if (pendingAfterPerms != null) {
-            Runnable a = pendingAfterPerms;
-            pendingAfterPerms = null;
-            // 重新走闸门：若还有未授予的会继续弹设置页，全部齐了才执行 a
-            ensureAllPermissions(a);
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleAuto(intent);
+    }
+
+    /** 处理远程驱动 extras（probe / push；push 可带 --ez dry true 只联调不推包）。 */
+    private void handleAuto(android.content.Intent intent) {
+        String auto = intent == null ? null : intent.getStringExtra("auto");
+        if ("probe".equals(auto)) {
+            append("=== 远程驱动：探测车机 " + carHost() + ":10930 ===");
+            new Thread(() -> {
+                EcPxc.ProbeResult r = EcPxc.probe(carHost(), CarNet.PORT_EC, 3000, OtaActivity.this);
+                append("探测结果：" + r.summary());
+            }, "ecpxc-probe").start();
+        } else if ("push".equals(auto)) {
+            EcPxc.DRY_RUN = intent.getBooleanExtra("dry", false);
+            long hold = intent.getLongExtra("hold", 0);
+            if (hold > 0) {
+                EcPxc.DRY_HOLD_MS = hold;
+            }
+            append("=== 远程驱动：推送（dry=" + EcPxc.DRY_RUN
+                    + "，hold=" + (EcPxc.DRY_HOLD_MS / 1000) + "s） ===");
+            main.post(this::startPush);
+        } else if ("sockpush".equals(auto)) {
+            append("=== 远程驱动：socket_l 直推 ===");
+            main.post(this::startSocketPush);
+        } else if ("watchpush".equals(auto)) {
+            append("=== 远程驱动：守候即推 ===");
+            main.post(this::startWatchRemote);
+        } else if ("verify".equals(auto)) {
+            String path = intent.getStringExtra("path");
+            append("=== 远程驱动：只读自检（不推送任何数据） " + path + " ===");
+            main.post(() -> verifyRemote(path));
         }
     }
 
-    // ==================== 选包 / 推送 ====================
+    /**
+     * 远程只读自检：对指定路径跑六项检查，<b>不碰网络、不发任何帧</b>。
+     *
+     * <p>车边 handy：刷之前先在这里把包验一遍，不用来回切界面。
+     * 注意路径必须落在本应用<b>可读</b>的位置（Android 11+ 读不到别的应用的
+     * {@code Android/data}）—— 用自己的 files 目录即可。</p>
+     */
+    private void verifyRemote(String path) {
+        if (path == null || path.isEmpty()) {
+            append("用法：--es auto verify --es path <可读路径>");
+            return;
+        }
+        final File f = new File(path);
+        if (!f.isFile()) {
+            append("✖ 读不到文件（路径不存在，或落在本应用无权限的位置）：" + path);
+            return;
+        }
+        append("自检中（要读约 340MB，30~90 秒）…");
+        new Thread(() -> {
+            final OtaSocketPusher.PkgInfo info =
+                    OtaSocketPusher.inspectPackage(f, line -> append("  " + line));
+            main.post(() -> {
+                picked = f;
+                pickedInfo = info;
+                tvPkg.setText(String.format("%s  (%d 字节)", f.getName(), f.length()));
+                tvPkgInspect.setText(info.summary());
+                append("=== 自检结论 ===\n" + info.summary());
+                refreshPushButtons();
+            });
+        }, "ota-verify-remote").start();
+    }
+
+    /** 远程驱动用：跳过确认弹窗直接守候推送（车边 adb 一键跑）。 */
+    private void startWatchRemote() {
+        final File pkg = picked;
+        if (pkg == null) {
+            append("没有已选的包 —— 远程驱动不支持猜路径，请先用界面 SAF 选包");
+            return;
+        }
+        if (pickedInfo != null && pickedInfo.pushable()) {
+            startWatchPush(pkg, pickedInfo);
+            return;
+        }
+        append("先跑六项检查 …");
+        new Thread(() -> {
+            final OtaSocketPusher.PkgInfo info =
+                    OtaSocketPusher.inspectPackage(pkg, line -> append("  " + line));
+            main.post(() -> {
+                pickedInfo = info;
+                append("=== 包自检 ===\n" + info.summary());
+                if (info.pushable()) {
+                    startWatchPush(pkg, info);
+                } else {
+                    append("✖ 未通过六项检查，拒绝推送。先修包。");
+                }
+            });
+        }, "ota-inspect-remote").start();
+    }
+
+    // ==================== 选包 / SHA-256 ====================
 
     private void onPicked(Uri uri) {
         if (uri == null) {
             return;
         }
-        // 读取授权长期有效：SAF 给的 URI 权限要显式 takePersistable，跨重建才不掉
         try {
             getContentResolver().takePersistableUriPermission(uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION);
         } catch (Exception ignored) {
         }
-        append("socket_l：已选 " + uri.getLastPathSegment() + "，拷到私有缓存 …");
+        append("已选 " + uri.getLastPathSegment() + "，拷到私有缓存 …");
         final Uri u = uri;
-        final StepCb waiting = pendingAfterPick;
-        pendingAfterPick = null;
+        setBusy(true);
         new Thread(() -> {
             try {
-                File f = OtaSocketPusher.copyFromUri(this, u);
-                picked = f;
-                main.post(() -> showPkg(f));
-                if (waiting != null) {
-                    main.post(() -> waiting.next(true, f.getName()));
-                }
+                File fg = OtaSocketPusher.copyFromUri(this, u);
+                picked = fg;
+                main.post(() -> {
+                    showPkg(fg);
+                    inspectPicked(fg);
+                });
             } catch (Exception e) {
-                append("socket_l：拷贝失败 —— " + e);
-                if (waiting != null) {
-                    main.post(() -> waiting.next(false, "选包拷贝失败：" + e));
-                }
+                main.post(() -> setBusy(false));
+                append("拷贝失败 —— " + e);
             }
         }, "ota-pick").start();
     }
 
     private void showPkg(File f) {
         tvPkg.setText(String.format("%s  (%d 字节)", f.getName(), f.length()));
+        btnSha256.setEnabled(true);
     }
 
-    /** 推送：SAF 选中的优先，其次自动定位；都没有就提示去选包。 */
-    private void startPush() {
-        File pkg = picked != null ? picked : OtaSocketPusher.locatePackage(this);
-        if (pkg == null) {
-            tvStatus.setText("还没选包");
-            append("socket_l：没找到包 —— 点「选包」用系统文件选择器挑 "
-                    + "OTA_zip_PATCHED_185_v3.zip 即可");
+    /**
+     * 包自检：跑 {@link OtaPackVerify} 的六项检查（车机/U-Boot 真正会验的那几道）。
+     *
+     * <p>★ 这是 10/06 变砖唯一的护栏：协议层全通、车机真的进了刷写，
+     * 但包内部不自洽 ⇒ U-Boot 逐分区回读 md5 时 {@code exit -1} ⇒ 主机起不来。
+     * <b>车机只提示最前面那道 MD5SUM*，后三道失败时仪表毫无信息</b>
+     * （进度条停住、不报错），所以只能靠推送前在手机上验。</p>
+     */
+    private void inspectPicked(final File f) {
+        pickedInfo = null;
+        setBusy(true);
+        tvPkgInspect.setText("自检中：解包并跑六项检查\n"
+                + "① 内层 MD5SUM*　② main 脚本 dataCRC+headerCRC\n"
+                + "③ 分区表 19 项 MD5　④ 脚本内 74 个硬编码 MD5\n"
+                + "要读约 340MB，约 30~90 秒");
+        new Thread(() -> {
+            final OtaSocketPusher.PkgInfo info = OtaSocketPusher.inspectPackage(f, line ->
+                    main.post(() -> tvPkgInspect.setText("自检中…\n" + line)));
+            main.post(() -> {
+                setBusy(false);
+                pickedInfo = info;
+                StringBuilder sb = new StringBuilder();
+                sb.append(info.gradeLabel()).append('\n');
+                if (info.verify != null) {
+                    for (OtaPackVerify.Check c : info.verify.checks) {
+                        sb.append(c.line()).append('\n');
+                    }
+                    for (String n : info.verify.notes) {
+                        sb.append(n).append('\n');
+                    }
+                }
+                if (!info.matchedBaseline.isEmpty()) {
+                    sb.append("参考：").append(info.matchedBaseline).append('\n');
+                }
+                if (!info.note.isEmpty()) {
+                    sb.append(info.note).append('\n');
+                }
+                if (info.grade == OtaSocketPusher.Grade.UNSAFE) {
+                    sb.append("\n★ 已禁用推送按钮。先把包改自洽再刷 —— ")
+                            .append("拿仪表试错的代价是一次变砖（10/06 就是这么坏的，返厂了）。");
+                }
+                tvPkgInspect.setText(sb.toString().trim());
+                append("=== 包自检 ===\n" + info.summary());
+                refreshPushButtons();
+            });
+        }, "ota-inspect").start();
+    }
+
+    private void refreshPushButtons() {
+        boolean hasPkg = picked != null && pickedInfo != null;
+        boolean ok = hasPkg && pickedInfo.pushable() && !busy;
+        // p2pTool 通道：只要包自洽就允许（它不依赖别的通道是否在听）
+        if (btnP2pToolWatch != null) {
+            btnP2pToolWatch.setEnabled(ok && !busy);
+        }
+        if (hasPkg && !pickedInfo.pushable()) {
+            append("（推包已禁用：六项检查未过，见上方包自检结论）");
+        }
+    }
+
+    /**
+ * 「断开」按钮的可用性完全由<b>系统报告的组状态</b>决定，不由"我们有没有发过连接请求"决定。
+ *
+ * <p>★ 2026-10-17 修的 Bug：原来只在初始化时 {@code setEnabled(false)}，之后再没设回来，
+ * 于是按钮永远是灰的 —— 而冷启动时 Android <b>会自动恢复</b>上次的 P2P 组
+ * （{@code WifiP2pManager} 记住了 group owner），用户看到明明连着却点不了断开，
+ * 「先断开好投屏」这一步根本做不到。</p>
+ */
+    private void refreshDisconnectButton() {
+        if (btnP2pDisconnect == null) {
             return;
         }
-        append("=== 推送 " + pkg.getName() + " ===");
-        tvStatus.setText("推送中…");
+        boolean formed = p2pConnected || (carP2p != null);
+        btnP2pDisconnect.setEnabled(formed);
+    }
+
+    /**
+ * 「断开」= <b>进入投屏准备模式</b>：断开 P2P 并<b>持续压制重建 3 分钟</b>。
+     *
+     * <p>★ 为什么必须压制：实测日志（2026-10-17 20:11:57~20:12:36）显示
+     * {@code removeGroup} 回报「请求已接受」后<b>仅仅 20 秒</b>系统就自己把组建回来了
+     * （随后 {@code removeGroup} 回报「系统忙 (2)」）。也就是说
+     * <b>P2P 组会被 Android 自动恢复</b> —— 它记住过 peer 就一直维持。
+     */
+
+    /**
+     * 拉取车机日志（p2pTool + 3 字节 {@code LOG}），<b>只读</b>，不推包、不刷写。
+     *
+     * <p>★★ 这是判定「推了包但仪表毫无变化」的<b>唯一手段</b>。
+     * 实测：p2pTool 收到 {@code OTA} 后<b>零回包、连接不关</b>，
+     * 所以「手机没反应」这件事本身没有任何信息量 ——
+     * 包没收全、校验没过、刷写没触发，三种情况长得一模一样。
+     * 车机只在<b>它自己的日志</b>里区分：进度行 {@code totalFileSize}/{@code recv file size}
+     * 说明文件是否收全，{@code No checksum found} 说明校验失败，{@code ioctl} 行说明刷写是否触发。</p>
+     *
+     * <p>不需要选包，也不需要六项检查通过。</p>
+     */
+    private void p2pToolLog() {
+        final String host = carHost();
+        append("=== 拉取车机日志（LOG · 只读）" + host + ":" + OtaP2pToolPusher.PORT + " ===");
+        append("不推包、不触发刷写；tar 会落盘并自动解出关键行");
+new Thread(() -> {
+            final long n = OtaP2pToolPusher.probeLog(this, host,
+        new OtaP2pToolPusher.Callback() {
+       @Override
+  public void onLog(String line) {
+     main.post(() -> append("  " + line));
+     }
+
+        @Override
+          public void onProgress(long sent, long total) {
+   // LOG 协议无进度语义，不处理
+         }
+  });
+            main.post(() -> {
+                if (n > 0) {
+                    append("LOG 取证完成，共 " + n + " 字节");
+                    append("★ 看上面带 [文件名] 的行：recv file size 是否等于 totalFileSize、"
+                            + "有没有 No checksum found、有没有 ioctl/upgrade 触发记录");
+                } else {
+                    append("✖ LOG 拉取失败 —— 确认写包服务已就绪（P2P 已建组、"
+                            + "OTA Update 窗口常驻时它应OPEN）");
+                }
+            });
+        }, "p2ptool-log").start();
+    }
+
+    // ==================== p2pTool 守候即推 ====================
+
+    /**
+     * 守候即推的确认闸。
+     *
+     * <p>护栏：六项检查 + 红线提示。确认后走 {@link #doP2pToolWatchPush}：
+     * 先确保 P2P 连上仪表，再轮询服务 OPEN，
+     * 一连上就自动把包推完 —— 全程不回界面、不依赖 10950、不需要投屏。</p>
+     *
+     * <p>★ 这正是「进 OTA Update 隐藏模式就写包」的一键形态：新仪表 OTA Update 窗口常驻，
+     * 10086 随之常开，连上即推。</p>
+     */
+    private void confirmP2pToolWatchPush() {
+        final File pkg = picked;
+        if (pkg == null) {
+            append("还没选包 —— 先「选择文件」并用六项检查确认包自洽");
+            return;
+        }
+        if (pickedInfo == null) {
+            append("开始OTA流程前必须先过六项检查（点「选择文件」后会自动跑）");
+            return;
+        }
+        if (!pickedInfo.pushable()) {
+            append("✖ 六项检查没过，禁止推包（会半刷变砖）");
+            append(pickedInfo.summary());
+            return;
+        }
+        final String host = carHost();
+        final boolean flash = swAutoflash != null && swAutoflash.isChecked();
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("开始OTA流程 确认")
+                .setMessage("通道：p2pTool\n"
+                        + "地址：自动用组主地址（默认 " + host + "）\n"
+                        + "包名：" + pkg.getName() + "\n"
+                        + "格式：裸 GEMINI_PACK.BIN（会先从 zip 解出内层）\n"
+                        + "流程：确保 P2P 连上仪表 → 等服务就绪 → 自动推包\n\n"
+                        + (flash
+                        ? "★ 推送完成后会发送 3 字节 OTA ⇒ 车机校验后**真正触发刷写**，"
+                        + "不可逆。确认电量≥25%、非充电、非 Ready。"
+                        : "当前「传完自动触发刷写」= 关 ⇒ 只把包写进车机，"
+                        + "不发送 OTA、不会刷写。"))
+                .setNegativeButton("取消", null)
+                .setPositiveButton(flash ? "确认刷写" : "只送包",
+                        (d, w) -> doP2pToolWatchPush(pkg, host, flash))
+                .show();
+    }
+
+    /**
+     * 10086 守候即推：后台轮询直到 10086 OPEN 再推，最多约 5 分钟。
+     *
+     * <p>逻辑（都在工作线程）：</p>
+     * <ol>
+     *   <li>若尚未建 P2P 组，先 {@code carP2p.scan()} 让系统去连仪表；</li>
+     *   <li>解出内层 GEMINI_PACK.BIN 并统一命名一次（避免在轮询里反复解包）；</li>
+     *   <li>每 5 秒探一次组主地址的 10086，OPEN 就 {@link OtaP2pToolPusher#push}；</li>
+     *   <li>推成功即停；连续 3 次推失败或超时就放弃并回报。</li>
+     * </ol>
+     *
+     * <p>{@code p2pToolWatching} 为 {@code false} 时立即退出（界面销毁 / 用户取消时设）。</p>
+     */
+    private void doP2pToolWatchPush(final File zip, final String fallbackHost, final boolean flash) {
+        append("=== 开始OTA流程 " + zip.getName() + " ===");
+        append("「传完自动触发刷写」=" + (flash ? "开（会真的刷写）" : "关（仅推送 OTA 包）"));
+        setBusy(true);
+        tvStatus.setText("开始OTA流程：确保 P2P 连上并等服务就绪");
+        pb.setProgress(0);
+        tvProgress.setText("0%");
+
+        if (!p2pConnected && carP2p != null) {
+            append("尚未建 P2P 组，先扫描/连接仪表（让仪表进 OTA Update 模式）…");
+            carP2p.scan();
+        }
+
+        p2pToolWatching = true;
+        new Thread(() -> {
+            // ① 解包一次
+            File named;
+            try {
+                append("解出内层 GEMINI_PACK.BIN …");
+                File inner = OtaPackVerify.extractInnerPack(zip);
+                named = OtaP2pToolPusher.normalizeName(inner, new File(getCacheDir(), "p2ptool"));
+                append("内层包：" + named.length() + " 字节");
+            } catch (Throwable t) {
+                main.post(() -> {
+                    setBusy(false);
+                    append("✖ 解内层包失败：" + t);
+                    tvStatus.setText("解包失败");
+                });
+                p2pToolWatching = false;
+                return;
+            }
+            final File pack = named;
+            final long total = pack.length();
+            final OtaP2pToolPusher.Callback cb = new OtaP2pToolPusher.Callback() {
+                @Override
+                public void onLog(String line) {
+                    main.post(() -> append("  " + line));
+                }
+
+                @Override
+                public void onProgress(long sent, long tot) {
+                    final int pct = (int) (sent * 100 / Math.max(1, tot));
+                    main.post(() -> {
+                        pb.setProgress(pct);
+                        tvProgress.setText(pct + "%");
+                    });
+                }
+            };
+
+            int tries = 0;
+            int consecutiveFail = 0;
+            while (p2pToolWatching && tries < 60) {           // ~5 分钟上限
+                tries++;
+                final String host = (p2pConnected && p2pGroupOwner != null && !p2pGroupOwner.isEmpty())
+                        ? p2pGroupOwner : fallbackHost;
+                if (p2pConnected && OtaSocketPusher.probeTcp(host, CarNet.PORT_P2P_TOOL, 1500)) {
+                    main.post(() -> {
+                        tvStatus.setText("服务就绪 · 推送中…");
+                        append("服务就绪 @ " + host + " → 开始推包");
+                    });
+                    final boolean ok = OtaP2pToolPusher.push(host, pack, flash, cb);
+                    if (ok) {
+                        p2pToolWatching = false;
+                        main.post(() -> {
+                            setBusy(false);
+                            append(flash ? "✔ OTA 流程完成，车机将校验并刷写"
+                                    : "✔ OTA 流程完成（仅推送 OTA 包，未触发刷写）");
+                            tvStatus.setText(flash ? "已推完 · 看车机屏幕：校验 → 升级 → 重启"
+                                    : "已送包 · 未触发刷写（开关为关）");
+                        });
+                        return;
+                    }
+                    consecutiveFail++;
+                    final int cf = consecutiveFail;
+                    main.post(() -> append("✖ 本轮推包失败（第 " + cf + " 次）"));
+                    if (consecutiveFail >= 3) {
+                        p2pToolWatching = false;
+                        main.post(() -> {
+                            setBusy(false);
+                            append("✖ 连续 3 次推包失败，停止守候。检查六项是否全过、写包服务是否仍就绪。");
+                            tvStatus.setText("OTA 流程失败");
+                        });
+                        return;
+                    }
+                } else {
+                    consecutiveFail = 0;
+                    if (tries % 4 == 1) {
+                        final int tr = tries;
+                        main.post(() -> append("等服务就绪…（" + host + "，第 " + tr + " 轮）"));
+                    }
+                }
+                // 退避 5 秒后重试（interrupted 不致命）
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            p2pToolWatching = false;
+            final int finalTries = tries;
+            main.post(() -> {
+                setBusy(false);
+                if (finalTries >= 60) {
+                    append("✖ 守候 5 分钟仍没推成（写包服务没就绪或推包失败）。"
+                            + "确认仪表 OTA Update 窗口常驻、P2P 已连上仪表。");
+                    tvStatus.setText("守候超时");
+                }
+            });
+        }, "p2ptool-watch").start();
+    }
+
+    /** 后台算 SHA-256，算完写回 tvPkg（保留文件名与大小信息）。 */
+    private void calcSha256() {
+        final File f = picked;
+        if (f == null) {
+            append("还没选包");
+            return;
+        }
+        btnSha256.setEnabled(false);
+        append("计算 SHA-256 …（" + f.length() + " 字节）");
+        new Thread(() -> {
+            String sha;
+            try {
+                MessageDigest md = MessageDigest.getInstance("SHA-256");
+                InputStream in = new FileInputStream(f);
+                try {
+                    byte[] buf = new byte[1 << 20];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        md.update(buf, 0, n);
+                    }
+                } finally {
+                    in.close();
+                }
+                StringBuilder sb = new StringBuilder();
+                for (byte b : md.digest()) {
+                    sb.append(String.format("%02x", b));
+                }
+                sha = sb.toString();
+            } catch (Exception e) {
+                sha = "计算失败: " + e;
+            }
+            final String s = sha;
+            main.post(() -> {
+                tvPkg.setText(String.format("%s  (%d 字节)\nSHA-256 %s", f.getName(), f.length(), s));
+                btnSha256.setEnabled(true);
+                append("SHA-256 = " + s);
+            });
+        }, "ota-sha256").start();
+    }
+
+    // ==================== 连接仪表 ====================
+
+    /** 刷新「当前 Wi-Fi」显示：一眼确认手机是不是连在仪表 AP（ZEEHO-*）上。 */
+    private void refreshWifi() {
+        if (tvWifi == null) {
+            return;
+        }
+        try {
+            android.net.wifi.WifiManager wm =
+                    (android.net.wifi.WifiManager) getApplicationContext()
+                            .getSystemService(WIFI_SERVICE);
+            android.net.wifi.WifiInfo wi = wm == null ? null : wm.getConnectionInfo();
+            String ssid = wi == null ? null : wi.getSSID();
+            if (ssid == null || "<unknown ssid>".equals(ssid)) {
+                tvWifi.setText("当前 Wi-Fi：未连接");
+                return;
+            }
+            String bssid = wi.getBSSID() == null ? "" : " / " + wi.getBSSID();
+            boolean isCar = ssid.contains("ZEEHO");
+            tvWifi.setText("当前 Wi-Fi：" + ssid.replace("\"", "") + bssid
+                    + (isCar ? "  ← 仪表 AP ✔" : "  ← 不是仪表 AP ⚠"));
+        } catch (Exception e) {
+            if (tvWifi != null) {
+                tvWifi.setText("当前 Wi-Fi：读取失败");
+            }
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshWifi();
+        // ★ P2P 若早已建组，系统不会因为「回到页面」再发一次 onGroup 回调，
+        //   于是车机信息里的两条端口状态会永远停在「未探测」。
+        //   这里主动拉一次组信息，让 10086 自动重探、表格立即有内容。
+        if (carP2p != null) {
+            try {
+                carP2p.refreshGroup();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+ * 车机地址。
+ *
+ * <p>优先级：<b>P2P 已建组 → 用组主地址</b>；否则用界面单选。
+ * 之前只认单选的 192.168.0.1 / 192.168.49.1，但 P2P 建组后组主地址是系统给的
+ * （可能是第三个地址），此时用错地址就一定连不上。</p>
+ */
+    private String carHost() {
+        if (p2pConnected && p2pGroupOwner != null && !p2pGroupOwner.isEmpty()) {
+            return p2pGroupOwner;
+        }
+        if (rgHost != null && rgHost.getCheckedRadioButtonId() == R.id.rb_host_49) {
+            return "192.168.49.1";
+        }
+        return "192.168.0.1";
+    }
+
+    /**
+     * 打开系统无线设置（蓝牙 / WLAN）。
+     *
+     * <p>Wi-Fi Direct 扫描依赖蓝牙可被发现；这里不跳蓝牙页而跳系统无线设置页，
+     * 一次把两件事都能看到（图标也用通用的设置样式，不单独画蓝牙图标）。</p>
+     */
+    private void openBluetoothSettings() {
+        append("打开系统无线设置：P2P 连接需要蓝牙可被发现，且 Wi-Fi 需保持开启");
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS);
+            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            CarNet.openSystemWifiSettings(this);
+        }
+    }
+
+    // ==================== 推送 ====================
+
+    private void startPush() {
+        File pkg = picked;
+        if (pkg == null && !EcPxc.DRY_RUN) {
+            tvStatus.setText("还没选包");
+            append("没选包 —— 点「选择文件」用 SAF 挑一个升级包");
+            return;
+        }
+        if (pkg == null) {
+            append("（dry-run：未选包，只联调协议）");
+        }
+        String host = carHost();
+        append("=== 推送 " + (pkg == null ? "(dry-run 无包)" : pkg.getName())
+                + " → " + host + "（EC PXC 免投屏） ===");
+        tvStatus.setText(pkg == null ? "联调中… 等车机回连" : "推送中… 等车机回连");
         pb.setProgress(0);
         tvProgress.setText("0%");
         setBusy(true);
-        // 推送走前台服务（保活 + 通知），进度回报走 OtaPushService.Progress（本类实现）
-        OtaPushService.setSink(this);
-        OtaPushService.start(this, pkg.getAbsolutePath());
+        EcPxc.push(host, pkg, 90000, this, this, this);
     }
 
-    private void setBusy(boolean busy) {
-        btnPush.setEnabled(!busy);
-        btnProbe.setEnabled(!busy);
-        btnPick.setEnabled(!busy);
-        btnVehicle.setEnabled(!busy);
+    private void setBusy(boolean b) {
+        busy = b;
+        btnPick.setEnabled(!b);
+        btnSha256.setEnabled(!b);
+        btnDiag.setEnabled(!b);
+        btnOpenWifi.setEnabled(!b);
+        refreshPushButtons();
     }
 
-    // ==================== 探测车辆 ====================
+    // ==================== 退出投屏后自动接手建 P2P ====================
 
     /**
-     * 一次点清「手机在不在车机网段 → 10950 通不通 → 车机到底是谁」。
+     * <b>退出官方投屏后自动建 P2P</b>，替用户省掉「手动连 AP 失败 → 开关 Wi-Fi → 重连」那套折腾。
      *
-     * <p>探测到的车型（从车机回包 {@code versionCode} 的尾巴推出来，
-     * 如 {@code SW.1.01.15AE5I → AE5I}）会直接用于之后的 {@code otaStart}；
-     * 车型不符时车机 {@code checkUpgradeRequirements()} 返回 2，仪表就收不到进度信号。</p>
+     * <p>依据 10/06 实证：{@code 15:25 官方 App 投屏 → 退出投屏 ⇒ 10950 OPEN，
+     * 手机走 p2p0 192.168.0.51}。也就是说<b>退出投屏后系统本来就会自动建 P2P</b>，
+     * 人根本不需要去「手动连仪表 AP」—— 反过来，手动连 AP 还会连不上（要开关一次 Wi-Fi），
+     * 那个动作把时间全耗掉了。</p>
+     *
+     * <p>所以这里做兜底：只要探测还开着，就每 {@link #AUTO_P2P_TICK_MS} 检查一次，
+     * 一旦发现<b>没有任何车机网段网卡</b>（既没 AP 也没 P2P），就自动发起
+     * Wi-Fi Direct 扫描并连仪表，不等用户操作。</p>
      */
-    private void probeVehicle() {
-        tvVehicle.setText("探测中…");
-        tvStatus.setText("探测车辆…");
-        append("=== 探测车辆 ===");
-        OtaSocketPusher.probeVehicle(new OtaSocketPusher.VehicleProbeListener() {
-            @Override
-            public void onStage(String s) {
-                append(s);
-            }
+    private void startAutoP2pWatch() {
+        main.removeCallbacks(autoP2pTick);
+        main.postDelayed(autoP2pTick, AUTO_P2P_TICK_MS);
+    }
 
-            @Override
-            public void onResult(final OtaSocketPusher.VehicleInfo info) {
-                main.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        tvVehicle.setText(info.summary());
-                        if (info.ok) {
-                            tvStatus.setText("已连上车机 · " + info.host);
-                            if (info.vehicleType != null) {
-                                append("★ 探测到车型 " + info.vehicleType
-                                        + "，推送时用它（车型不符仪表不出进度条）");
-                            }
-                        } else {
-                            tvStatus.setText("探测失败 · " + info.error);
+    private static final long AUTO_P2P_TICK_MS = 6000L;
+    /** 两次自动建组的最小间隔，避免把 WifiP2pManager 打爆。 */
+    private static final long AUTO_P2P_MIN_GAP_MS = 20000L;
+    /**
+     * 连续多少轮 tick「完全没有车机网段网卡」才允许自动建 P2P。
+     *
+     * <p>★ 必须给足延迟（10 轮 × 6s = 60s）。否则会出现这个致命干扰：
+     * 用户为了投屏刚把 P2P 断开 → 6 秒后本页又把 P2P 建回来 → 官方 App 抢不到
+     * Wi-Fi 连不上 AP → 投屏失败。实测就撞过这个（P2P 占着时官方 App 起不来）。</p>
+     */
+    private static final int AUTO_P2P_QUIET_TICKS = 10;
+    private long lastAutoP2pAt;
+    private int noNetTicks;
+    private boolean autoP2pNoticed;
+
+    /** 官方 App 是否在运行 —— 它一跑起来就是要投屏，此时绝不能抢 Wi-Fi。 */
+    private static boolean officialAppRunning() {
+        try {
+            java.io.File dir = new java.io.File("/proc");
+            java.io.File[] pids = dir.listFiles();
+            if (pids == null) {
+                return false;
+            }
+            for (java.io.File p : pids) {
+                if (!p.getName().matches("\\d+")) {
+                    continue;
+                }
+                java.io.File cmd = new java.io.File(p, "cmdline");
+                try {
+                    java.io.FileInputStream in = new java.io.FileInputStream(cmd);
+                    byte[] buf = new byte[256];
+                    int n = in.read(buf);
+                    in.close();
+                    if (n > 0) {
+                        String s = new String(buf, 0, n, "latin1");
+                        if (s.contains("com.cfmoto")) {
+                            return true;
                         }
                     }
-                });
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private final Runnable autoP2pTick = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (!probeActive) {
+                    return;                     // 探测结束就停
+                }
+                // ★ 投屏准备模式期间绝不能建组，否则会把官方 App 的 Wi-Fi 抢走
+                if (OtaSocketPusher.hasCarNetIface()) {
+                    // 已经有车机网段网卡（p2p0 或 wlan0）⇒ 交给守候去连，别乱动
+                    noNetTicks = 0;
+                    if (!autoP2pNoticed) {
+                        autoP2pNoticed = true;
+                        append("已获得车机网段网卡 → " + OtaSocketPusher.networkShapeHint());
+                    }
+                    return;
+                }
+                noNetTicks++;
+                // ★ 官方 App 在跑 = 正在投屏，绝不能抢 Wi-Fi
+                if (officialAppRunning()) {
+                    if (noNetTicks == 1) {
+                        append("检测到官方 App 正在运行 → 暂停自动建组，让投屏先把 AP 建起来");
+                    }
+                    return;
+                }
+                if (noNetTicks < AUTO_P2P_QUIET_TICKS) {
+                    if (noNetTicks == 1) {
+                        append("当前没有车机网段网卡；等 "
+                                + (AUTO_P2P_QUIET_TICKS * AUTO_P2P_TICK_MS / 1000)
+                                + " 秒仍没有才自动建 P2P（避免和投屏抢 Wi-Fi）");
+                    }
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                if (now - lastAutoP2pAt < AUTO_P2P_MIN_GAP_MS) {
+                    return;
+                }
+                if (carP2p == null) {
+                    append("★ 当前没有车机网段网卡，且 P2P 不可用 —— "
+                            + "只能手动连 ZEEHO AP 或重启 Wi-Fi 后再试");
+                    return;
+                }
+                lastAutoP2pAt = now;
+                append("★ 已连续 " + (AUTO_P2P_QUIET_TICKS * AUTO_P2P_TICK_MS / 1000)
+                        + " 秒没有任何车机网段网卡，且官方 App 未运行"
+                        + " → 自动发起 Wi-Fi Direct 扫描建组（你不需要去手动连 AP）");
+                carP2p.scan();
+            } catch (Throwable t) {
+                append("自动建 P2P 异常：" + t);
+            } finally {
+                if (probeActive) {
+                    main.postDelayed(this, AUTO_P2P_TICK_MS);
+                }
+            }
+        }
+    };
+
+    @Override
+    public void onProbeStage(String line) {
+        append(line);
+    }
+
+    @Override
+    public void onProbeResult(final OtaSocketPusher.VehicleInfo info) {
+        main.post(() -> {
+            probeActive = false;
+            main.removeCallbacks(autoP2pTick);
+            // 通道探测结果写进「车机信息」表
+            otaChannelState = info.ok ? 1 : 2;
+            refreshPushButtons();
+            renderCarInfo();
+            append("探测结果：" + info.summary());
+            if (info.ok && info.versionCode != null && !info.versionCode.isEmpty()) {
+                tvLinkStatus.setText("10950 已连通 · " + info.host
+                        + "\n版本 " + info.versionCode
+                        + "\nVIN " + (info.vin.isEmpty() ? "—" : info.vin));
+                tvStatus.setText("10950 已连通 · 可推送");
+                append("★ 10950 只是短命窗口，随时可能被网络切换拆掉。"
+                        + "推荐直接点「开始OTA流程」：连上即在同一连接内推完，不回界面。");
+            } else if (info.ok) {
+                tvLinkStatus.setText("10950 已连通 · 但没读到版本");
+                tvStatus.setText("10950 已连通 · 但没读到版本");
+                append(info.hint);
+            } else {
+                tvLinkStatus.setText("10950 未连通 · " + info.error);
+                tvStatus.setText("10950 未连通 · " + info.error);
+                append(info.hint);
             }
         });
+    }
+
+    /**
+     * 推送前确认弹窗：把「刷的是哪个包、六项检查结论、哪些红线」摊开给用户看。
+     *
+     * <p>刷写<b>不可逆</b>：2026-10-06 那次协议层全通、车机真的进了刷写，
+     * 但包内部不自洽 ⇒ 刷到一半停 ⇒ 仪表彻底挂掉、已返厂。
+     * 所以这个弹窗的作用不是「走过场」，而是让人有机会在动手前看清楚。</p>
+     */
+    private void confirmThen(final boolean watch) {
+        final File pkg = picked;
+        final OtaSocketPusher.PkgInfo info = pickedInfo;
+        if (pkg == null) {
+            tvStatus.setText("还没选包");
+            append("没找到包 —— 点「选择文件」用 SAF 选一个升级包");
+            return;
+        }
+        if (info == null || info.verify == null) {
+            tvStatus.setText("包自检还没跑完");
+            append("等六项检查跑完再推送（要先确认推的是哪一个包、以及它是否自洽）");
+            return;
+        }
+        if (!info.pushable()) {
+            append("✖ 包未通过六项检查，禁止推送：" + info.note);
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("包　　：").append(pkg.getName()).append('\n');
+        sb.append("大小　：").append(pkg.length()).append(" 字节\n");
+        sb.append("zip MD5：").append(info.zipMd5).append('\n');
+        sb.append("内层包　：").append(info.packSize).append(" 字节\n");
+        sb.append("内层 MD5：").append(info.packMd5).append('\n');
+        sb.append("\n六项检查（U-Boot 同一套）：\n");
+        for (OtaPackVerify.Check c : info.verify.checks) {
+            sb.append(c.line()).append('\n');
+        }
+        sb.append("\n结论　　：").append(info.gradeLabel()).append('\n');
+        if (!info.matchedBaseline.isEmpty()) {
+            sb.append("参考　　：").append(info.matchedBaseline).append('\n');
+        }
+        sb.append("\n车机　　：").append(OtaSocketPusher.carHost()).append(":10950\n");
+        sb.append("方式　　：").append(watch ? "守候即推（探测到就在同一连接内推完）" : "直接推送")
+                .append('\n');
+        boolean flash = swAutoflash.isChecked();
+        sb.append("自动刷写：").append(flash ? "★ 开（推送并刷写）" : "关（仅推送 OTA 包）")
+                .append('\n');
+        sb.append("\n⚠ 推送后不可逆。刷写中断会导致仪表报废。\n");
+        if (!flash) {
+            sb.append("★ 这次开关是关的：包会落到 userdata 就停，车机停在 OTA Update 等确认。\n");
+            sb.append("   确认要刷时再打开开关重推，或用「补 ack」单独补发。\n\n");
+        }
+        sb.append("逐条确认：\n");
+        sb.append("· 电量 ≥ 25%，且不在充电\n");
+        sb.append("· 车辆非 Ready 状态、已停车\n");
+        sb.append("· 仪表 OTA Update 浮窗已打开\n");
+        sb.append("· 传输全程不动车机、不关 Wi-Fi、不关本 App\n");
+        sb.append("· 车机起不来且疑在刷写中时，不反复上电\n");
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(watch ? "确认：守候即推" : "确认：推送 OTA")
+                .setMessage(sb.toString())
+                .setNegativeButton("取消", null)
+                .setPositiveButton(flash ? "我已确认，推送并刷写" : "确认，只送包", (d, w) -> {
+                    if (watch) {
+                        startWatchPush(pkg, info);
+                    } else {
+                        startPushNow(pkg, info);
+                    }
+                })
+                .show();
+    }
+
+    private void confirmThenWatchPush() {
+        confirmThen(true);
+    }
+
+    /**
+     * 守候即推：持续探测 10950，一连上就在同一连接内完成整条推送。
+     *
+     * <p>10/06 的窗口是短命的（投屏 init 主机才有），
+     * 「探测 → 回界面 → 点推送」中间隔着人的反应时间，窗口早关了；这个模式没有那道缝。</p>
+     */
+    private void startWatchPush(File pkg, OtaSocketPusher.PkgInfo info) {
+        append("=== 守候即推 " + pkg.getName() + " (" + pkg.length() + "B) ===");
+        append("=== 10950 的真实启动条件（Ghidra 实证 libotamodule.so）===");
+        append("  · 10950 的 bind+listen 只在 OTAModule::initial() 里创建一次（VA 0x17ddc）");
+        append("  · initial() 是 spapp 模块生命周期函数，由 ModuleManager 经 vtable 调用");
+        append("  · 投屏(EasyConnect) 只走到 ecModuleInit() 去 connect 信号槽，**不启动 10950**");
+        append("  · 所以「投屏画面正常、10950 却拒连」是固件层必然，不是操作错");
+        append("  · 任何断网事件(slots_otaWifiDisconnectedState → disConnectPhone)都会拆掉它");
+        append("=== 现在真正可用的通道 ===");
+        append("  · p2pTool 写包服务，由仪表 OTA Update 窗口拉起，现在已就绪");
+        append("  · 它收裸 GEMINI_PACK.BIN + 3 字节命令，经 ioctl 触发刷写");
+        append("  · 第三方「极核仪表 OTA 工具」走的就是这条（见 docs/55）");
+        append("⇒ socket_l（10950）始终拒连是固件层必然，继续等是等不到的。");
+        append("「传完自动触发刷写」=" + (swAutoflash.isChecked() ? "开（会真的刷写）" : "关（仅推送 OTA 包）"));
+        OtaSocketPusher.setResolvedCarHost(carHost());
+        tvStatus.setText("守候推送…连上即自动推送");
+        pb.setProgress(0);
+        tvProgress.setText("0%");
+        setBusy(true);
+        OtaPushService.setSink(this);
+        OtaPushService.startWatchPush(this, pkg.getAbsolutePath(), false,
+                swAutoflash.isChecked());
+        // 守候期间同样自动接手建 P2P（用户退出投屏后不必碰 Wi-Fi 设置）
+        probeActive = true;
+        startAutoP2pWatch();
+    }
+
+    /** 直接推送（通道已确认在听时用）。 */
+    private void startPushNow(File pkg, OtaSocketPusher.PkgInfo info) {
+        append("=== socket_l 直推 " + pkg.getName() + " (" + pkg.length() + "B) ===");
+        append("「传完自动触发刷写」=" + (swAutoflash.isChecked() ? "开（会真的刷写）" : "关（仅推送 OTA 包）"));
+        OtaSocketPusher.setResolvedCarHost(CarNet.resolveCarHost(OtaSocketPusher.CAR_PORT));
+        tvStatus.setText("socket_l 推送中…");
+        pb.setProgress(0);
+        tvProgress.setText("0%");
+        setBusy(true);
+        OtaPushService.setSink(this);
+        OtaPushService.start(this, pkg.getAbsolutePath(), swAutoflash.isChecked());
+    }
+
+    /** 旧入口（远程驱动 / 兼容），走直接推送。 */
+    private void startSocketPush() {
+        if (probeActive) {
+            append("持续探测结束后再手动推送，或直接用「守候即推」。当前没有发送 OTA 数据。");
+            return;
+        }
+        confirmThen(false);
     }
 
     // ==================== 日志 ====================
@@ -566,95 +1334,120 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         tvLog.setText("（日志已清空）");
     }
 
-    /**
-     * 让固定高度的日志 TextView 自己能滚。
-     *
-     * <p><b>为什么必须两步都做</b>：
-     * <ol>
-     *   <li>{@code scrollbars="vertical"} 只是画出滚动条，<b>不</b>产生滚动行为 ——
-     *       没有 {@link android.text.method.ScrollingMovementMethod} 的 TextView
-     *       拿到 ACTION_MOVE 什么都不做，日志多出来就直接被裁掉。</li>
-     *   <li>光有 MovementMethod 也不够：外层 NestedScrollView 会先判定「纵向拖拽」把事件截走，
-     *       手指划的是整页而不是日志区。所以按下时向 parent 链
-     *       {@code requestDisallowInterceptTouchEvent(true)}，抬手再放回去。</li>
-     * </ol>
-     * </p>
-     */
-    private void setupLogScrolling(TextView tv) {
+    /** 把整段日志复制到剪贴板 —— 车边要贴到笔记 / 提工单时省事。 */
+    private void copyLog() {
+        if (log.length() == 0) {
+            append("日志是空的，没什么可复制");
+            return;
+        }
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) {
+                append("拿不到剪贴板服务");
+                return;
+            }
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                    "SpeedHunter OTA 日志", log.toString()));
+            append("已复制 " + log.length() + " 字日志到剪贴板");
+        } catch (Exception e) {
+            append("复制失败：" + e);
+        }
+    }
+
+    private void setupLogScrolling(final TextView tv) {
         tv.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         tv.setVerticalScrollBarEnabled(true);
+        final androidx.core.widget.NestedScrollView parent =
+                findViewById(R.id.page_scroll);
         tv.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, android.view.MotionEvent ev) {
+                // 日志区自己滚动时，别让外层 NestedScrollView 抢走手势
                 int a = ev.getActionMasked();
                 if (a == android.view.MotionEvent.ACTION_DOWN) {
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    parent.requestDisallowInterceptTouchEvent(true);
                 } else if (a == android.view.MotionEvent.ACTION_UP
                         || a == android.view.MotionEvent.ACTION_CANCEL) {
-                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    parent.requestDisallowInterceptTouchEvent(false);
                 }
-                // ★ 返回 false：别把事件吃掉，TextView#onTouchEvent 还得靠它驱动滚动
                 return false;
             }
         });
     }
 
-    /** 往日志追加一行（写文件 + 主线程刷新 + 贴底）。 */
+    private static final java.text.SimpleDateFormat LOG_TS =
+            new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
+
+    /**
+     * 追加一行日志，<b>带时间戳</b>（参考工具每行都有 {@code 19:32:23}）。
+     *
+     * <p>刷写过程只能靠时间线判断「哪一步卡了多久」，没有时间戳的日志事后复盘时没用。
+     * 另外按行数截断改成按<b>字符数</b>截断 —— 106MB 推送会刷几百行长日志，
+     * 按行数算出来的 40000 字上限实际可达几十 MB。</p>
+     */
     private void append(final String s) {
         HookLog.log(HookLog.OTA + " UI " + s);
         main.post(() -> {
-            log.append(s).append('\n');
-            // 只留尾部：协议回包那种一行几十字节能刷几千行，全留着 TextView 会卡
-            if (log.length() > LOG_MAX_LINES * 100) {
-                int nl = log.indexOf("\n");
-                if (nl >= 0) {
-                    log.delete(0, nl + 1);
-                }
+            String ts;
+            synchronized (LOG_TS) {
+                ts = LOG_TS.format(new java.util.Date());
+            }
+            log.append(ts).append("  ").append(s).append('\n');
+            int overflow = log.length() - LOG_MAX_CHARS;
+            if (overflow > 0) {
+                int nl = log.indexOf("\n", overflow);
+                log.delete(0, nl >= 0 ? nl + 1 : overflow);
             }
             tvLog.setText(log.toString());
-            // 贴底显示最新一趟。★ 必须 post 到下一帧 + 用 Layout#getHeight 夹住上限：
-            //   在这台 ROM 上 setText 后同一帧内 getLineTop(last) 会返回远超内容高度的值，
-            //   一 scroll 就把文字整个顶出可视区。
-            tvLog.post(new Runnable() {
-                @Override
-                public void run() {
-                    android.text.Layout l = tvLog.getLayout();
-                    if (l == null) {
-                        return;
-                    }
-                    int bottom = l.getHeight() - tvLog.getHeight();
-                    if (bottom < 0) {
-                        bottom = 0;
-                    }
-                    tvLog.scrollTo(0, bottom);
+            tvLog.post(() -> {
+                android.text.Layout l = tvLog.getLayout();
+                if (l == null) {
+                    return;
                 }
+                int bottom = l.getHeight() - tvLog.getHeight();
+                if (bottom < 0) {
+                    bottom = 0;
+                }
+                tvLog.scrollTo(0, bottom);
             });
         });
     }
 
-    // ==================== OtaSocketPusher.Callback（探测阶段） ====================
+    // ==================== EcPxc.LineSink / Progress / DoneCallback ====================
 
     @Override
-    public void onLog(String line) {
+    public void onLine(String line) {
         append(line);
     }
 
     @Override
-    public void onProgress(int percent, long sent, long total) {
-        if (percent >= 0) {
-            main.post(() -> {
-                pb.setProgress(Math.max(0, Math.min(100, percent)));
-                tvProgress.setText(percent + "%");
-            });
-        }
+    public void onProgress(long sent, long total) {
+        main.post(() -> {
+            int pct = total > 0 ? (int) (sent * 100 / total) : 0;
+            pb.setProgress(Math.max(0, Math.min(100, pct)));
+            tvProgress.setText(pct + "%  " + sent / 1048576L + "/" + total / 1048576L + " MB");
+            tvStatus.setText(String.format("推送中… %d%%", pct));
+        });
     }
 
     @Override
-    public void onDone(boolean ok, String summary) {
-        append(ok ? "[完成] " + summary : "[失败] " + summary);
+    public void onDone(final boolean ok, final String summary) {
+        main.post(() -> {
+            setBusy(false);
+            if (ok) {
+                pb.setProgress(100);
+                tvProgress.setText("100%");
+                tvStatus.setText("已送达 · 看车机屏幕：校验 → 升级 → 重启");
+                append("[完成] " + summary);
+            } else {
+                tvStatus.setText("推送失败");
+                append("[失败] " + summary);
+            }
+        });
     }
 
-    // ==================== OtaPushService.Progress（推送阶段） ====================
+    // ==================== OtaPushService.Progress（socket_l 直推） ====================
 
     @Override
     public void onPushLog(String line) {
@@ -666,9 +1459,8 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
                                final String note) {
         main.post(() -> {
             pb.setProgress(Math.max(0, Math.min(100, percent)));
-            tvProgress.setText(percent + "%");
-            tvStatus.setText(String.format("推送中… %d%%  %d/%d MB",
-                    percent, sent / 1048576L, total / 1048576L));
+            tvProgress.setText(percent + "%  " + sent / 1048576L + "/" + total / 1048576L + " MB");
+            tvStatus.setText("socket_l 传输中… " + percent + "%");
         });
     }
 
@@ -676,21 +1468,67 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
     public void onPushDone(final boolean ok, final String summary) {
         main.post(() -> {
             setBusy(false);
+            if (!swAutoflash.isChecked()) {
+                pb.setProgress(100);
+                tvProgress.setText("100%");
+                tvStatus.setText("已送包 · 未触发刷写（开关为关）");
+                append("[完成] " + summary);
+                append("车机现在停在 OTA Update 等确认，没有进 U-Boot —— 这是预期行为。");
+                append("要真的刷：打开「传完自动触发刷写」再推一次。");
+                return;
+            }
             if (ok) {
                 pb.setProgress(100);
-                tvStatus.setText("推送完成 · 看车机屏幕：校验 → 升级 → 重启");
+                tvProgress.setText("100%");
+                tvStatus.setText("已回校验确认 · 车机应已进刷写");
                 append("[完成] " + summary);
+                append("接下来（10/06 实测，勿误判为失败）：");
+                append("· 车机会丢 P2P / 10950 CLOSED / ZEEHO AP 消失 = 已重启进 U-Boot/ISP 刷写");
+                append("· 刷写中 Android 协议栈不跑，中控屏全黑属正常；进度条画在仪表屏上");
+                append("· 判据：等车机自动重启上电后看仪表实际显示，别用手机这侧判断");
+                append("· 期间不要反复上电 —— 若车机起不来，重复上电可能扩大损坏");
             } else {
-                tvStatus.setText("推送失败");
+                tvStatus.setText("推送未完成");
                 append("[失败] " + summary);
+                append("若数据已发完只是没收到校验请求，可点「补 ack」等车机缓过来开口，"
+                        + "比重推一遍 106MB 划算。");
+            }
+        });
+    }
+
+    // ==================== CarNet.DiagListener ====================
+
+    @Override
+    public void onStage(String s) {
+        append(s);
+    }
+
+    @Override
+    public void onResult(final CarNet.DiagReport report) {
+        main.post(() -> {
+            append(report.summary);
+            if (report.hasCar()) {
+                tvLinkStatus.setText("网络诊断：组主 " + report.groupOwner
+                        + "（经 :" + report.groupOwnerPort + " 判定）\n模式：" + report.mode);
+                tvStatus.setText("诊断到车机 · " + report.groupOwner);
+                OtaSocketPusher.setResolvedCarHost(report.groupOwner);
+                renderCarInfo();
+            } else {
+                tvStatus.setText("诊断未探到车机");
             }
         });
     }
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        p2pToolWatching = false;          // 退出界面即停 10086 守候轮询
+        if (carP2p != null) {
+            try { carP2p.close(); } catch (Throwable ignored) { }
+            carP2p = null;
+        }
         // Service 还在跑就不要抢 sink（推送中切走界面，进度回报会掉，但传输不中断）
         OtaPushService.setSink(null);
+        OtaPushService.setProbeSink(null);
+        super.onDestroy();
     }
 }

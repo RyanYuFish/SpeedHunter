@@ -16,8 +16,6 @@ import com.github.zeehospeedhunter.core.ActivityTracker;
 import com.github.zeehospeedhunter.core.HookLog;
 import com.github.zeehospeedhunter.core.Targets;
 import com.github.zeehospeedhunter.core.ViewKit;
-import com.github.zeehospeedhunter.ota.OtaOptions;
-import com.github.zeehospeedhunter.ota.OtaPageUnlock;
 
 /**
  * 骑行记录相关 hook。
@@ -159,15 +157,6 @@ public final class RideHooks {
                             return;
                         }
 
-                        // OTA：强制显示升级入口/按钮，隐藏「已是最新版本」分支
-                        if (OtaOptions.UNLOCK_UI && OtaPageUnlock.isOnOtaPage(view)) {
-                            Integer forced = OtaPageUnlock.forcedVisibility(view);
-                            if (forced != null) {
-                                param.args[0] = forced;
-                                return;
-                            }
-                        }
-
                         // 孪生仪表页：藏掉「不支持」提示，恢复仪表控件
                         if (RideViews.isInControlPage(view)) {
                             if (RideViews.isUnsupportedHint(view)) {
@@ -207,21 +196,6 @@ public final class RideHooks {
                         if (RideViews.isRideEntry(view)) {
                             view.post(() -> ViewKit.reveal(view));
                             return;
-                        }
-                        if (OtaOptions.UNLOCK_UI && OtaPageUnlock.isOnOtaPage(view)) {
-                            Integer forced = OtaPageUnlock.forcedVisibility(view);
-                            if (forced != null) {
-                                final int target = forced;
-                                view.post(() -> {
-                                    if (target == View.VISIBLE) {
-                                        ViewKit.reveal(view);
-                                    } else {
-                                        view.setVisibility(target);
-                                    }
-                                    OtaPageUnlock.enableButton(view);
-                                });
-                                return;
-                            }
                         }
                         if (RideViews.isInControlPage(view)) {
                             if (RideViews.isUnsupportedHint(view)) {

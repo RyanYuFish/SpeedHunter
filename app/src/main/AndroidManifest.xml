@@ -44,6 +44,38 @@
     -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!--
+      ★★★ 蓝牙（BLE 透传诊断链路，2026-10-15 移植 zeeho-diag iOS 版）：
+        iOS 版的主诊断通道不是 Wi-Fi DoIP，而是经 HC-02 / I6328A-485 / ESP32-CANE 这类
+        **串口透传模块**直连车辆 RS485 针脚或 CAN 总线 —— 手机直接上总线，不经过车机热点。
+        这是「换胎压传感器 / 清 ABS 泵 / NFC 学卡」这类只有总线层能做的事的唯一路径。
+
+        ★ Android 12 (API 31) 起 BLUETOOTH_SCAN / BLUETOOTH_CONNECT 归入「附近设备」权限族
+          （dangerous，运行时申请）。缺这两条时 BluetoothLeScanner.startScan 直接抛
+          SecurityException，且现象与「模块没上电」一样（扫不到任何设备）——极易误判。
+          ★★ 这两条必须加 android:usesPermissionFlags="neverForLocation"，
+             否则系统会因定位用途而额外要求 ACCESS_FINE_LOCATION，且会被算作位置信息采集。
+        ★ API 30 及以下走 legacy：BLUETOOTH / BLUETOOTH_ADMIN（normal，安装即授予），
+          但**扫描仍需 ACCESS_FINE_LOCATION**（上面已声明）。
+        ★ BLUETOOTH_CONNECT 是运行时权限，即使用户在系统里已配对该模块，
+          缺它时 connectGatt 也会抛 SecurityException。
+    -->
+    <!-- Android 12+ -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Android 11 及以下（legacy 扫描/配对；API 31 起系统会忽略这两条） -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <!--
+      声明需要 BLE 外设：Android 11+ 包可见性过滤会让蓝牙扫描看不到「未配对且不主动声明
+      intent-filter」的设备；加上这个 uses-feature 后系统才不会把 BLE 扫描静默过滤掉。
+    -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+    <!--
       ★★★ Android 13 (API 33) 起 Wi-Fi P2P 归到「附近设备」权限族：缺这一条时
       WifiP2pManager.discoverPeers / requestPeers 会被框架**直接拒绝**，
       回调 onFailure(reason=0) = P2P_UNSUPPORTED，且 requestPeers 秒回**空列表**。
@@ -122,6 +154,13 @@
             android:name=".ui.OtaActivity"
             android:exported="false"
             android:label="仪表 OTA 推送"
+            android:launchMode="singleTop"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".ui.WallpaperActivity"
+            android:exported="false"
+            android:label="仪表壁纸推送"
             android:theme="@style/AppTheme" />
 
         <!--

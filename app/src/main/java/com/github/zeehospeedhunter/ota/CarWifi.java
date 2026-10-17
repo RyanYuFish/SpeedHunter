@@ -43,8 +43,13 @@ public final class CarWifi {
     /** 车机 AP 的 SSID 前缀。 */
     public static final String SSID_PREFIX = "ZEEHO-";
 
-    /** 默认车机 AP（doc/43 实测：测试车为 ZEEHO-204dfd / 071284a88d）。 */
-    public static final String DEFAULT_SSID = "ZEEHO-204dfd";
+    /**
+     * 默认车机 AP 名。
+     *
+     * <p>刻意留空：具体 SSID 属于车辆隐私，且不同车不一样，
+     * 应由「扫描结果 / 用户手填 / SharedPreferences 记忆」提供，不该硬编码进代码。</p>
+     */
+    public static final String DEFAULT_SSID = "";
 
     public interface ConnectResult {
         void onResult(boolean ok, String msg);

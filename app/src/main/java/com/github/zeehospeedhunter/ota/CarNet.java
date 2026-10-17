@@ -3,7 +3,6 @@ package com.github.zeehospeedhunter.ota;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.net.Uri;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -18,7 +17,6 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 车机网络中枢 —— 连接与网络诊断（依据第三方「极核仪表 OTA 工具」实况）。
@@ -55,8 +53,11 @@ public final class CarNet {
 
     /** 车机侧已知端口（只用来握手探测，不发业务数据）。 */
     public static final int PORT_SOCKET_L = 10950;  // OTA 推送
+    public static final int PORT_EC = 10930;        // EasyConnect mDNS/控制服务（车机广播 _EasyConn._tcp.local.）
     public static final int PORT_DOIP = 13400;      // 车端诊断
     public static final int PORT_ADB = 5555;        // P2P ADB
+    /** cfmoto_P2p_server：仪表 Key OTA 启动的独立裸包服务（固件静态证据）。 */
+    public static final int PORT_P2P_TOOL = 10086;
 
     // ==================== 本机在车机网段？ ====================
 
@@ -101,10 +102,14 @@ public final class CarNet {
         int dot = host.lastIndexOf('.');
         if (dot < 0) return null;
         final String prefix = host.substring(0, dot + 1);
+        String fallback = null;
         for (NetInfo n : localPrivateIps()) {
-            if (n.ip.startsWith(prefix)) return n.ip;
+            if (n.ip.startsWith(prefix)) {
+                if (n.iface != null && n.iface.startsWith("p2p")) return n.ip;
+                if (fallback == null) fallback = n.ip;
+            }
         }
-        return null;
+        return fallback;
     }
 
     // ==================== 组主地址探测（网络诊断的核心） ====================
@@ -142,6 +147,17 @@ public final class CarNet {
     public static boolean portOpen(String host, int port, int timeoutMs, String[] detailOut) {
         Socket s = new Socket();
         try {
+            // ★ 必须绑本机源地址：Android 多网络下 default network（蜂窝）会抢路，
+            //   裸 connect 会从蜂窝口出、到不了车机网段（日志实证 from /10.x.x.x）。
+            //   只绑与 host 同 /24 子网的本机地址；否则明确跳过，不能误走蜂窝网络。
+            String src = pickSourceFor(host);
+            if (src == null) {
+                if (detailOut != null) {
+                    detailOut[0] = "跳过：手机没有与 " + host + " 同 /24 的活动网卡";
+                }
+                return false;
+            }
+            s.bind(new InetSocketAddress(src, 0));
             s.connect(new InetSocketAddress(host, port), timeoutMs);
             if (detailOut != null) detailOut[0] = "TCP " + host + ":" + port + " 可连";
             return true;
@@ -151,6 +167,11 @@ public final class CarNet {
         } finally {
             try { s.close(); } catch (Exception ignored) { }
         }
+    }
+
+    /** 选一个与 host 同 /24 子网的本机地址做 bind 源；没有时返回 null。 */
+    private static String pickSourceFor(String host) {
+        return localIpForHost(host);
     }
 
     /**
@@ -177,7 +198,7 @@ public final class CarNet {
         r.prefer5GHz = carApIs5G(ctx);
 
         // 端口握手探测：任一候选主机在任一端口可连 → 判定为组主
-        int[] ports = {PORT_SOCKET_L, PORT_DOIP, PORT_ADB};
+        int[] ports = {PORT_SOCKET_L, PORT_P2P_TOOL, PORT_EC, PORT_DOIP, PORT_ADB};
         for (String host : CAR_HOSTS) {
             for (int port : ports) {
                 PortProbe pp = new PortProbe(host, port);

@@ -1,7 +1,11 @@
 #!/bin/zsh
 # ota-watch.sh — 监控 ZEEHO OTA 任务下发，发现 fileInfoList 直链立即下载
 # 用法: ./tools/ota-watch.sh [轮询秒数，默认20]
-ADB=/Users/ryanfish/Library/Android/sdk/platform-tools/adb
+# 不写死本机路径：优先环境变量，其次常见 SDK 位置，必须在至少一个后能用
+ADB="${ADB:-${ANDROID_HOME:+$ANDROID_HOME/platform-tools/adb}}"
+ADB="${ADB:-${ANDROID_SDK_ROOT:+$ANDROID_SDK_ROOT/platform-tools/adb}}"
+ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
+command -v "$ADB" >/dev/null 2>&1 || ADB=adb
 LOG=/sdcard/Android/data/com.cfmoto/files/zeeho_hook.log
 OUT="$(cd "$(dirname "$0")/.." && pwd)/ota-capture"
 INTERVAL="${1:-20}"

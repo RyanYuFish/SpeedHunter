@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  车端诊断操作台。布局参照第三方 zeeho-diag（Electron）的信息层次：
+    ① 顶栏：圆形返回键 + 标题 + 右侧「状态胶囊」（三态：未连接 / 探测中 / 已就绪）
+    ② 连接卡：filled 的「一键连接」主操作 + 次要按钮行 + 排查解释文案
+    ③ 功能宫格：2 列「图标 + 标题 + 副标题」，按使用场景组织（车辆信息 / 故障码 / ECU / 数据流 / DID / RS485）
+    ④ 高级设置：默认折叠（ECU 选择、DID 范围、数据流分组）
+    ⑤ 维修操作：红色卡，写类默认硬禁
+    ⑥ 日志 / 结果
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root_diag"
@@ -18,42 +27,61 @@
         android:paddingTop="12dp"
         android:paddingBottom="16dp">
 
-        <!-- ===== 标题 + 返回 ===== -->
+        <!-- ===== ① 顶栏：返回 + 标题 + 状态胶囊 ===== -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <TextView
+            <ImageButton
+                android:id="@+id/btn_back"
+                style="@style/NavCircleButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_arrow_back" />
+
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
                 android:layout_weight="1"
-                android:text="车端诊断 · DoIP / UDS"
-                android:textAppearance="?attr/textAppearanceHeadlineMedium"
-                android:textColor="?attr/colorOnSurface" />
+                android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_back"
-                style="@style/Widget.Material3.Button.TextButton"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="车端诊断"
+                    android:textAppearance="?attr/textAppearanceTitleLarge"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DoIP / UDS"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <!-- 状态胶囊：三态由 DiagActivity 更新颜色与文案 -->
+            <TextView
+                android:id="@+id/tv_link_badge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="返回" />
+                android:background="@drawable/bg_badge"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:text="未连接"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="WiFi 诊断通道 TCP 192.168.49.1:13400（UDS）；RS485 抓包离线解码。连上车机 AP 后用。"
-            android:textAppearance="?attr/textAppearanceBodySmall"
-            android:textColor="?attr/colorOnSurfaceVariant" />
-
-        <!-- ===== 连接车机 + DoIP 目标 ===== -->
+        <!-- ===== ② 连接卡：一键连接（主）+ 次要操作 + 排查文案 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="14dp"
             app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp"
@@ -68,60 +96,162 @@
 
                 <TextView
                     style="@style/SettingRowTitle"
-                    android:text="① 连接车机 / DoIP 目标" />
+                    android:text="连接设备" />
 
-                <!-- 系统 Wi-Fi 直连（主）+ App 内直连（兜底）+ 网络诊断，共用连接条 -->
-                <include layout="@layout/view_carnet" />
-
-                <TextView
-                    style="@style/SettingRowSubtitle"
+                <!-- 主操作：filled 满宽，对应参考图的「一键连接」 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_one_tap_connect"
+                    style="@style/Widget.Material3.Button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:text="DoIP 目标（组主地址以「网络诊断」探测结果为准，可能是 192.168.0.1 或 49.1）" />
+                    android:text="一键连接（自动探测 3 秒）"
+                    android:textSize="14sp" />
 
+                <!-- 次要操作：降级为 tonal，不与主操作抢视觉权重 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:orientation="horizontal">
 
-                    <EditText
-                        android:id="@+id/et_host"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_system_wifi"
+                        style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_weight="2"
-                        android:hint="DoIP 主机"
-                        android:inputType="text"
-                        android:singleLine="true"
-                        android:textSize="13sp" />
+                        android:layout_weight="1"
+                        android:text="连车机热点"
+                        android:textSize="12sp" />
 
-                    <EditText
-                        android:id="@+id/et_port"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_netdiag"
+                        style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:hint="端口"
-                        android:inputType="number"
-                        android:singleLine="true"
-                        android:textSize="13sp" />
+                        android:text="网络诊断"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_disconnect"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="断开"
+                        android:textSize="12sp" />
                 </LinearLayout>
 
+                <!-- 状态 + 排查解释（对应参考图那段「找不到设备？它是 SPP…」文案） -->
                 <TextView
                     android:id="@+id/tv_diag_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="未连接"
+                    android:layout_marginTop="10dp"
+                    android:text="未连接。请先连车机热点 ZEEHO-xxxx（优先 5GHz），再点上方一键连接。"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <!-- 共享连接条（App 内直连兜底 / SSID 密码表单），逻辑见 CarNetController -->
+                <include layout="@layout/view_carnet" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 选择 ECU ===== -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- ===== ③ 功能宫格 ===== -->
+        <TextView
+            style="@style/SettingRowTitle"
+            android:layout_marginTop="18dp"
+            android:text="功能" />
+
+        <!-- 第一行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <include
+                android:id="@+id/tile_vehicle_info"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="1dp" />
+
+            <include
+                android:id="@+id/tile_fault_code"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <!-- 第二行 -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <include
+                android:id="@+id/tile_ecu_info"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="1dp" />
+
+            <include
+                android:id="@+id/tile_data_stream"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <!-- 第三行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal">
+
+            <include
+                android:id="@+id/tile_scan_did"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="1dp" />
+
+            <include
+                android:id="@+id/tile_rs485"
+                layout="@layout/view_diag_tile"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <!-- ===== 车辆链路：BLE 透传（RS485 / CAN）或 Wi-Fi DoIP ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
             app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp"
@@ -136,141 +266,362 @@
 
                 <TextView
                     style="@style/SettingRowTitle"
-                    android:text="② 目标 ECU（⚠ = DoIP 地址未验证，回退 CAN 地址试）" />
+                    android:text="车辆链路" />
 
-                <Spinner
-                    android:id="@+id/sp_ecu"
+                <TextView
+                    style="@style/SettingRowSubtitle"
+                    android:text="RS485 / CAN 走蓝牙透传模块（直连总线，不经车机）；WIFI 走车机 DoIP" />
+
+                <!-- 链路模式选择 -->
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/tg_link_mode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    android:layout_marginTop="10dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
 
-        <!-- ===== 只读诊断 ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_mode_rs485"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="RS485"
+                        android:textSize="12sp" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_mode_can"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="CAN"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_mode_wifi"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="WIFI"
+                        android:textSize="12sp" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <TextView
-                    style="@style/SettingRowTitle"
-                    android:text="③ 只读诊断（安全）" />
+                    android:id="@+id/tv_link_mode_desc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
 
+                <!-- 一键连接 / 断开 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="10dp"
                     android:orientation="horizontal">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_read_info"
-                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:id="@+id/btn_link_connect"
+                        style="@style/Widget.Material3.Button"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="车辆信息"
-                        android:textSize="12sp" />
+                        android:text="一键连接（BLE）"
+                        android:textSize="13sp" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_read_dtc"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:text="读故障码"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_ecu_info"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:text="ECU 身份"
-                        android:textSize="12sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <Spinner
-                        android:id="@+id/sp_group"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_read_streams"
+                        android:id="@+id/btn_link_scan"
                         style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="读数据流"
+                        android:text="扫描设备"
                         android:textSize="12sp" />
                 </LinearLayout>
 
-                <LinearLayout
+                <TextView
+                    android:id="@+id/tv_link_state"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:text="蓝牙链路未就绪"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
 
-                    <EditText
-                        android:id="@+id/et_scan_start"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:hint="DID 起(0100)"
-                        android:inputType="text"
-                        android:singleLine="true"
-                        android:textSize="12sp" />
+                <!-- ===== CAN 专属区（仅 CAN 模式显示） ===== -->
+                <LinearLayout
+                    android:id="@+id/row_can"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                    <EditText
-                        android:id="@+id/et_scan_end"
-                        android:layout_width="0dp"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:hint="DID 止(0FFF)"
-                        android:inputType="text"
-                        android:singleLine="true"
-                        android:textSize="12sp" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_scan"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="wrap_content"
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="CAN ID"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <EditText
+                            android:id="@+id/et_can_id"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:hint="714"
+                            android:inputType="textCapCharacters"
+                            android:singleLine="true"
+                            android:text="714"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/et_can_uds"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1.6"
+                            android:hint="UDS 如 220802"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_can_send"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="发"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <!-- 一键 ABS 排气（写操作，红线内） -->
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="扫 DID"
-                        android:textSize="12sp" />
+                        android:layout_marginTop="12dp"
+                        app:cardBackgroundColor="?attr/colorErrorContainer"
+                        app:cardCornerRadius="18dp"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="12dp">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="一键 ABS 排气（写 · 8 步时序）"
+                                android:textAppearance="?attr/textAppearanceTitleSmall"
+                                android:textColor="?attr/colorOnErrorContainer" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:text="泵会真转 10 秒，请盯住放气螺丝。停止只中断后续步骤，泵阀保持当前状态。"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnErrorContainer" />
+
+                            <TextView
+                                android:id="@+id/tv_abs_status"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnErrorContainer" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:orientation="horizontal">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_abs_start"
+                                    style="@style/Widget.Material3.Button"
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="开始排气"
+                                    android:textSize="12sp" />
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_abs_stop"
+                                    style="@style/Widget.Material3.Button.TonalButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="8dp"
+                                    android:enabled="false"
+                                    android:text="停止"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- 胎压传感器 -->
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="胎压传感器（写 · ID 0x714）" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_tpms_read"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="读 ID"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_tpms_front"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:layout_weight="1"
+                            android:text="前轮匹配"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_tpms_rear"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:layout_weight="1"
+                            android:text="后轮匹配"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_tpms_stop"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:layout_weight="1"
+                            android:text="停止"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- ===== RS485 专属区（仅 RS485 模式显示） ===== -->
+                <LinearLayout
+                    android:id="@+id/row_rs485_send"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:text="RS485 私协议帧（43 46 … 45 44，校验自动补）" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <Spinner
+                            android:id="@+id/sp_rs485_sys"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1" />
+
+                        <EditText
+                            android:id="@+id/et_rs485_payload"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1.4"
+                            android:hint="负载(可空)"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_rs485_send"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="发帧"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <!-- NFC 学车 / 胎压初始化（写操作） -->
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="NFC 学车 / 胎压初始化（写）" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_nfc_init"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="NFC 初始化"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_rs485_tpms_init"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:text="胎压匹配初始化"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tv_nfc_tip"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== RS485 离线解码 ===== -->
+        <!-- ===== 高级设置：默认折叠 ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="18dp"
             app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp"
@@ -283,46 +634,131 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <TextView
-                    style="@style/SettingRowTitle"
-                    android:text="④ RS485 抓包离线解码（私协议 43 46…45 44）" />
-
-                <EditText
-                    android:id="@+id/et_rs485"
-                    android:layout_width="match_parent"
-                    android:layout_height="96dp"
-                    android:layout_marginTop="8dp"
-                    android:background="@android:color/transparent"
-                    android:gravity="top|start"
-                    android:hint="粘贴 *_RS485.txt（每行 ts | 30位hex）或连续 hex"
-                    android:inputType="textMultiLine"
-                    android:scrollbars="vertical"
-                    android:textSize="12sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_rs485_decode"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="解码"
-                    android:textSize="12sp" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/SettingRowTitle"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:text="高级设置" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_toggle_advanced"
+                        style="@style/TopTextButton"
+                        android:text="展开" />
+                </LinearLayout>
 
                 <TextView
-                    android:id="@+id/tv_rs485_out"
+                    style="@style/SettingRowSubtitle"
+                    android:text="目标 ECU、数据流分组、DID 扫描范围、DoIP 地址" />
+
+                <LinearLayout
+                    android:id="@+id/row_advanced"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:fontFamily="monospace"
-                    android:textSize="11sp"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="目标 ECU（⚠ = DoIP 地址未验证，回退 CAN 地址试）" />
+
+                    <Spinner
+                        android:id="@+id/sp_ecu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="数据流分组" />
+
+                    <Spinner
+                        android:id="@+id/sp_group"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="DID 扫描范围" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/et_scan_start"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:hint="起 0100"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/et_scan_end"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:hint="止 0FFF"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/SettingRowSubtitle"
+                        android:layout_marginTop="12dp"
+                        android:text="DoIP 地址（组主以「网络诊断」探测为准）" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/et_host"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:hint="主机"
+                            android:inputType="text"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/et_port"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:hint="端口"
+                            android:inputType="number"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 维修操作（写，默认禁） ===== -->
+        <!-- ===== ⑤ 维修操作（写，默认硬禁） ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="18dp"
             app:cardBackgroundColor="?attr/colorErrorContainer"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp"
@@ -336,13 +772,13 @@
 
                 <TextView
                     style="@style/SettingRowTitle"
-                    android:text="⑤ 维修操作（写 · 默认硬禁）"
+                    android:text="维修操作（写 · 默认硬禁）"
                     android:textColor="?attr/colorOnErrorContainer" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="清码 / 复位 / 例程会直接改变车辆状态。勾选并确认风险后才放行；例程 ID 填实测抓到的值。"
+                    android:text="清码 / 复位 / 例程会直接改变车辆状态。勾选并确认风险后才放行；例程 ID 填实际抓到的值。"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:textColor="?attr/colorOnErrorContainer" />
 
@@ -384,8 +820,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
                     <EditText
                         android:id="@+id/et_routine_id"
@@ -420,11 +856,91 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 日志 ===== -->
+        <!-- ===== RS485 离线解码（默认折叠） ===== -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="18dp"
+            app:cardBackgroundColor="?attr/colorSurface"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="0dp"
+            app:strokeColor="?attr/colorOutline"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/SettingRowTitle"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:text="RS485 抓包离线解码" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rs485_toggle"
+                        style="@style/TopTextButton"
+                        android:text="展开" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/SettingRowSubtitle"
+                    android:text="私协议 43 46 … 45 44，无需连车即可解析" />
+
+                <LinearLayout
+                    android:id="@+id/row_rs485"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/et_rs485"
+                        android:layout_width="match_parent"
+                        android:layout_height="96dp"
+                        android:layout_marginTop="8dp"
+                        android:background="?attr/colorSurfaceVariant"
+                        android:gravity="top|start"
+                        android:hint="粘贴 *_RS485.txt（每行 ts | 30位hex）或连续 hex"
+                        android:inputType="textMultiLine"
+                        android:padding="8dp"
+                        android:scrollbars="vertical"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rs485_decode"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="解码"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/tv_rs485_out"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== ⑥ 日志 / 结果 ===== -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
             app:cardBackgroundColor="?attr/colorSurface"
             app:cardCornerRadius="24dp"
             app:cardElevation="0dp"
@@ -451,16 +967,14 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_clear_log"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        style="@style/TopTextButton"
                         android:text="清空" />
                 </LinearLayout>
 
                 <TextView
                     android:id="@+id/tv_log"
                     android:layout_width="match_parent"
-                    android:layout_height="280dp"
+                    android:layout_height="260dp"
                     android:layout_marginTop="4dp"
                     android:background="?attr/colorSurfaceVariant"
                     android:fontFamily="monospace"
