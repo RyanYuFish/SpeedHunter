@@ -20,13 +20,14 @@ def releaseKeyReady = {
 android {
     namespace 'com.github.zeehospeedhunter'
     compileSdk 35
+    buildToolsVersion "35.0.0"
 
     defaultConfig {
         applicationId "com.github.zeehospeedhunter"
         minSdk 24
         targetSdk 34
-        versionCode 35
-        versionName "3.5"
+        versionCode 42
+        versionName "3.6.3-stability"
     }
 
     signingConfigs {
@@ -84,9 +85,11 @@ afterEvaluate {
 }
 
 dependencies {
+    implementation files("libs/ridedaemon.aar")
     compileOnly 'de.robv.android.xposed:api:82'
 
     // 模块自身的设置界面（Material You 动态取色）
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
 }

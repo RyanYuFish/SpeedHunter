@@ -1,3 +1,7 @@
+> 最新快照为 **3.6.3-stability**。本次断开修复、横屏档位、统计说明和验证步骤请阅读 [STABILITY_README.md](STABILITY_README.md)。
+
+> 3.6.2 的设计背景可参考 [SMOOTH_README.md](SMOOTH_README.md)；当前参数以 STABILITY_README.md 为准。以下保留上游原项目介绍。
+
 # ZEEHO Speed Hunter
 
 LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上的兼容性研究与界面恢复。

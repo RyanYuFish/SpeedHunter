@@ -381,7 +381,7 @@
                             android:text="仪表投屏（独立入口）" />
                         <TextView
                             style="@style/SettingRowSubtitle"
-                            android:text="解析投屏二维码 → 自动连车机 AP → 一键拉起官方投屏，不用在官方 App 里手动操作" />
+                            android:text="扫码连接仪表 → Wi-Fi Direct 配对 → 独立屏幕投影，无需官方 App 或 LSPosed" />
                     </LinearLayout>
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_mirror"

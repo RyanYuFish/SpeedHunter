@@ -1,0 +1,14 @@
+.gradle/
+**/build/
+local.properties
+signing.properties
+release/
+*.jks
+*.keystore
+__pycache__/
+*.pyc
+app/libs/*.aar
+app/libs/*-sources.jar
+
+# Keep required local Android library in source control
+!app/libs/ridedaemon.aar

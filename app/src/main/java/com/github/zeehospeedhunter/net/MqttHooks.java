@@ -204,7 +204,7 @@ public final class MqttHooks {
                     + " keepalive=" + ka
                     + " clientId=" + clientId
                     + " userName=" + user
-                    + " password=" + pw
+                    + " password=" + (pw == null ? "<none>" : "<redacted>")
                     + " willTopic=" + willTopic);
         } catch (Throwable t) {
             HookLog.log(TAG + " mqtt parse CONNECT fail: " + t);

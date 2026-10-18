@@ -1,9 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <!-- P2P 建连（Wi-Fi Direct）所需；前两个是 normal 级权限，安装即授予 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- Android 6–12 P2P discovery requires runtime FINE_LOCATION. On Android 12
+         request COARSE and FINE together so the precise-location choice is shown. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <!--
       ★★★ 连车机 AP 走 ConnectivityManager.requestNetwork()（WifiNetworkSpecifier），
         框架层要求 CHANGE_NETWORK_STATE，否则 requestNetwork 直接抛 SecurityException，
@@ -108,6 +118,8 @@
         <package android:name="com.cfmoto" />
     </queries>
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
     <application
         android:name=".ui.UiApp"
         android:allowBackup="false"
@@ -131,6 +143,9 @@
         <meta-data
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
+
+        <activity android:name=".mirror.MirrorTestActivity" android:exported="false" android:theme="@style/AppTheme" />
+        <service android:name=".mirror.StandaloneMirrorService" android:exported="false" android:foregroundServiceType="mediaProjection" />
 
         <!-- 模块设置界面（Material You） -->
         <activity
@@ -210,6 +225,13 @@
             android:authorities="com.github.zeehospeedhunter.settings"
             android:exported="true"
             android:grantUriPermissions="true" />
+        <activity android:name=".ui.MirrorCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:hardwareAccelerated="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:label="扫描仪表投屏二维码" />
     </application>
 
 </manifest>
