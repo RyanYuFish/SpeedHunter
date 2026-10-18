@@ -3,14 +3,6 @@
 LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上的兼容性研究与界面恢复。
 **与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
 
-## 版本记录
-
-| 版本 | 内容 |
-|---|---|
-| **3.7**（`versionCode 43`） | **自定义壁纸 / 投屏优化** —— ① 自定义壁纸：选图 → uCrop 裁 307×460 / 1024×600 两档定尺图 → 自动打包推仪表（Wi-Fi Direct 复用 OTA 那套 `CarP2p`，可在不同车辆间扫码切换）；② 投屏优化：合入社区 3.6.x 编码器兼容回退、连续帧流畅模式、平衡 15 fps / 800 kbps 画质档、写入截止时间刷新修复（解决用久了自动断开）、旋转复用投屏授权、实时性能统计与测试画面。 |
-| 3.5 | OTA 推送控制台 + 六项自洽性检查、车端诊断（DoIP/UDS/BLE/RS485） |
-
----
 
 | # | 能力 | 说明 |
 |---|---|---|
@@ -32,7 +24,7 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上�
 | G2 | `cyclingEventStatisticFlag` | `false` | `true` | 急加速 / 急刹 / 压弯 |
 
 - hook okhttp `Response$Builder#build()`，**不按 URL 过滤**，按「响应体里有没有这两个 key」判定，递归不限层级；
-- **不改任何数据字段**，显示的数值是服务端真值；
+- 显示的数值是服务端真值；
 - **不改车型标识**（`vehicleType` 等）—— 冗余，且会让 App 按别的车型发控制指令。
 
 旧方案（点亮被 GONE 的控件）保留为兜底，默认关闭。
@@ -48,10 +40,6 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上�
 | `LOG_SERVICE` | 开 | 打印 OTA 服务 Intent extras |
 
 **只读，不改写任何响应** —— 升级包是否存在由服务端决定，OTA 红点接口的 `fileInfoList` 为 `null` 时就不会有下载动作。
-
-> 早期版本另有「OTA 界面解锁」与「OTA 包注入」两类能力，用于让官方 App 的 OTA 界面显示出来并走完下载流程。
-> 写包现在走自建的 10086 推送台（见下节），官方 App 的 OTA UI 已无用，**相关代码与开关已于 2026-10-18 全部移除**
-> （原 `OtaPageUnlock` / `OtaInject` / `OtaMmiInject` / `OtaForceUpdate` 四个类）。那几个注入开关原本默认是开的，留着只会无谓改写服务端响应。
 
 ## OTA 推送控制台（TCP 10086）
 
@@ -86,23 +74,18 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上�
 | ⑥ | GD32_APP S-record 记录校验 | 仪表 MCU 编程拿到垃圾数据 |
 
 **判定只看六项是否全过，与包是否原厂无关** —— 自制包改对了就放行，原厂包改错了照样拦。
-原厂包也可能出厂即不自洽，所以别信「原厂」这个标签。
-
-实现：`ota/OtaPackVerify.java`（六项检查）+ `ota/OtaP2pToolPusher.java`（推包 + LOG 取证）
-+ `ota/CarP2p.java`（Wi-Fi Direct）。
 
 
 
 
 ## 仪表壁纸推送（socket_l 10950）
 
-独立推送自定义壁纸到仪表，**不依赖官方 App、不依赖 BLE**（走 Wi-Fi 的 socket_l 通道，与 OTA 同一条）。
+独立推送自定义壁纸到仪表，**不依赖官方 App**。
 
-- 入口：模块主界面「仪表壁纸」→ `ui/WallpaperActivity`；
 - 实现：`ota/WallpaperSocketPusher.java`（协议见下）；远程驱动
   `am start -n com.github.zeehospeedhunter/.ui.WallpaperActivity --es auto push --es file <zip> --es num 2 [--ez dry true]`。
 
-### 协议（固件逆向 + 官方 App 脱壳 + 真车实测三方交叉确认）
+### 协议
 
 | 方向 | 命令 | 说明 |
 |---|---|---|
@@ -136,28 +119,6 @@ wallpaper.zip
 2. **选小图** → uCrop 按 `307×460` 比例裁切 → `1.png`
 3. **打包并推送** → 自动打成 `wallpaper.zip`（`1.png` + `2.png`）→ 直接走上面的推送流程
 
-依赖 `com.github.yalantis:ucrop:2.2.11`（JitPack；2.2.x 用 `UCrop.of(uri,dst).withAspectRatio(...)
-.withMaxResultSize(...).start(activity, requestCode)` + `onActivityResult`，没有 2.8 的 Builder/ResultListener）。
-⚠️ 依赖必须写在 `app/build.gradle`；写进根 `build.gradle` 会报
-`Could not find method implementation()`（根项目没有该配置）。
-
-Manifest 里必须声明（主题不能用 `AppTheme`，uCrop 自身控件依赖 AppCompat Light）：
-
-```xml
-<activity
-    android:name="com.yalantis.ucrop.UCropActivity"
-    android:screenOrientation="portrait"
-    android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
-```
-
-### 真车实测（2026-10-18）
-
-```
-→ 0x10000043 start        ← 0x80000043 {"code":"1"}
-→ 0x10000045 end          ← 0x80000045 {"code":"1"}
-                          ← 0x10000046 {"code":"1"} → 0x80000046 ACK    ✔ 推送完成
-```
-
 ### 边界
 
 - 车机 10950 是**单逻辑客户端**：官方 App 占用时本工具连不上（先 force-stop 或退出投屏）；
@@ -166,8 +127,7 @@ Manifest 里必须声明（主题不能用 `AppTheme`，uCrop 自身控件依赖
 
 ## 仪表投屏（独立实现，v3.7 起）
 
-不依赖官方 App、也不需要 LSPosed：本 App 自己拍照/抓屏 → H.264 编码 → 经 EC/PXC 通道按仪表拉流节奏发送。
-这部分来自社区基于本项目 `a0bb0b9` 的 3.6.x 系列改进（详见 `docs/community/`），已合入主线。
+不依赖官方 App，来自社区基于本项目 `a0bb0b9` 的 3.6.x 系列改进。
 
 | 模块 | 文件 | 作用 |
 |---|---|---|
@@ -179,7 +139,7 @@ Manifest 里必须声明（主题不能用 `AppTheme`，uCrop 自身控件依赖
 | P2P | `ui/P2pAccess` + `ota/CarP2p` | 定位权限预检、BUSY 退避重试、40 秒扫描窗口、poll 刷新列表 |
 | 自测 | `mirror/MirrorTestActivity` | 移动条测试画面 + 实时统计，用来区分「导航 App 低刷新」与「投屏链路问题」 |
 
-### 3.7 的投屏优化要点
+### 投屏优化要点
 
 - **画质档位**：默认「平衡」15 fps / 800 kbps，另有 20 fps / 1200 kbps 与 10 fps / 500 kbps；
 - **不再周期性丢 P 帧**：短 GOP（约 500 ms 一次 IDR），启动、旋转、拥堵恢复时额外请求关键帧；Android 10+ 在 Surface 输入端限帧，避免屏幕高刷让编码器空转；
