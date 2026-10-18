@@ -70,6 +70,8 @@ public final class DiagActivity extends AppCompatActivity {
     private String clientHost;
     private int clientPort = -1;
     private CarNetController carNet;
+    /** Wi-Fi Direct 连接面板（扫仪表 / 建组 / 断开），与「连车机热点」互为兜底。 */
+    private P2pPanel p2pPanel;
     private String[] ecuKeys;
     private String[] groupKeys;
 
@@ -168,6 +170,38 @@ public final class DiagActivity extends AppCompatActivity {
         // 一键连接：自动探测 3 秒（对标参考图「一键连接（自动搜索 3 秒）」）
         findViewById(R.id.btn_one_tap_connect).setOnClickListener(v -> oneTapConnect());
         findViewById(R.id.btn_disconnect).setOnClickListener(v -> doDisconnect());
+
+        // ★ Wi-Fi Direct 通道（模块内已有）：扫仪表 → 建组 → 组建成后自动探测并回填 DoIP 主机
+        p2pPanel = new P2pPanel(this, findViewById(R.id.p2p_peer_list), new P2pPanel.Callback() {
+            @Override
+            public void onLog(String s) {
+                append(s);
+            }
+
+            @Override
+            public void onStatus(String s) {
+                tvStatus.setText(s);
+            }
+
+            @Override
+            public void onGroup(String go) {
+                if (go == null || go.isEmpty() || "?".equals(go)) return;
+                // 组主可能不是标准的 49.1，以探测到的为准（不能写死）
+                etHost.setText(go);
+                prefs.edit().putString("host", go).apply();
+                append("P2P 组主 " + go + " 已回填 DoIP 主机，接着做端口探测确认…");
+                // 端口通 ≠ 路由激活能过，所以只把状态置为探测中，由诊断结果决定最终态
+                setLink(Link.PROBING, "探测中…");
+                carNet.runDiagnose();
+            }
+        });
+        findViewById(R.id.btn_p2p_scan).setOnClickListener(v -> p2pPanel.scan());
+        findViewById(R.id.btn_p2p_disconnect).setOnClickListener(v -> {
+            if (p2pPanel == null) return;
+            p2pPanel.disconnect();
+            setLink(Link.OFF, "未连接");
+            tvStatus.setText("已请求断开 P2P。");
+        });
 
         // 写操作：allowWrite 闸门 + 二次确认
         findViewById(R.id.btn_clear_dtc).setOnClickListener(v -> confirmWrite("清除故障码", this::doClearDtc));
@@ -805,8 +839,19 @@ public final class DiagActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 从系统 WLAN / 定位设置返回时继续排队中的 P2P 扫描
+        if (p2pPanel != null) p2pPanel.onResume();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (p2pPanel != null) {
+            p2pPanel.close();
+            p2pPanel = null;
+        }
         if (absThread != null) {
             absThread.interrupt();
             absThread = null;

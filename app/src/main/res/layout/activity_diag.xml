@@ -145,6 +145,45 @@
                         android:textSize="12sp" />
                 </LinearLayout>
 
+                <!--
+                  ★ Wi-Fi Direct 通道（模块内已有，OTA 推包就走它）：
+                    扫仪表 → 点设备建组 → 组建成后自动按组主地址探测并回填 DoIP 主机。
+                    与上面的「连车机热点（去系统设置）」互为兜底。
+                -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_p2p_scan"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Wi-Fi Direct 扫描"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_p2p_disconnect"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="断开 P2P"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- 扫到的车机列表（动态填充，只列名称匹配车机的设备） -->
+                <LinearLayout
+                    android:id="@+id/p2p_peer_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical" />
+
                 <!-- 状态 + 排查解释（对应参考图那段「找不到设备？它是 SPP…」文案） -->
                 <TextView
                     android:id="@+id/tv_diag_status"

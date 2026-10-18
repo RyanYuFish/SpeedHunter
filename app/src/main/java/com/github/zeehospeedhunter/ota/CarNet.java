@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 
 import java.net.InetAddress;
@@ -251,14 +253,32 @@ public final class CarNet {
         void onResult(DiagReport report);
     }
 
-    /** 异步跑一次网络诊断。 */
+    /**
+     * 异步跑一次网络诊断。
+     *
+     * <p>★ 回调一律切回<b>主线程</b>派发：诊断本身阻塞（TCP 握手），必须放 worker 线程，
+     * 但宿主回调里全是 UI 操作（setText / 回填输入框 / 状态胶囊）。
+     * 若回调留在 {@code car-net-diag} 线程，宿主一碰 View 就抛
+     * {@code ViewRootImpl$CalledFromWrongThreadException} 并**直接闪退**
+     * （2026-10-19 诊断页点「一键连接」的崩溃实证：DiagActivity.setLink 被 worker 线程调用）。
+     * 线程切换放在这里，所有调用方（OTA / 投屏 / 诊断三页）一次修好。
+     */
     public static void diagnoseAsync(final Context ctx, final DiagListener l) {
+        final Handler main = new Handler(Looper.getMainLooper());
         new Thread(new Runnable() {
             @Override
             public void run() {
-                l.onStage("网络诊断中…（TCP 握手，不发业务数据）");
-                DiagReport r = diagnose(ctx);
-                l.onResult(r);
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        l.onStage("网络诊断中…（TCP 握手，不发业务数据）");
+                    }
+                });
+                final DiagReport r = diagnose(ctx);
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        l.onResult(r);
+                    }
+                });
             }
         }, "car-net-diag").start();
     }
