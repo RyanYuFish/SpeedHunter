@@ -1,6 +1,8 @@
 # ZEEHO Speed Hunter
 
-[![GitHub License](https://img.shields.io/github/license/RyanYuFish/Zeeho-SpeedHunter?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+
+**English** | [简体中文](docs/README.zh-CN.md)
 
 An LSPosed module for the ZEEHO App, intended for compatibility research and interface restoration on personal devices.
 **Not affiliated with or authorized by ZEEHO / CFMOTO.**
@@ -22,6 +24,22 @@ An LSPosed module for the ZEEHO App, intended for compatibility research and int
 - Install and enable the module in Xposed / LSPosed, with the scope limited to the ZEEHO App;
 - After enabling, force-stop and reopen the ZEEHO App;
 - Some features, such as screen mirroring and wallpaper push, can be used independently without the module.
+
+## Building from Source
+
+JDK 17 + Android SDK 35:
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)   # Linux: point to your JDK 17 home
+./gradlew assembleRelease
+# Output: release/zeeho-speedhunter-v<version>.apk
+```
+
+Windows: `gradlew.bat assembleRelease`. Signing keys are not distributed; without them the build falls back to the debug signature. Details: [`docs/build.md`](docs/build.md).
+
+## Documentation
+
+[ride-records](docs/features/ride-records.md) · [ota-logging](docs/features/ota-logging.md) · [ota-push](docs/features/ota-push.md) · [wallpaper](docs/features/wallpaper.md) · [mirroring](docs/features/mirroring.md) · [diagnostics](docs/features/diagnostics.md) · [network](docs/features/network.md) · [build](docs/build.md) · [logging](docs/logging.md) · [changelog](docs/changelog.md) · [community](docs/community/)
 
 ## Safety and Privacy
 

@@ -1,6 +1,8 @@
 # ZEEHO Speed Hunter
 
-[![GitHub License](https://img.shields.io/github/license/RyanYuFish/Zeeho-SpeedHunter?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+
+[English](../README.md) | **简体中文**
 
 面向 ZEEHO App（`com.cfmoto`）的 LSPosed 模块，用于个人设备上的兼容性研究与界面恢复。
 **与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
@@ -22,6 +24,22 @@
 - 在 Xposed / LSPosed 中安装并启用模块，作用域限定为 `com.cfmoto`；
 - 启用后强制停止并重开 ZEEHO App；
 - 部分功能（投屏、壁纸推送）可脱离模块独立使用。
+
+## 从源码构建
+
+JDK 17 + Android SDK 35：
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)   # Linux 指向 JDK 17 根目录
+./gradlew assembleRelease
+# 产物 release/zeeho-speedhunter-v<version>.apk
+```
+
+Windows：`gradlew.bat assembleRelease`。签名密钥不随仓库分发，缺失时回退 debug 签名。详见 [`build.md`](build.md)。
+
+## 详细文档
+
+[骑行记录恢复](features/ride-records.md) · [OTA 流量记录](features/ota-logging.md) · [OTA 推送](features/ota-push.md) · [壁纸推送](features/wallpaper.md) · [仪表投屏](features/mirroring.md) · [车端诊断](features/diagnostics.md) · [网络直连](features/network.md) · [构建](build.md) · [日志](logging.md) · [版本记录](changelog.md) · [社区说明](community/)
 
 ## 安全与隐私
 
