@@ -57,7 +57,7 @@
                 android:id="@+id/tv_subtitle"
                 style="@style/ParamHelp"
                 android:layout_marginTop="2dp"
-                android:text="EasyConnect 镜像 · 模块单独入口，绕过官方 App 手动操作" />
+                android:text="Wi-Fi Direct · SpeedHunter 独立屏幕投影" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -85,16 +85,29 @@
                     <TextView
                         style="@style/ParamHelp"
                         android:layout_marginTop="2dp"
-                        android:text="仪表投屏界面的二维码扫出来是一条 app_download URL；粘进来点「解析」自动填上 SSID/密码。也可直接手填车机 AP。" />
+                        android:text="使用相机扫描仪表投屏二维码，自动填入并解析连接信息；也可粘贴完整 URL。无需运行官方 App，也无需启用 LSPosed。" />
 
                     <EditText
                         android:id="@+id/et_mirror_url"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:hint="粘贴投屏二维码 URL（含 ssid= / pwd= / action=9）"
+                        android:hint="完整投屏二维码 URL（含 name、action）"
                         android:inputType="textUri"
                         android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_scan_mirror_qr"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="使用相机扫描二维码" />
+
+                    <TextView
+                        android:id="@+id/tv_mirror_info"
+                        style="@style/ParamHelp"
+                        android:layout_marginTop="8dp"
+                        android:text="扫码或粘贴 URL 后，自动显示连接信息" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_parse_url"
@@ -105,7 +118,7 @@
                         android:text="解析二维码 URL" />
 
                     <!-- 系统 Wi-Fi 直连（主）+ App 内直连（兜底）+ 网络诊断，共用连接条 -->
-                    <include layout="@layout/view_carnet" />
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -135,22 +148,33 @@
                     <TextView
                         style="@style/ParamHelp"
                         android:layout_marginTop="2dp"
-                        android:text="先「连接车机热点」加入 192.168.0.x。「探测 EC 握手」会用与官方同构的 sendClientInfo 帧去敲车机 PXC 口，只测通道是否可达/回包，不推镜像（协议本体在官方 libECSDK 内，加密不可重写，详见 docs/49）。确认通道通了再点「开始投屏」—— 模块经 hook 在 com.cfmoto 内拉起投屏入口。" />
+                        android:text="仪表停留在投屏二维码页，手机开启 WLAN、关闭个人热点。允许 SpeedHunter 使用附近设备（旧系统需定位）及共享屏幕；切换至导航 App 后继续投影。" />
 
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switch_smooth"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:checked="true" android:text="流畅模式（连续帧，使用下方档位）" />
+                    <TextView style="@style/ParamHelp" android:text="默认开启，建议先用平衡档测试横屏。若仪表花屏可关闭后重连。档位码率用于连续帧，兼容模式保留原编码配置。切换需停止后重新开始。" />
+                    <Spinner android:id="@+id/spinner_mirror_quality"
+                        android:layout_width="match_parent" android:layout_height="48dp" />
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_start_mirror"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="开始投屏（拉起车机镜像）" />
+                        android:text="开始独立 Wi-Fi Direct 投屏" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_mirror_test" style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="打开流畅度测试画面" />
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_ec_probe"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="探测 EC 握手（不发镜像，仅测通道）" />
+                        android:text="选择仪表" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_stop_mirror"
@@ -158,7 +182,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="断开并释放热点" />
+                        android:text="停止投屏并断开" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -167,7 +191,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="18dp"
-                android:text="就绪 · 先连车机热点"
+                android:text="就绪 · 请使用仪表投屏二维码"
                 android:textAppearance="?attr/textAppearanceTitleSmall"
                 android:textColor="?attr/colorOnSurface" />
 
@@ -179,6 +203,10 @@
                 android:textAppearance="?attr/textAppearanceTitleSmall"
                 android:textColor="?attr/colorOnSurface" />
 
+            <TextView android:id="@+id/tv_mirror_perf"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:text="性能统计：等待视频传输…"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
             <TextView
                 android:id="@+id/tv_log"
                 android:layout_width="match_parent"
@@ -197,7 +225,7 @@
             <TextView
                 style="@style/ParamHelp"
                 android:layout_marginTop="14dp"
-                android:text="流程：解析二维码 → 加入车机 AP（192.168.0.x）→ 「探测 EC 握手」确认车机 EC 通道可达 → 「开始投屏」交 hook 在 com.cfmoto 内拉起官方 EC 栈（SOCKS5/DNS 中继 + 镜像编解码）。投屏的私有协议（Carbit ECSDK，手机侧爱加密）无法在本模块重写；本页做到「不打开官方 App 也能一键投屏」。投屏期间不要断开 Wi-Fi。分析见 docs/49。" />
+                android:text="流程：二维码 → 本机 P2P 配对 → EC/PXC 握手 → H.264 屏幕投影。不需要官方 App。视频已发送不等于仪表已解码，最终以仪表实际画面为准。此版本需要实车验证。" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

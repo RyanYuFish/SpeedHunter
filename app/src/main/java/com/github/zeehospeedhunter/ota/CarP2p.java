@@ -34,11 +34,29 @@ public final class CarP2p implements AutoCloseable {
     private boolean scanning;
     private boolean connecting;
     private int rounds;
+    private int discoveryFailures;
+    private boolean peersRequestPending;
+    private long scanGeneration;
     /** 暴露连接态给 UI，避免在连接进行中把设备列表回退成「未扫描到设备」。 */
     public boolean isConnecting() {
         return connecting;
     }
+    public boolean isScanning() { return scanning; }
     private final Runnable retry = this::discoverRound;
+    private final Runnable poll = new Runnable() {
+        @Override public void run() {
+            if (closed || !scanning) return;
+            requestPeers();
+            main.postDelayed(this, 2000);
+        }
+    };
+    private final Runnable scanTimeout = this::onScanTimeout;
+    private void onScanTimeout() {
+        if (closed || !scanning) return;
+        stopDiscovery();
+        listener.onLine("P2P 扫描结束（40 秒）；未发现设备时检查仪表 OTA Update、手机定位与 WLAN 状态。");
+        requestPeers();
+    }
     private final Runnable connectTimeout = this::onConnectTimeout;
     private void onConnectTimeout() {
         if (!closed && connecting) {
@@ -57,7 +75,11 @@ public final class CarP2p implements AutoCloseable {
                 if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(a)) requestPeers();
                 if (WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION.equals(a)) refreshGroup();
                 if (WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION.equals(a)) {
-                    listener.onLine("Wi-Fi Direct 状态发生变化，请查看扫描/连接结果。");
+                    if (intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
+                            == WifiP2pManager.WIFI_P2P_STATE_DISABLED) {
+                        stopScanning();
+                        listener.onLine("P2P 扫描失败：系统 Wi-Fi Direct 当前不可用，请开启 WLAN 后再扫描。");
+                    }
                 }
             } catch (SecurityException e) {
                 listener.onLine("P2P 权限被撤销：" + e.getMessage());
@@ -90,39 +112,69 @@ public final class CarP2p implements AutoCloseable {
 
     public void scan() {
         if (closed || connecting) return;
-        stopDiscovery();
+        if (scanning) {
+            listener.onLine("P2P 扫描正在进行，请等待设备结果。");
+            return;
+        }
+        // Do not enqueue stopPeerDiscovery followed immediately by discoverPeers:
+        // the asynchronous stop can race the new scan and return BUSY.
+        stopScanning();
         scanning = true;
         rounds = 0;
-        refreshGroup();
+        discoveryFailures = 0;
+        ++scanGeneration;
+        main.postDelayed(scanTimeout, 40000);
+        try { refreshGroup(); } catch (SecurityException ignored) { }
         listener.onLine("P2P 扫描开始（40 秒）；仪表 OTA Update 窗口常驻即可直接连。设备名与 AP SSID 是不同信息。");
         discoverRound();
     }
 
     private void discoverRound() {
         if (closed || !scanning) return;
-        if (++rounds > 5) {
-            stopDiscovery();
-            listener.onLine("P2P 扫描结束；未发现设备时，检查仪表 Key OTA、手机 Wi-Fi 和定位开关。");
-            return;
-        }
+        ++rounds;
+        final long generation = scanGeneration;
         try {
-            manager.discoverPeers(channel, action("扫描第 " + rounds + " 轮"));
-            requestPeers();
-            main.postDelayed(retry, 8000);
+            manager.discoverPeers(channel, new WifiP2pManager.ActionListener() {
+                @Override public void onSuccess() {
+                    if (closed || !scanning || generation != scanGeneration) return;
+                    listener.onLine("系统已启动 P2P 发现；等待设备广播与列表更新。");
+                    requestPeers();
+                    main.removeCallbacks(poll);
+                    main.postDelayed(poll, 2000);
+                }
+                @Override public void onFailure(int reason) {
+                    if (closed || !scanning || generation != scanGeneration) return;
+                    listener.onLine("P2P 扫描失败：" + reasonName(reason));
+                    if ((reason == WifiP2pManager.BUSY || reason == WifiP2pManager.ERROR)
+                            && ++discoveryFailures <= 3) {
+                        listener.onLine("等待 2 秒后重试发现（" + discoveryFailures + "/3）");
+                        main.postDelayed(retry, 2000);
+                    } else stopScanning();
+                }
+            });
         } catch (SecurityException e) {
-            stopDiscovery();
+            stopScanning();
             listener.onLine("P2P 扫描缺少权限：" + e.getMessage());
         }
     }
 
     private void requestPeers() {
+        if (closed || peersRequestPending) return;
+        peersRequestPending = true;
+        try {
         manager.requestPeers(channel, devices -> {
+            peersRequestPending = false;
             if (closed) return;
             List<WifiP2pDevice> peers = new ArrayList<>(devices.getDeviceList());
             peers.sort(Comparator.comparing((WifiP2pDevice d) -> !isCarName(d.deviceName))
                     .thenComparing(d -> d.deviceAddress == null ? "" : d.deviceAddress));
             listener.onPeers(peers);
         });
+        } catch (SecurityException e) {
+            peersRequestPending = false;
+            stopScanning();
+            listener.onLine("P2P 设备列表缺少权限：" + e.getMessage());
+        }
     }
 
     public static boolean isCarName(String name) {
@@ -145,6 +197,7 @@ public final class CarP2p implements AutoCloseable {
     }
 
     private void doConnect(final WifiP2pDevice device, final int attempt) {
+        if (closed) return;
         connecting = true;
         main.removeCallbacks(connectTimeout);
         main.postDelayed(connectTimeout, 45000);
@@ -172,6 +225,10 @@ public final class CarP2p implements AutoCloseable {
                     }
                 }
             });
+        } catch (SecurityException e) {
+            connecting = false;
+            main.removeCallbacks(connectTimeout);
+            if (!closed) listener.onLine("P2P 连接权限已撤销：" + e.getMessage());
         } catch (RuntimeException e) {
             connecting = false;
             main.removeCallbacks(connectTimeout);
@@ -184,18 +241,23 @@ public final class CarP2p implements AutoCloseable {
 
     public void refreshGroup() {
         if (closed) return;
-        manager.requestConnectionInfo(channel, info -> {
+        try { manager.requestConnectionInfo(channel, info -> {
             if (closed) return;
             if (info.groupFormed) {
                 connecting = false;
+                stopScanning();
                 main.removeCallbacks(connectTimeout);
             }
-            manager.requestGroupInfo(channel, group -> {
+            try { manager.requestGroupInfo(channel, group -> {
                 if (!closed) listener.onGroup(info, group);
                 // 连上了：顺手刷新设备行状态（标成「已连接」），不依赖下一次扫描
                 if (!closed && info.groupFormed) requestPeers();
-            });
-        });
+            }); } catch (SecurityException e) {
+                if (!closed) listener.onLine("P2P 组信息权限已撤销：" + e.getMessage());
+            }
+        }); } catch (SecurityException e) {
+            if (!closed) listener.onLine("P2P 连接信息权限已撤销：" + e.getMessage());
+        }
     }
 
     public void disconnect() {
@@ -208,8 +270,7 @@ public final class CarP2p implements AutoCloseable {
     }
 
     private void stopDiscovery() {
-        scanning = false;
-        main.removeCallbacks(retry);
+        stopScanning();
         if (!closed) {
             try { manager.stopPeerDiscovery(channel, null); } catch (RuntimeException ignored) { }
         }
@@ -219,6 +280,8 @@ public final class CarP2p implements AutoCloseable {
     private void stopScanning() {
         scanning = false;
         main.removeCallbacks(retry);
+        main.removeCallbacks(poll);
+        main.removeCallbacks(scanTimeout);
     }
 
     private WifiP2pManager.ActionListener action(String operation) {
@@ -251,6 +314,6 @@ public final class CarP2p implements AutoCloseable {
         closed = true;
         context.unregisterReceiver(receiver);
         // Keep an established group alive when leaving the page; never interrupt OTA here.
-        channel.close();
+        if (android.os.Build.VERSION.SDK_INT >= 27) channel.close();
     }
 }

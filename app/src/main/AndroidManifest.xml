@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 投屏二维码：相机扫码（社区 3.5.3-qrscan）；硬件声明为可选，无相机设备仍可粘贴 URL -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <!-- P2P 建连（Wi-Fi Direct）所需；前两个是 normal 级权限，安装即授予 -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -43,6 +49,13 @@
       P2P + ADB 推包本质上就是网络操作，这个权限是必需的，不是可选项。
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      ★ P2P discovery（Android 6–12）需要运行时定位权限，否则 discoverPeers 恒 BUSY/无结果。
+        Android 12 起同时请求 COARSE + FINE，让用户看到「精确位置」开关（社区 3.5.1-p2pfix）。
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <!--
       ★★★ 蓝牙（BLE 透传诊断链路，2026-10-15 移植 zeeho-diag iOS 版）：
         iOS 版的主诊断通道不是 Wi-Fi DoIP，而是经 HC-02 / I6328A-485 / ESP32-CANE 这类
@@ -108,6 +121,12 @@
         <package android:name="com.cfmoto" />
     </queries>
 
+    <!--
+      ★ 独立投屏的前台服务使用 mediaProjection 类型（MediaProjection 令牌必须由此类服务持有）。
+        API 34 起声明了 foregroundServiceType 就必须配套对应权限，否则 startForeground() 抛异常。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
     <application
         android:name=".ui.UiApp"
         android:allowBackup="false"
@@ -164,6 +183,16 @@
             android:theme="@style/AppTheme" />
 
         <!--
+          壁纸选图/裁切（uCrop）：仪表要两张定尺图——
+          1.png 307×460（小图/card）、2.png 1024×600（大图/背景）。
+          主题必须是 AppCompat Light NoActionBar（uCrop 自身控件依赖），不要用 AppTheme。
+        -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+
+        <!--
           ★ 仪表投屏（EasyConnect 镜像）单独入口：解析投屏二维码 → 加入车机 AP →
             经 hook 在 com.cfmoto 内拉起官方投屏；绕过官方 App 手动操作。
             adb: am start -n com.github.zeehospeedhunter/.ui.MirrorActivity
@@ -195,6 +224,22 @@
             android:foregroundServiceType="dataSync" />
 
         <!--
+          ★ 独立投屏（社区 3.6.x）：不依赖官方 App / LSPosed，
+            App 自身抓屏 → H.264 编码 → 经 EC/PXC 通道推给仪表。
+            foregroundServiceType=mediaProjection 是 MediaProjection 令牌的硬性要求（API 29+）。
+        -->
+        <service
+            android:name=".mirror.StandaloneMirrorService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- 投屏流畅度自测画面：区分「导航 App 自身低刷新」与「投屏链路问题」 -->
+        <activity
+            android:name=".mirror.MirrorTestActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <!--
           压弯标定页：运行时调压弯/急刹阈值，每项都带「调它会发生什么」说明。
           adb: am start -n com.github.zeehospeedhunter/.ui.TuneActivity
         -->
@@ -210,6 +255,16 @@
             android:authorities="com.github.zeehospeedhunter.settings"
             android:exported="true"
             android:grantUriPermissions="true" />
+
+        <!-- ZXing 扫码页（私有、锁定竖屏）：由库管理相机预览与释放 -->
+        <activity
+            android:name=".ui.MirrorCaptureActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:label="扫描仪表投屏二维码"
+            android:screenOrientation="portrait"
+            android:theme="@style/zxing_CaptureTheme" />
     </application>
 
 </manifest>

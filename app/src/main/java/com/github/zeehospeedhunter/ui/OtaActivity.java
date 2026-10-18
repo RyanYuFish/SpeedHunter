@@ -85,6 +85,7 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
     private com.google.android.material.materialswitch.MaterialSwitch swAutoflash;
 
     private CarP2p carP2p;
+    private P2pAccess p2pAccess;
     private WifiP2pDevice selectedP2p;
     /** P2P 建组后的组主地址；非空时优先于手动单选。 */
     private volatile String p2pGroupOwner;
@@ -180,16 +181,11 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
             append("=== 网络诊断 ===");
             CarNet.diagnoseAsync(this, this);
         });
-        btnP2pScan.setOnClickListener(v -> {
-            if (carP2p == null) {
-                append("P2P 不可用 —— 缺少 Wi-Fi Direct 权限或系统不支持");
-                return;
-            }
-            append("=== 扫描仪表 Wi-Fi Direct（只建网络，不发 OTA） ===");
-            btnP2pScan.setEnabled(false);
-            main.postDelayed(() -> btnP2pScan.setEnabled(true), 1200);
-            carP2p.scan();
+        p2pAccess = new P2pAccess(this, line -> {
+            append("P2P：" + line);
+            if (!p2pConnected) tvP2pStatus.setText(line);
         });
+        btnP2pScan.setOnClickListener(v -> requestP2pScan());
         btnP2pDisconnect.setOnClickListener(v -> {
             if (carP2p != null) {
                 carP2p.disconnect();
@@ -251,12 +247,29 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         });
     }
 
+    private void requestP2pScan() {
+        if (!getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return;
+        if (p2pAccess == null) return;
+        p2pAccess.run(() -> {
+            if (carP2p == null) initCarP2p();
+            if (carP2p != null) {
+                append("=== 扫描仪表 Wi-Fi Direct（只建网络，不发 OTA） ===");
+                tvP2pStatus.setText("扫描中，等待仪表发现结果…");
+                carP2p.scan();
+            }
+        });
+    }
+
     private void initCarP2p() {
         try {
             carP2p = new CarP2p(this, main, new CarP2p.Listener() {
                 @Override
                 public void onLine(String line) {
                     append("P2P：" + line);
+                    if (!p2pConnected && (line.contains("缺少权限") || line.contains("扫描结束")
+                            || line.contains("扫描失败") || line.contains("通道已断开"))) {
+                        tvP2pStatus.setText(line);
+                    }
                 }
 
                 @Override
@@ -329,7 +342,10 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
                 tvP2pStatus.setText("正在连接仪表，请稍候…");
                 return;
             }
-            tvP2pStatus.setText("尚未扫描到设备 —— 确认仪表 OTA Update 窗口已开启、定位开关是否打开");
+            if (p2pConnected) return;
+            tvP2pStatus.setText(carP2p != null && carP2p.isScanning()
+                    ? "扫描中，等待仪表发现结果…"
+                    : "未发现设备；查看下方扫描结果，确认仪表处于 OTA Update。");
             selectedP2p = null;
             return;
         }
@@ -363,11 +379,13 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
             }
             View.OnClickListener act = v -> {
                 selectedP2p = d;
-                if (carP2p != null) {
-                    carP2p.connect(d);
+                if (carP2p != null && p2pAccess != null) {
+                    p2pAccess.run(() -> {
+                        carP2p.connect(d);
+                        tvP2pStatus.setText("已请求连接 " + (d.deviceName == null ? d.deviceAddress : d.deviceName)
+                                + "，等待系统建组…");
+                    });
                 }
-                tvP2pStatus.setText("已请求连接 " + (d.deviceName == null ? d.deviceAddress : d.deviceName)
-                        + "，等待系统建组…");
                 // 连接中要允许「断开」来取消
                 main.postDelayed(this::refreshDisconnectButton, 300);
             };
@@ -792,7 +810,7 @@ new Thread(() -> {
 
         if (!p2pConnected && carP2p != null) {
             append("尚未建 P2P 组，先扫描/连接仪表（让仪表进 OTA Update 模式）…");
-            carP2p.scan();
+            requestP2pScan();
         }
 
         p2pToolWatching = true;
@@ -966,6 +984,7 @@ new Thread(() -> {
     protected void onResume() {
         super.onResume();
         refreshWifi();
+        if (p2pAccess != null) p2pAccess.onResume();
         // ★ P2P 若早已建组，系统不会因为「回到页面」再发一次 onGroup 回调，
         //   于是车机信息里的两条端口状态会永远停在「未探测」。
         //   这里主动拉一次组信息，让 10086 自动重探、表格立即有内容。
@@ -1112,6 +1131,9 @@ new Thread(() -> {
         @Override
         public void run() {
             try {
+                if (com.github.zeehospeedhunter.mirror.StandaloneMirrorService.isActive()) {
+                    noNetTicks = 0; return; // 独立投屏持有 Wi-Fi Direct，禁止后台抢建组。
+                }
                 if (!probeActive) {
                     return;                     // 探测结束就停
                 }
@@ -1154,7 +1176,7 @@ new Thread(() -> {
                 append("★ 已连续 " + (AUTO_P2P_QUIET_TICKS * AUTO_P2P_TICK_MS / 1000)
                         + " 秒没有任何车机网段网卡，且官方 App 未运行"
                         + " → 自动发起 Wi-Fi Direct 扫描建组（你不需要去手动连 AP）");
-                carP2p.scan();
+                requestP2pScan();
             } catch (Throwable t) {
                 append("自动建 P2P 异常：" + t);
             } finally {
@@ -1522,6 +1544,7 @@ new Thread(() -> {
     @Override
     protected void onDestroy() {
         p2pToolWatching = false;          // 退出界面即停 10086 守候轮询
+        if (p2pAccess != null) p2pAccess.close();
         if (carP2p != null) {
             try { carP2p.close(); } catch (Throwable ignored) { }
             carP2p = null;

@@ -3,16 +3,24 @@
 LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上的兼容性研究与界面恢复。
 **与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
 
-## 能力清单
+## 版本记录
+
+| 版本 | 内容 |
+|---|---|
+| **3.7**（`versionCode 43`） | **自定义壁纸 / 投屏优化** —— ① 自定义壁纸：选图 → uCrop 裁 307×460 / 1024×600 两档定尺图 → 自动打包推仪表（Wi-Fi Direct 复用 OTA 那套 `CarP2p`，可在不同车辆间扫码切换）；② 投屏优化：合入社区 3.6.x 编码器兼容回退、连续帧流畅模式、平衡 15 fps / 800 kbps 画质档、写入截止时间刷新修复（解决用久了自动断开）、旋转复用投屏授权、实时性能统计与测试画面。 |
+| 3.5 | OTA 推送控制台 + 六项自洽性检查、车端诊断（DoIP/UDS/BLE/RS485） |
+
+---
 
 | # | 能力 | 说明 |
 |---|---|---|
 | 1 | **骑行记录恢复** | 解开被服务端隐藏的骑行统计：骑行分析入口、极速、急加速、急刹、压弯 |
 | 2 | **OTA 全链路流量记录** | 只读 hook，用于研究车辆 OTA 链路；不伪造、不改写任何服务端数据 |
 | 3 | **OTA 推送控制台** | 走 `cfmoto_P2p_server`（TCP 10086）写包，**推送前强制六项自洽性检查** |
-| 4 | **仪表投屏独立入口** | 解析投屏二维码、自动连车机 AP、模块内一键拉起投屏 |
-| 5 | **车端诊断** | DoIP/UDS + BLE 透传（RS485 / CAN）+ 离线解码；写类操作默认硬禁 |
-| 6 | **系统 Wi-Fi 直连 + 网络诊断** | 连接交给系统设置，组主地址靠 TCP 握手探测而非硬编码 |
+| 4 | **仪表壁纸推送** | 自定义壁纸推仪表（socket_l 10950，SAF 选包 + 选图 1/2）；协议真车实测全绿 |
+| 5 | **仪表投屏（独立）** | 扫码 → Wi-Fi Direct 配对 → App 自身抓屏编码推给仪表，**不依赖官方 App / LSPosed** |
+| 6 | **车端诊断** | DoIP/UDS + BLE 透传（RS485 / CAN）+ 离线解码；写类操作默认硬禁 |
+| 7 | **系统 Wi-Fi 直连 + 网络诊断** | 连接交给系统设置，组主地址靠 TCP 握手探测而非硬编码 |
 
 ---
 
@@ -85,12 +93,112 @@ LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上�
 
 
 
-## 仪表投屏
 
-- 入口：`ui/MirrorActivity`；
-- 实现：`ota/CarWifi.java`（自动连车机 AP）+ `ota/MirrorTrigger.java`（hook 在 `com.cfmoto` 内拉起投屏）；
-- 能独立完成：解析投屏二维码拿 SSID / 密码 / action、手机自动加入车机 AP；
+## 仪表壁纸推送（socket_l 10950）
 
+独立推送自定义壁纸到仪表，**不依赖官方 App、不依赖 BLE**（走 Wi-Fi 的 socket_l 通道，与 OTA 同一条）。
+
+- 入口：模块主界面「仪表壁纸」→ `ui/WallpaperActivity`；
+- 实现：`ota/WallpaperSocketPusher.java`（协议见下）；远程驱动
+  `am start -n com.github.zeehospeedhunter/.ui.WallpaperActivity --es auto push --es file <zip> --es num 2 [--ez dry true]`。
+
+### 协议（固件逆向 + 官方 App 脱壳 + 真车实测三方交叉确认）
+
+| 方向 | 命令 | 说明 |
+|---|---|---|
+| 手机→车机 | `0x10000011` versionMessage | 版本协商；车机**会**回 `0x80000011 {"versionCode","vin","code"}` |
+| 手机→车机 | `0x10000043` wallpaperStartMessage | `{fileName, wallpaperNum, displayWallpaperSet, md5, fileSize}` |
+| 车机→手机 | `0x80000043 {"code":N}` | **N=1 = 条件校验通过**（`checkWallpaperSetRequirements`），随后 `startWallpaperByIndex()` |
+| 手机→车机 | `0x10000044` wirtewallpaperData | 数据帧（head[1]=0），1MB/片 |
+| 手机→车机 | `0x10000045` wallpaperEndMessage | `{recvWallpaperFileFinishedFlag:1}`（★ 必带） |
+| 车机→手机 | `0x80000045 {"code":N}` / `0x10000046 {"code":N}` | 收尾回执 / 校验请求 |
+| 手机→车机 | `0x80000046` wallpaperVerifyMessageAck | ★ 必须回，否则车机反复重发 |
+
+车机收到 end 后：`md5_file` 校验 → `unZIPWallPaperFile()` → `signalUseWallpaper(name)` → DASH 写 `persist.sys.wallpapername`。
+
+### 壁纸包格式（官方 App 实推的包解剖所得）
+
+```
+wallpaper.zip
+├── 1.png  307×460  RGBA   小图 / card   （DASH slot_Wallpaper_update_cardsize）
+└── 2.png  1024×600 RGBA   大图 / 背景    （DASH slot_Wallpaper_update_bgsize）
+```
+
+- `wallpaperNum` **只能是 1 或 2**（固件 `stoi` + `(v-1U)<2` 校验）= 选哪张图；
+- `displayWallpaperSet` 固件要求非空（空则 `displayWallpaperSet null or fileSize == 0, not process this req`），
+  固件里无对应字面量，默认 `"1"`，界面可调。
+
+### 选图 → 裁切 → 打包（uCrop）
+
+界面「用图片生成壁纸」支持直接用相册图片生成壁纸包：
+
+1. **选大图** → uCrop 按 `1024×600` 比例裁切 → `2.png`
+2. **选小图** → uCrop 按 `307×460` 比例裁切 → `1.png`
+3. **打包并推送** → 自动打成 `wallpaper.zip`（`1.png` + `2.png`）→ 直接走上面的推送流程
+
+依赖 `com.github.yalantis:ucrop:2.2.11`（JitPack；2.2.x 用 `UCrop.of(uri,dst).withAspectRatio(...)
+.withMaxResultSize(...).start(activity, requestCode)` + `onActivityResult`，没有 2.8 的 Builder/ResultListener）。
+⚠️ 依赖必须写在 `app/build.gradle`；写进根 `build.gradle` 会报
+`Could not find method implementation()`（根项目没有该配置）。
+
+Manifest 里必须声明（主题不能用 `AppTheme`，uCrop 自身控件依赖 AppCompat Light）：
+
+```xml
+<activity
+    android:name="com.yalantis.ucrop.UCropActivity"
+    android:screenOrientation="portrait"
+    android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+```
+
+### 真车实测（2026-10-18）
+
+```
+→ 0x10000043 start        ← 0x80000043 {"code":"1"}
+→ 0x10000045 end          ← 0x80000045 {"code":"1"}
+                          ← 0x10000046 {"code":"1"} → 0x80000046 ACK    ✔ 推送完成
+```
+
+### 边界
+
+- 车机 10950 是**单逻辑客户端**：官方 App 占用时本工具连不上（先 force-stop 或退出投屏）；
+- 仪表不回报应用结果，成功与否以屏幕为准（车机只回 code，不回"已应用"）；
+- 不涉及任何 OTA 包，只推壁纸 zip。
+
+## 仪表投屏（独立实现，v3.7 起）
+
+不依赖官方 App、也不需要 LSPosed：本 App 自己拍照/抓屏 → H.264 编码 → 经 EC/PXC 通道按仪表拉流节奏发送。
+这部分来自社区基于本项目 `a0bb0b9` 的 3.6.x 系列改进（详见 `docs/community/`），已合入主线。
+
+| 模块 | 文件 | 作用 |
+|---|---|---|
+| 抓屏编码 | `mirror/ScreenEncoder` | Surface 输入 H.264；编码器能力枚举 + profile/帧率/码率回退 + 换编码器重试 |
+| AVC 封包 | `mirror/AvcFrames` | IDR 判定、只发完整帧，避免丢帧后预测链断裂 |
+| 前台服务 | `mirror/StandaloneMirrorService` | 持有 MediaProjection 令牌（`foregroundServiceType=mediaProjection`） |
+| 协议加载 | `app/libs/ridedaemon.aar` | Go 协议库预编译产物（`native/ridedaemon` 为源码） |
+| 二维码 | `ota/MirrorRequest` + `ui/MirrorCaptureActivity` | 相机扫码（ZXing）或粘贴完整 URL，含 P2P 名称/SSID/action 解析 |
+| P2P | `ui/P2pAccess` + `ota/CarP2p` | 定位权限预检、BUSY 退避重试、40 秒扫描窗口、poll 刷新列表 |
+| 自测 | `mirror/MirrorTestActivity` | 移动条测试画面 + 实时统计，用来区分「导航 App 低刷新」与「投屏链路问题」 |
+
+### 3.7 的投屏优化要点
+
+- **画质档位**：默认「平衡」15 fps / 800 kbps，另有 20 fps / 1200 kbps 与 10 fps / 500 kbps；
+- **不再周期性丢 P 帧**：短 GOP（约 500 ms 一次 IDR），启动、旋转、拥堵恢复时额外请求关键帧；Android 10+ 在 Surface 输入端限帧，避免屏幕高刷让编码器空转；
+- **去掉 4 KB / 3 ms 的固定写入等待**，改由 TCP 背压和仪表拉流节奏控制；
+- **有界队列（4 帧）**：不能丢掉一张 P 帧后继续发依赖它的帧——队列满就丢弃待发链、等新 IDR；
+- **修了会自己断开的缺陷**：旧实现只在发送非空视频帧时设写入截止时间，之后既不清除也不刷新，空闲久了下一次回复沿用过期截止时间必然失败（`i/o timeout`）；现在每个完整拉流请求都刷新截止时间；
+- **监听主屏旋转**：转向后清掉待发预测帧等新 IDR，复用同一个 MediaProjection / VirtualDisplay，不重复消耗屏幕授权令牌；
+- **性能区每约 2 秒刷新**：编码输出率 / 提交率 / 发送率 / 仪表请求频率 / TCP 写入耗时 / 队列深度 / 累计丢弃 / 编码器名称。
+- **保留兼容退路**：关掉「流畅模式」即回到关键帧兼容路径（通常更卡）；另修复了 EC 握手与「上次停止原因」被覆盖的问题。
+
+> 统计是**应用端采样**：发送 FPS 不是仪表解码/显示 FPS，没有仪表端时间戳就无法测真实端到端延迟。
+> 目标帧率不是实车性能保证，档位选择仍需按实车观感调整。
+
+### 使用
+
+1. 打开「仪表投屏」→ 扫码（相机权限）或粘贴仪表二维码完整 URL → 解析；
+2. Wi-Fi Direct 扫描 → 点设备配对（需系统定位开启）；
+3. 保持「流畅模式」开启 → 开始 → 允许**整个屏幕**共享；
+4. 卡顿排查：先开「打开流畅度测试画面」，看编码率 vs 发送率 vs 仪表请求频率的差在哪一环。
 
 
 ## 车端诊断（DoIP/UDS + BLE 透传 + RS485 解码）
@@ -148,6 +256,12 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 ./gradlew assembleRelease
 # 产物在 release/
 ```
+
+> ★ **独立投屏依赖 `app/libs/ridedaemon.aar`**（Go 协议库预编译产物，含 `libgojni.so`）。
+> 本仓库 `.gitignore` 里有 `*.aar`，入库要用 `git add -f app/libs/ridedaemon.aar`；
+> 若不想带二进制，可用 Go 1.25.3 + NDK r27c 从 `native/ridedaemon` 源码自行编译（`native/build-android.sh`）。
+> 不改 `native/` 下 Go 源码时不需要 Go / NDK。
+> 此外本机只装了 build-tools **34.0.0**，所以不要照社区文档写死 `buildToolsVersion "35.0.0"`。
 
 ## 隐私与安全
 

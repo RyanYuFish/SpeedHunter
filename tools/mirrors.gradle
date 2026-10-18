@@ -1,0 +1,17 @@
+settingsEvaluated { settings ->
+    settings.pluginManagement.repositories {
+        clear()
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        gradlePluginPortal()
+    }
+    settings.pluginManagement.resolutionStrategy.eachPlugin {
+        if (requested.id.id == 'com.android.application') useModule('com.android.tools.build:gradle:' + requested.version)
+    }
+    settings.dependencyResolutionManagement.repositories {
+        clear()
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        maven { url 'https://maven.aliyun.com/repository/central' }
+        maven { url 'https://api.xposed.info/' }
+    }
+}

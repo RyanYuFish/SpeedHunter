@@ -140,12 +140,9 @@ public final class RemoteSettings {
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_QUERY_BEND_LOG);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_START);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_STOP);
-                if (Build.VERSION.SDK_INT >= 33) {
-                    app.registerReceiver(new ConfigReceiver(), filter,
-                            Context.RECEIVER_EXPORTED);
-                } else {
-                    app.registerReceiver(new ConfigReceiver(), filter);
-                }
+                filter.addAction(Keys.ACTION_MIRROR_QUERY);
+                androidx.core.content.ContextCompat.registerReceiver(app, new ConfigReceiver(), filter,
+                        androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
                 receiverRegistered = true;
                 HookLog.log(TAG + " config receiver registered");
             } catch (Throwable t) {
@@ -171,15 +168,17 @@ public final class RemoteSettings {
                 return;
             }
             if (com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_START.equals(action)) {
-                String ssid = intent.getStringExtra(
-                        com.github.zeehospeedhunter.core.Keys.EXTRA_MIRROR_SSID);
-                String pwd = intent.getStringExtra(
-                        com.github.zeehospeedhunter.core.Keys.EXTRA_MIRROR_PWD);
-                com.github.zeehospeedhunter.ota.MirrorTrigger.start(context, ssid, pwd);
+                com.github.zeehospeedhunter.ota.MirrorTrigger.start(context,
+                        intent.getStringExtra(Keys.EXTRA_MIRROR_QR_URL),
+                        intent.getStringExtra(Keys.EXTRA_MIRROR_REQUEST_ID));
                 return;
             }
             if (com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_STOP.equals(action)) {
-                com.github.zeehospeedhunter.ota.MirrorTrigger.stop(context);
+                com.github.zeehospeedhunter.ota.MirrorTrigger.stop(context, intent.getStringExtra(Keys.EXTRA_MIRROR_REQUEST_ID));
+                return;
+            }
+            if (Keys.ACTION_MIRROR_QUERY.equals(action)) {
+                com.github.zeehospeedhunter.ota.MirrorTrigger.query(context, intent.getStringExtra(Keys.EXTRA_MIRROR_REQUEST_ID));
                 return;
             }
             if (!ACTION_CONFIG.equals(action)) return;

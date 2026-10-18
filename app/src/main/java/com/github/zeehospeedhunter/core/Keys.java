@@ -155,6 +155,13 @@ public final class Keys {
      */
     public static final String KEY_HUD = "hud_enabled";
 
+    public static final String EXTRA_MIRROR_QR_URL = "mirror_qr_url";
+    public static final String EXTRA_MIRROR_REQUEST_ID = "mirror_request_id";
+    public static final String EXTRA_MIRROR_STATE = "mirror_state";
+    public static final String EXTRA_MIRROR_MESSAGE = "mirror_message";
+    public static final String ACTION_MIRROR_STATUS = "com.github.zeehospeedhunter.MIRROR_STATUS";
+    public static final String ACTION_MIRROR_QUERY = "com.github.zeehospeedhunter.MIRROR_QUERY";
+
     private Keys() {
     }
 }

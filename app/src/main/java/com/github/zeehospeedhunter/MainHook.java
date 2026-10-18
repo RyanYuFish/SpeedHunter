@@ -59,6 +59,10 @@ public final class MainHook implements IXposedHookLoadPackage {
                 + " pkg=" + lpparam.packageName
                 + " " + HookLog.describeWriters() + " ==========");
 
+        if (lpparam.packageName.equals(lpparam.processName)) {
+            try { com.github.zeehospeedhunter.ota.MirrorTrigger.install(); }
+            catch (Throwable t) { HookLog.log(HookLog.MIRROR + " bridge install failed: " + t.getClass().getSimpleName()); }
+        }
         MobGuard.install(lpparam);   // 先保命：规避 MobTech SDK 的启动崩溃
         RideFetch.installAll();      // 请求侧：把 ridetrack_v2 的 pageSize 放大到 200
         NetPatch.installAll();       // 主机制：网络层能力位改写 + 急刹/压弯回填

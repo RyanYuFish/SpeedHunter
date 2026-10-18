@@ -1,3 +1,6 @@
+// 根项目只声明插件版本；依赖必须写在 app/build.gradle 里
+// （根项目没有 implementation()/api() 配置，写在这里会报
+//  "Could not find method implementation() for arguments ..."）
 plugins {
     id 'com.android.application' version '8.6.1' apply false
 }
