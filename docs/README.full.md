@@ -1,5 +1,7 @@
 # ZEEHO Speed Hunter
 
+[![GitHub License](https://img.shields.io/github/license/RyanYuFish/Zeeho-SpeedHunter?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+
 LSPosed 模块，作用于 ZEEHO App（`com.cfmoto`），用于个人设备上的兼容性研究与界面恢复。
 **与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
 

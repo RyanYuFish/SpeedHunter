@@ -1,7 +1,5 @@
 # ZEEHO Speed Hunter
 
-[](简体中文)
-
 [![GitHub License](https://img.shields.io/github/license/RyanYuFish/Zeeho-SpeedHunter?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
 
 An LSPosed module for the ZEEHO App, intended for compatibility research and interface restoration on personal devices.
