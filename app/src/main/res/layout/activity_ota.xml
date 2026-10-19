@@ -640,11 +640,4 @@
             </LinearLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
-
-    <!-- 底栏（常驻）：与其余 tab 页共用同一份 -->
-    <include
-        layout="@layout/view_bottom_nav"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

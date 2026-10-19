@@ -222,11 +222,4 @@
                 android:text="流程：二维码 → 本机 P2P 配对 → EC/PXC 握手 → H.264 屏幕投影。不需要官方 App。视频已发送不等于仪表已解码，最终以仪表实际画面为准。此版本需要实车验证。" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
-
-    <!-- 底栏（常驻）：与其余 tab 页共用同一份 -->
-    <include
-        layout="@layout/view_bottom_nav"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

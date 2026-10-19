@@ -9,7 +9,6 @@ import android.os.*;
 import androidx.core.app.NotificationCompat;
 import com.github.zeehospeedhunter.R;
 import com.github.zeehospeedhunter.ota.*;
-import com.github.zeehospeedhunter.ui.MirrorActivity;
 import java.net.*;
 import java.nio.*;
 import java.util.*;
@@ -84,7 +83,7 @@ public final class StandaloneMirrorService extends Service implements CarP2p.Lis
             if(consent==null || i.getIntExtra("result",0)!=Activity.RESULT_OK) throw new IllegalArgumentException("缺少本次屏幕授权");
             NotificationManager nm=getSystemService(NotificationManager.class);
             if(Build.VERSION.SDK_INT>=26) nm.createNotificationChannel(new NotificationChannel("mirror","仪表独立投屏",NotificationManager.IMPORTANCE_LOW));
-            PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MirrorActivity.class),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+            PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,com.github.zeehospeedhunter.ui.MainActivity.class).putExtra(com.github.zeehospeedhunter.ui.MainActivity.EXTRA_TAB,R.id.nav_mirror),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
             PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,getClass()).setAction(STOP),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
             Notification notification=new NotificationCompat.Builder(this,"mirror").setSmallIcon(R.mipmap.ic_launcher)
                     .setContentTitle("SpeedHunter 独立投屏").setContentText("正在共享屏幕，点击停止可结束")

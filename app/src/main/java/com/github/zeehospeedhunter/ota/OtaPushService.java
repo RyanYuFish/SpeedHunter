@@ -10,8 +10,8 @@ import android.os.Build;
 
 import androidx.core.app.NotificationCompat;
 
+import com.github.zeehospeedhunter.R;
 import com.github.zeehospeedhunter.core.HookLog;
-import com.github.zeehospeedhunter.ui.OtaActivity;
 
 /**
  * 推送期间的前台服务。
@@ -298,7 +298,8 @@ public final class OtaPushService extends android.app.Service {
     }
 
     private Notification notify(int pct, long sent, String text) {
-        Intent open = new Intent(this, OtaActivity.class);
+        Intent open = new Intent(this, com.github.zeehospeedhunter.ui.MainActivity.class);
+        open.putExtra(com.github.zeehospeedhunter.ui.MainActivity.EXTRA_TAB, R.id.nav_ota);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
@@ -319,7 +320,8 @@ public final class OtaPushService extends android.app.Service {
     }
 
     private Notification probeNotification(String title, String text, boolean ongoing) {
-        Intent open = new Intent(this, OtaActivity.class);
+        Intent open = new Intent(this, com.github.zeehospeedhunter.ui.MainActivity.class);
+        open.putExtra(com.github.zeehospeedhunter.ui.MainActivity.EXTRA_TAB, R.id.nav_ota);
         open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, open,
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);

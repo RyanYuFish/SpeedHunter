@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  单宿主 Activity 的根布局：常驻底栏 + 一个内容容器，5 个 tab 都是 Fragment。
+
+  ★ 关键点：BottomNavigationView 只创建一次（在此处），切换 tab 时它<b>不被重建</b>，
+    只换 content 里的 Fragment（show/hide）。这样 Material You 的 active indicator 动画、
+    点击波纹（ripple）、首次点击的指示器测量都连续稳定 —— 彻底消除抖动 / 无波纹 / 闪烁。
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <!-- 内容容器：所有 tab 的 Fragment 都加在这里；底部内缩留给底栏（见 EdgeToEdge.applyBottomAvoid） -->
+    <FrameLayout
+        android:id="@+id/content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!--
+      ★ 底栏常驻：与其余 tab 页共用同一份 view_bottom_nav（这里直接 include）。
+        背景用库默认的 colorSurfaceContainer（M3 规范值），激活遮罩用 Material You 默认药丸。
+    -->
+    <include
+        layout="@layout/view_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:layout_gravity="bottom" />
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

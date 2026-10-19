@@ -70,6 +70,39 @@ public final class EdgeToEdge {
     }
 
     /**
+     * 把系统导航条（手势区）刷成与底栏同一个色（{@code colorSurfaceContainer}）——沉浸式观感。
+     *
+     * <p>★ 为什么必须补这一段：{@link #applyWindow} 为了 edge-to-edge 把导航条设成<b>透明</b>，
+     * 手势区于是直接「透」出窗口底色（{@code ?attr/colorSurface}）；而常驻底栏自身的背景是
+     * {@code colorSurfaceContainer}。两者是<b>不同的 tonal 色</b>，于是底栏下方那条手势区
+     * 与底栏有色差，看起来就像「导航栏没沉浸 / 贴了条异色带」。</p>
+     *
+     * <p>底栏用 {@link #applyBottomMargin} 被<b>抬到手势区上方</b>（背景正好停在 tab 内容
+     * 底部，不会「遮罩层比 tab 高一截」），所以手势区那一段没人刷色 ⇒ 只能由窗口的导航条
+     * 颜色来填。把它填成与底栏一致的 surface 色，底栏 + 手势区就拼成一整块连续 surface，
+     * 达成沉浸观感。</p>
+     *
+     * <p>必须在 {@link #applyWindow} <b>之后</b>调（后者刚把导航条设成透明，会被这里覆盖）；
+     * 且只改颜色，不动 {@code setAppearanceLightNavigationBars} 决定的图标明暗。</p>
+     */
+    public static void applyNavBarTint(android.app.Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        try {
+            int barColor = com.google.android.material.color.MaterialColors.getColor(
+                    activity, com.google.android.material.R.attr.colorSurfaceContainer,
+                    Color.TRANSPARENT);
+            activity.getWindow().setNavigationBarColor(barColor);
+            // API29+ 系统会给导航条叠一层默认对比度蒙版，把同色填满又蒙一层灰 ⇒ 去掉。
+            if (Build.VERSION.SDK_INT >= 29) {
+                activity.getWindow().setNavigationBarContrastEnforced(false);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
      * 把系统栏高度补成根容器的顶部 padding。
      *
      * <p><b>为什么用 padding 而不是 margin</b>：margin 会把背景一起推出去，
@@ -160,11 +193,23 @@ public final class EdgeToEdge {
         }
         try {
             final int base = bottomMargin(view);
+            final int[] latch = {-1};
             ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
                 int bottom = insets.getInsets(
                         WindowInsetsCompat.Type.systemBars()
                                 | WindowInsetsCompat.Type.displayCutout()).bottom;
-                setBottomMargin(v, base + bottom);
+                // ★ 锁存非零值：切 tab / activity 切换瞬间，窗口 insets 可能瞬时报 0
+                //   再补成真实手势区高度；若每次都 setLayoutParams，底栏会被「先下缩再弹回」
+                //   抽动一下。过渡期的 0 沿用上一次非零值，底栏高度稳定不抖。
+                if (bottom == 0 && latch[0] > 0) {
+                    bottom = latch[0];
+                } else if (bottom > 0) {
+                    latch[0] = bottom;
+                }
+                int want = base + bottom;
+                if (bottomMargin(v) != want) {
+                    setBottomMargin(v, want);
+                }
                 return insets;
             });
             ViewCompat.requestApplyInsets(view);
@@ -204,9 +249,14 @@ public final class EdgeToEdge {
                 }
             };
             ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
-                inset[0] = insets.getInsets(
+                int b = insets.getInsets(
                         WindowInsetsCompat.Type.systemBars()
                                 | WindowInsetsCompat.Type.displayCutout()).bottom;
+                // ★ 同 applyBottomMargin：锁存非零值，过渡期瞬时报 0 时内容不下缩，
+                //   否则内容区跟着底栏一起抖。
+                if (!(b == 0 && inset[0] > 0)) {
+                    inset[0] = b > 0 ? b : inset[0];
+                }
                 apply.run();
                 return insets;
             });

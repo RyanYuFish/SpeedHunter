@@ -137,6 +137,7 @@ public final class RemoteSettings {
                 IntentFilter filter = new IntentFilter(ACTION_CONFIG);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_CLEAR_DAY_STORE);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_QUERY_STORE_STATE);
+                filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_HOOK_PING);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_QUERY_BEND_LOG);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_START);
                 filter.addAction(com.github.zeehospeedhunter.core.Keys.ACTION_MIRROR_STOP);
@@ -161,6 +162,10 @@ public final class RemoteSettings {
             }
             if (com.github.zeehospeedhunter.core.Keys.ACTION_QUERY_STORE_STATE.equals(action)) {
                 replyStoreState(context);
+                return;
+            }
+            if (com.github.zeehospeedhunter.core.Keys.ACTION_HOOK_PING.equals(action)) {
+                replyPong(context);
                 return;
             }
             if (com.github.zeehospeedhunter.core.Keys.ACTION_QUERY_BEND_LOG.equals(action)) {
@@ -226,6 +231,24 @@ public final class RemoteSettings {
             } catch (Throwable t) {
                 HookLog.log(TAG + " config receive failed: " + t);
             }
+        }
+    }
+
+    /**
+     * 回 {@link Keys#ACTION_HOOK_PONG} —— UI 用它判断「模块是否真的挂进了 ZEEHO App」。
+     *
+     * <p>收到 PING 本身就是证据：这条接收器只注册在 com.cfmoto 进程里，
+     * 而 hook 只有被 LSPosed 注入（模块启用 + 勾选作用域）才会随进程跑起来。
+     * 回执沿用反向定向广播的老规矩：{@code setPackage(模块包)}，否则 Android 8+ 收不到。</p>
+     */
+    private static void replyPong(Context context) {
+        try {
+            Intent pong = new Intent(com.github.zeehospeedhunter.core.Keys.ACTION_HOOK_PONG);
+            pong.setPackage("com.github.zeehospeedhunter");
+            context.sendBroadcast(pong);
+            HookLog.log(TAG + " hook ping -> pong");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " pong failed: " + t);
         }
     }
 

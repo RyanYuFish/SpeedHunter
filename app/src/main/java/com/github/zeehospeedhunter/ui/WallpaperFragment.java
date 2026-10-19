@@ -5,8 +5,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.net.wifi.p2p.WifiP2pDevice;
-import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pGroup;
+import android.net.wifi.p2p.WifiP2pInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -24,7 +24,6 @@ import java.util.List;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AppCompatActivity;
 
 import com.github.zeehospeedhunter.R;
 import com.github.zeehospeedhunter.ota.CarNet;
@@ -45,7 +44,12 @@ import com.yalantis.ucrop.UCrop;
  * <p>车机地址只有 192.168.0.1 / 192.168.49.1（外部已验证），用 {@link CarNet#resolveCarHost}
  * 在两者间做 TCP 握手选择，<b>不做任何推导</b>。</p>
  */
-public final class WallpaperActivity extends AppCompatActivity {
+public final class WallpaperFragment extends BaseTabFragment {
+
+    @Override
+    protected int getLayoutId() {
+        return R.layout.activity_wallpaper;
+    }
 
     private File staged;
     private File croppedSmall;
@@ -86,52 +90,49 @@ public final class WallpaperActivity extends AppCompatActivity {
             });
 
     @Override
-    protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        setContentView(R.layout.activity_wallpaper);
-        BackGestureCompat.install(this);
-        // ★ 状态栏：必须走 EdgeToEdge，否则状态栏区域露出主题白底
-        EdgeToEdge.applyWindow(this);
-        EdgeToEdge.applyTop(findViewById(R.id.wallpaper_root));
-        NavBar.install(this, R.id.nav_wallpaper, R.id.wallpaper_scroll);
+    public void onViewCreated(View root, Bundle savedInstanceState) {
+        super.onViewCreated(root, savedInstanceState);
+        BackGestureCompat.install(requireActivity());
+        EdgeToEdge.applyTop(root);
 
-        fileLabel = findViewById(R.id.wallpaper_file);
-        linkStatus = findViewById(R.id.wp_link_status);
-        progressText = findViewById(R.id.wallpaper_progress_text);
-        progress = findViewById(R.id.wallpaper_progress);
-        log = findViewById(R.id.wallpaper_log);
-        send = findViewById(R.id.wallpaper_send);
-        packPush = findViewById(R.id.wallpaper_pack_push);
-        peerList = findViewById(R.id.wp_peer_list);
-        pvSmall = findViewById(R.id.wallpaper_preview_small);
-        pvBig = findViewById(R.id.wallpaper_preview_big);
+        fileLabel = root.findViewById(R.id.wallpaper_file);
+        linkStatus = root.findViewById(R.id.wp_link_status);
+        progressText = root.findViewById(R.id.wallpaper_progress_text);
+        progress = root.findViewById(R.id.wallpaper_progress);
+        log = root.findViewById(R.id.wallpaper_log);
+        send = root.findViewById(R.id.wallpaper_send);
+        packPush = root.findViewById(R.id.wallpaper_pack_push);
+        peerList = root.findViewById(R.id.wp_peer_list);
+        pvSmall = root.findViewById(R.id.wallpaper_preview_small);
+        pvBig = root.findViewById(R.id.wallpaper_preview_big);
 
-        findViewById(R.id.wallpaper_clear_log).setOnClickListener(v -> log.setText(""));
+        root.findViewById(R.id.wallpaper_clear_log).setOnClickListener(v -> log.setText(""));
 
         // ① 连接
-        findViewById(R.id.wp_p2p_scan).setOnClickListener(v -> p2pScan());
-        findViewById(R.id.wp_p2p_disconnect).setOnClickListener(v -> {
+        root.findViewById(R.id.wp_p2p_scan).setOnClickListener(v -> p2pScan());
+        root.findViewById(R.id.wp_p2p_disconnect).setOnClickListener(v -> {
             if (p2p != null) {
                 p2p.disconnect();
                 append("已请求断开 P2P");
             }
         });
-        findViewById(R.id.wp_probe).setOnClickListener(v -> probeLink());
-        findViewById(R.id.wp_open_wifi).setOnClickListener(v -> CarNet.openSystemWifiSettings(this));
+        root.findViewById(R.id.wp_probe).setOnClickListener(v -> probeLink());
+        root.findViewById(R.id.wp_open_wifi).setOnClickListener(
+                v -> CarNet.openSystemWifiSettings(requireActivity()));
 
         // ② 裁切
-        findViewById(R.id.wallpaper_crop_big).setOnClickListener(v -> {
+        root.findViewById(R.id.wallpaper_crop_big).setOnClickListener(v -> {
             cropBigNext = true;
             pickImage.launch("image/*");
         });
-        findViewById(R.id.wallpaper_crop_small).setOnClickListener(v -> {
+        root.findViewById(R.id.wallpaper_crop_small).setOnClickListener(v -> {
             cropBigNext = false;
             pickImage.launch("image/*");
         });
         packPush.setOnClickListener(v -> packAndPush());
 
         // ③ ZIP
-        findViewById(R.id.wallpaper_pick).setOnClickListener(v -> pickZip.launch("application/zip"));
+        root.findViewById(R.id.wallpaper_pick).setOnClickListener(v -> pickZip.launch("application/zip"));
         send.setEnabled(false);
         send.setOnClickListener(v -> pushStaged());
 
@@ -144,21 +145,12 @@ public final class WallpaperActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        // 底栏选中态拉回本页（切 tab 时上一页留下的选中态会带回来）
-        NavBar.reselect(this, R.id.nav_wallpaper);
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
+    public void onExternalIntent(Intent intent) {
         handleAuto(intent);
     }
 
     @Override
-    protected void onDestroy() {
+    public void onDestroy() {
         if (p2p != null) {
             p2p.close();
             p2p = null;
@@ -170,7 +162,7 @@ public final class WallpaperActivity extends AppCompatActivity {
 
     private void p2pScan() {
         if (p2p == null) {
-            p2p = new CarP2p(this, main, new CarP2p.Listener() {
+            p2p = new CarP2p(requireContext(), main, new CarP2p.Listener() {
                 @Override
                 public void onLine(String line) {
                     append(line);
@@ -206,7 +198,7 @@ public final class WallpaperActivity extends AppCompatActivity {
             if (!CarP2p.isCarName(d.deviceName)) {
                 continue;
             }
-            MaterialButton b = new MaterialButton(this, null,
+            MaterialButton b = new MaterialButton(requireContext(), null,
                     com.google.android.material.R.attr.materialButtonOutlinedStyle);
             b.setText(d.deviceName + (d.deviceAddress == null ? "" : "\n" + d.deviceAddress));
             b.setGravity(Gravity.CENTER);
@@ -241,14 +233,15 @@ public final class WallpaperActivity extends AppCompatActivity {
         try {
             int w = cropBigNext ? WallpaperSocketPusher.BIG_W : WallpaperSocketPusher.SMALL_W;
             int h = cropBigNext ? WallpaperSocketPusher.BIG_H : WallpaperSocketPusher.SMALL_H;
-            File dst = File.createTempFile(cropBigNext ? "wp2_" : "wp1_", ".png", getCacheDir());
+            File dst = File.createTempFile(cropBigNext ? "wp2_" : "wp1_", ".png",
+                    requireContext().getCacheDir());
             try (FileOutputStream fos = new FileOutputStream(dst)) {
                 fos.flush();
             }
             UCrop.of(pendingSrc, Uri.fromFile(dst))
                     .withAspectRatio((float) w / h, 1f)
                     .withMaxResultSize(w, h)
-                    .start(this, cropLauncher);
+                    .start(requireActivity(), cropLauncher);
             linkStatus.setText("裁切中（" + w + "×" + h + "）…");
         } catch (Exception e) {
             linkStatus.setText("启动裁切失败：" + e);
@@ -262,7 +255,7 @@ public final class WallpaperActivity extends AppCompatActivity {
             append("裁切失败：" + (err == null ? "未知错误" : err.getMessage()));
             return;
         }
-        if (result.getResultCode() != RESULT_OK) {
+        if (result.getResultCode() != android.app.Activity.RESULT_OK) {
             append("已取消裁切");
             return;
         }
@@ -308,7 +301,7 @@ public final class WallpaperActivity extends AppCompatActivity {
     private void packAndPush() {
         new Thread(() -> {
             try {
-                File out = new File(getCacheDir(), "wallpaper.zip");
+                File out = new File(requireContext().getCacheDir(), "wallpaper.zip");
                 WallpaperSocketPusher.pack(croppedSmall, croppedBig, out);
                 main.post(() -> {
                     staged = out;
@@ -325,7 +318,7 @@ public final class WallpaperActivity extends AppCompatActivity {
     private void stageZip(Uri uri) {
         new Thread(() -> {
             try {
-                File f = OtaSocketPusher.copyFromUri(this, uri);
+                File f = OtaSocketPusher.copyFromUri(requireContext(), uri);
                 String desc = WallpaperSocketPusher.describe(f);
                 main.post(() -> {
                     staged = f;

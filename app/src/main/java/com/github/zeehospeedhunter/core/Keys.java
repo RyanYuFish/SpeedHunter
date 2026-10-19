@@ -44,6 +44,20 @@ public final class Keys {
     public static final String ACTION_QUERY_STORE_STATE =
             "com.github.zeehospeedhunter.QUERY_STORE_STATE";
 
+    /**
+     * UI → hook：探测模块是否真的挂进了 ZEEHO App（hook 存活心跳）。
+     *
+     * <p>为什么需要探测：LSPosed 里「模块已启用 / 已勾选作用域」从 UI 进程读不到，
+     * 而 hook 的动态接收器只存在于 com.cfmoto 进程里 —— 能收到并回 {@link #ACTION_HOOK_PONG}
+     * 就说明模块确实挂上了（且 ZEEHO App 正在运行）；超时收不到就是「未挂载」。</p>
+     */
+    public static final String ACTION_HOOK_PING =
+            "com.github.zeehospeedhunter.HOOK_PING";
+
+    /** hook → UI：{@link #ACTION_HOOK_PING} 的回执，收到即视为已挂载。 */
+    public static final String ACTION_HOOK_PONG =
+            "com.github.zeehospeedhunter.HOOK_PONG";
+
     /** hook → UI：账本状态回传（只有 hook 进程能发，UI 用 setPackage 定向接收）。 */
     public static final String ACTION_STORE_STATE =
             "com.github.zeehospeedhunter.STORE_STATE";

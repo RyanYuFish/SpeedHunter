@@ -5,34 +5,13 @@
     android:id="@+id/root_ride"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/colorBackground">
-
-    <!-- ===== 顶栏：标题 + 状态胶囊（MD3 TopAppBar） ===== -->
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/app_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/colorSurface"
-        app:elevation="0dp">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingStart="20dp"
-            android:paddingEnd="20dp"
-            app:subtitle="Not only Unleash more information for ZEEHO"
-            app:subtitleTextAppearance="@style/ToolbarSubtitle"
-            app:subtitleTextColor="?attr/colorOnSurfaceVariant"
-            app:title="Speed Hunter"
-            app:titleTextColor="?attr/colorOnSurface" />
-    </com.google.android.material.appbar.AppBarLayout>
+    android:background="?attr/colorSurface">
 
     <!-- ===== 骑行记录页：其余功能走底栏直开 Activity，不在此囤容器 ===== -->
     <FrameLayout
         android:id="@+id/ride_scroll"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+        android:layout_height="match_parent">
 
         <!-- ===== ① 骑行记录 ===== -->
         <ScrollView
@@ -53,10 +32,27 @@
                 android:paddingTop="12dp"
                 android:paddingBottom="20dp">
 
-                <!-- 当前挂载方式（状态卡）：激活 = 「已激活」+ 实现方式注释；全关 = 「未激活」 -->
+                <!-- ===== 顶栏标题（与其他 tab 页一致的 PageTitle 样式） ===== -->
+                <TextView
+                    style="@style/PageTitle"
+                    android:layout_marginTop="8dp"
+                    android:text="Speed Hunter" />
+
+                <TextView
+                    style="@style/ParamHelp"
+                    android:layout_marginTop="2dp"
+                    android:text="Not only Unleash more information for ZEEHO" />
+
+                <!--
+                  状态卡（SukiSU 式）：左上徽章 + 大号状态字 + 说明行。
+                  三态由 RideActivity.updateStatus 刷：已激活 / 未修改 / 未挂载（含 Xposed 指引），
+                  底色随状态切换（挂载失败用 colorErrorContainer 提示）。
+                -->
                 <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/card_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
                     app:cardBackgroundColor="?attr/colorPrimaryContainer"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp"
@@ -65,59 +61,65 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="18dp"
-                        android:paddingEnd="18dp"
-                        android:paddingTop="16dp"
-                        android:paddingBottom="16dp">
-
-                        <ImageView
-                            android:id="@+id/ic_status"
-                            android:layout_width="22dp"
-                            android:layout_height="22dp"
-                            android:importantForAccessibility="no"
-                            android:src="@drawable/ic_check_circle"
-                            app:tint="?attr/colorOnPrimaryContainer" />
+                        android:orientation="vertical"
+                        android:paddingStart="20dp"
+                        android:paddingEnd="14dp"
+                        android:paddingTop="18dp"
+                        android:paddingBottom="12dp">
 
                         <LinearLayout
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
 
                             <TextView
-                                android:id="@+id/tv_status_title"
+                                android:id="@+id/tv_mode_chip"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="已激活"
-                                android:textAppearance="?attr/textAppearanceTitleMedium"
-                                android:textColor="?attr/colorOnPrimaryContainer" />
+                                android:background="@drawable/bg_chip"
+                                android:paddingStart="10dp"
+                                android:paddingEnd="10dp"
+                                android:paddingTop="4dp"
+                                android:paddingBottom="4dp"
+                                android:text="WEB"
+                                android:textAppearance="?attr/textAppearanceLabelMedium"
+                                android:textColor="?attr/colorOnPrimary" />
 
-                            <TextView
-                                android:id="@+id/tv_status_detail"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:alpha="0.85"
-                                android:text="—"
-                                android:textAppearance="?attr/textAppearanceBodySmall"
-                                android:textColor="?attr/colorOnPrimaryContainer" />
+                            <Space
+                                android:layout_width="0dp"
+                                android:layout_height="1dp"
+                                android:layout_weight="1" />
+
+                            <ImageView
+                                android:id="@+id/ic_status"
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_check_circle"
+                                app:tint="?attr/colorOnPrimaryContainer" />
                         </LinearLayout>
 
                         <TextView
-                            android:id="@+id/tv_mode_chip"
+                            android:id="@+id/tv_status_title"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:background="@drawable/bg_chip"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="4dp"
-                            android:paddingBottom="4dp"
-                            android:text="WEB"
-                            android:textAppearance="?attr/textAppearanceLabelMedium"
-                            android:textColor="?attr/colorOnPrimary" />
+                            android:layout_marginTop="12dp"
+                            android:text="已激活"
+                            android:textSize="30sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnPrimaryContainer" />
+
+                        <TextView
+                            android:id="@+id/tv_status_detail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:alpha="0.85"
+                            android:lineSpacingMultiplier="1.25"
+                            android:text="—"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnPrimaryContainer" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -209,7 +211,7 @@
                             <LinearLayout style="@style/SettingRowText">
                                 <TextView
                                     style="@style/SettingRowTitle"
-                                    android:text="视图层强制显示（兜底）" />
+                                    android:text="视图层强制显示" />
                                 <TextView
                                     style="@style/SettingRowSubtitle"
                                     android:text="旧方案：把控件沿祖先链点亮，网络层失效时才用" />
@@ -381,11 +383,4 @@
         </ScrollView>
 
     </FrameLayout>
-
-    <!-- ===== 底栏：与其余 4 个 tab 页共用同一份 view_bottom_nav ===== -->
-    <include
-        layout="@layout/view_bottom_nav"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

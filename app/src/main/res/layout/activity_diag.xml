@@ -14,7 +14,7 @@
     android:id="@+id/root_diag"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/colorBackground">
+    android:background="?attr/colorSurface">
 
     <!-- 原根 ScrollView：现在外面套一层，好在底部挂常驻底栏 -->
     <ScrollView
@@ -48,18 +48,13 @@
                 android:orientation="vertical">
 
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="车端诊断"
-                    android:textAppearance="?attr/textAppearanceTitleLarge"
-                    android:textColor="?attr/colorOnSurface" />
+                    style="@style/PageTitle"
+                    android:text="车辆诊断" />
 
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="DoIP / UDS"
-                    android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    style="@style/ParamHelp"
+                    android:layout_marginTop="2dp"
+                    android:text="DoIP / UDS" />
             </LinearLayout>
 
             <!-- 状态胶囊：三态由 DiagActivity 更新颜色与文案 -->
@@ -1027,11 +1022,4 @@
 
     </LinearLayout>
     </ScrollView>
-
-    <!-- 底栏（常驻）：与其余 tab 页共用同一份 -->
-    <include
-        layout="@layout/view_bottom_nav"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
