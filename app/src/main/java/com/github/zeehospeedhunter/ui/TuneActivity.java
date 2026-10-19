@@ -136,14 +136,6 @@ public final class TuneActivity extends AppCompatActivity {
                 requestClearStore();
             }
         });
-        // 顶栏左上角圆片：跟 OTA 页一致，就是 finish() 回上一级（不用 supportNavigateUpTo，
-        // 本页没有在 manifest 里声明 parentActivityName）
-        findViewById(R.id.btn_back).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                finish();
-            }
-        });
         // 顶栏右上角小按钮：只把滑块拨回默认值 + 发一次广播，不 finish / 不 recreate
         findViewById(R.id.btn_reset).setOnClickListener(new View.OnClickListener() {
             @Override

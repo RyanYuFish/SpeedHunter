@@ -1,13 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- 投屏/镜像：手机屏幕 + 无线弧线 -->
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M3,4.5h11v9H3zM4.5,6v6.5h8V6zM6.5,8.2h5v1.6h-5z" />
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M17.5,7.5a4.5,4.5 0 0,1 4.5,4.5h-1.6a2.9,2.9 0 0,0 -2.9,-2.9zM17.5,10.2a1.8,1.8 0 0,1 1.8,1.8h-1.6a0.2,0.2 0 0,0 -0.2,-0.2zM17.5,5a7,7 0 0,1 7,7h-1.6a5.4,5.4 0 0,0 -5.4,-5.4z" />
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- 仪表投屏 · Material Symbols "Cast"（filled，960 网格；viewBox 是 0 -960 960 960 ⇒ group 下移 960） -->
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M80-160v-120q50 0 85 35t35 85H80Zm200 0q0-83-58.5-141.5T80-360v-80q117 0 198.5 81.5T360-160h-80Zm160 0q0-75-28.5-140.5t-77-114q-48.5-48.5-114-77T80-520v-80q91 0 171 34.5T391-471q60 60 94.5 140T520-160h-80Zm160 0q0-108-41-202.5t-111.5-165Q377-598 282.5-639T80-680v-40q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H600Z" />
+    </group>
 </vector>

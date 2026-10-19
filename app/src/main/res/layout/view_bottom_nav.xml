@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  共享底栏：5 个主功能 tab 都进它可能，所以每个通过底栏进入的 Activity
+  都要 include 它 —— 切 tab 时底栏始终在（换的是下面的内容，不是整块屏幕）。
+
+  ★ 背景色用库默认的 colorSurfaceContainer（M3 规范值），不要覆盖
+  ★ 激活遮罩用 Material You 默认（图标后面那颗 32dp 药丸），不要改成整项大遮罩
+-->
+<com.google.android.material.bottomnavigation.BottomNavigationView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/bottom_nav"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom"
+    app:labelVisibilityMode="labeled"
+    app:menu="@menu/main_nav" />

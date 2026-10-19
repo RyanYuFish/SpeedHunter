@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 仪表盘速度指针（Material "speed" 字形），放大居中到安全区 -->
+    <!-- 自行车（与骑行记录 tab 图标同一字形，ic_tab_ride），放大居中到安全区 -->
     <group
         android:scaleX="2.2"
         android:scaleY="2.2"
@@ -12,6 +12,6 @@
         android:translateY="27.6">
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M20.38,8.57l-1.23,1.85a8,8 0,0 1,-0.22 7.58H5.07A8,8 0,0 1,15.58 6.85l1.85,-1.23A10,10 0,0 0,3.35 19a2,2 0,0 0,1.72 1h13.85a2,2 0,0 0,1.74 -1,10 10,0 0,0 -0.27,-10.44zM10.59,15.41a2,2 0,0 0,2.83 0l5.66,-8.49 -8.49,5.66a2,2 0,0 0,0 2.83z" />
+            android:pathData="M15.5,5.5a2.5,2.5 0 1,0 0,5a2.5,2.5 0 1,0 0,-5zM5,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM19,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM15,15.5l-3,-3.5h-3l-2,-3H4v1.5h2.17l2.5,3.5h4.66l2.5,3.5h-2.33v1.5h4.5v-1.5h-2.67z" />
     </group>
 </vector>

@@ -151,9 +151,9 @@
             android:name="xposedscope"
             android:resource="@array/xposed_scope" />
 
-        <!-- 模块设置界面（Material You） -->
+        <!-- 骑行记录页：底栏 5 个 tab 之一（与 OTA/壁纸/投屏/诊断平级），兼启动入口 -->
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".ui.RideActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/AppTheme">

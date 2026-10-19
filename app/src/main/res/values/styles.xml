@@ -76,9 +76,13 @@
         <item name="android:alpha">0.4</item>
     </style>
 
+    <!-- 主页 toolbar 小标题：默认 subtitle 字号太大，43 字符一行放不下会被省略号截断 -->
+    <style name="ToolbarSubtitle" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">13sp</item>
+    </style>
+
     <!-- ===== 「压弯标定」页 ===== -->
-    <style name="CardBlock">
-        <item name="android:layout_width">match_parent</item>
+    <style name="CardBlock">        <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">14dp</item>
         <item name="cardCornerRadius">24dp</item>

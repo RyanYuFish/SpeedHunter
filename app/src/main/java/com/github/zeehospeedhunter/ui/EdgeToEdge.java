@@ -12,7 +12,7 @@ import androidx.core.view.WindowInsetsCompat;
  * edge-to-edge 的统一处理：内容画到状态栏 / 导航栏底下，栏本身透明。
  *
  * <h3>为什么抽出来</h3>
- * <p>原先只有 {@link MainActivity} 调 {@code setupEdgeToEdge()}，另外两页没调，
+ * <p>原先只有 {@link RideActivity} 调，另外两页没调，
  * 于是<b>状态栏图标反色不对</b>：主页在浅色底上是深色图标（对），
  * 但 {@link OtaActivity} / {@link TuneActivity} 的浅色背景上仍是白色图标，
  * 白底白字 ⇒ 时间和电量「消失」了。</p>
@@ -34,9 +34,22 @@ public final class EdgeToEdge {
     /**
      * 开沉浸 + 修状态栏图标明暗。
      *
-     * @param view 根内容视图（一般是 {@code setContentView} 传进去的那个）
+     * @param view 根内容视图（一般是 {@code setContentView} 传进去的那个）；
+     *             传 {@code null} 表示只设窗口、insets 由各页面自己挂
+     *             （{@link #applyTop} / {@link #applyBottom}）
      */
     public static void setup(android.app.Activity activity, android.view.View view) {
+        applyWindow(activity);
+        apply(view);
+    }
+
+    /**
+     * 只做窗口设置（透明栏 + 图标明暗），不碰任何 view。
+     *
+     * <p>必须在 {@code setContentView} <b>之前</b>或之后调都行；但给 view 挂 insets
+     * 只能在 {@code setContentView} 之后 —— 顺序反了 {@code findViewById} 拿到 null。</p>
+     */
+    public static void applyWindow(android.app.Activity activity) {
         try {
             android.view.Window window = activity.getWindow();
             WindowCompat.setDecorFitsSystemWindows(window, false);
@@ -54,7 +67,6 @@ public final class EdgeToEdge {
             c.setAppearanceLightNavigationBars(!night);
         } catch (Throwable ignored) {
         }
-        apply(view);
     }
 
     /**
@@ -78,6 +90,169 @@ public final class EdgeToEdge {
                         top + bars.top,
                         v.getPaddingRight(),
                         bottom + bars.bottom);
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 只补<b>顶部</b> inset（状态栏 + 刘海）—— 给顶栏 / Toolbar 用，
+     * 免得标题飘到状态栏上去。
+     *
+     * <p>★ 以前 {@link RideActivity} 在 {@code setContentView} <b>之前</b>调
+     * {@code findViewById}，拿到 null，insets 谁都没挂上，标题于是压在状态栏上。</p>
+     */
+    public static void applyTop(android.view.View view) {
+        if (view == null) {
+            return;
+        }
+        try {
+            final int base = view.getPaddingTop();
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                int top = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()).top;
+                v.setPadding(v.getPaddingLeft(), base + top,
+                        v.getPaddingRight(), v.getPaddingBottom());
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 只补<b>底部</b> inset（导航栏）—— 给底栏 / 内容区用。
+     *
+     * @param extra 额外再加多少（例如内容区要避开底栏高度时传底栏高度）
+     */
+    public static void applyBottom(android.view.View view, int extra) {
+        if (view == null) {
+            return;
+        }
+        try {
+            final int base = view.getPaddingBottom();
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                int bottom = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()).bottom;
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(),
+                        v.getPaddingRight(), base + bottom + extra);
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 把导航栏高度补成<b>底部外边距</b> —— 给底栏用。
+     *
+     * <p>★ 为什么是 margin 不是 padding：padding 会把底栏<b>背景</b>一起撑到屏幕最底，
+     * 于是手势区那截也是底栏底色 ⇒ 看起来「遮罩层比 tab 高一截」。
+     * margin 只把整个底栏抬到手势区上方，背景正好停在 tab 内容底部。</p>
+     */
+    public static void applyBottomMargin(android.view.View view) {
+        if (view == null) {
+            return;
+        }
+        try {
+            final int base = bottomMargin(view);
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                int bottom = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()).bottom;
+                setBottomMargin(v, base + bottom);
+                return insets;
+            });
+            ViewCompat.requestApplyInsets(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 内容区底部 padding = 「手势区高度 + 底栏实际高度」。
+     *
+     * <p>★ 不能只在 insets 那一次算：首派常在底栏布局之前，此时
+     * {@code avoid.getHeight()} 还是 0 ⇒ 内容会漏进底栏下方的手势区。
+     * 所以额外挂一个布局监听，底栏一有高度就重算。</p>
+     *
+     * <p>★ 两次写入都要比对现值：值没变就别 setPadding —— 否则
+     * 「setPadding → requestLayout → 布局监听 → setPadding」会一直转。</p>
+     */
+    public static void applyBottomAvoid(android.view.View view, android.view.View avoid) {
+        if (view == null) {
+            return;
+        }
+        try {
+            // ★ 必须 clipToPadding=true：光加 padding 不管用 ——
+            //   滚动容器设了 clipToPadding=false 时，子项会被画进 padding 区，
+            //   于是内容照样出现在底栏下方的手势区里。true 表示「裁到 padding 内边缘」，
+            //   内容最多画到底栏上沿就停，底栏与手势区都干净。
+            if (view instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) view).setClipToPadding(true);
+            }
+            final int base = view.getPaddingBottom();
+            final int[] inset = new int[1];
+            final Runnable apply = () -> {
+                int want = base + inset[0] + (avoid == null ? 0 : avoid.getHeight());
+                if (view.getPaddingBottom() != want) {
+                    view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
+                            view.getPaddingRight(), want);
+                }
+            };
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                inset[0] = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()).bottom;
+                apply.run();
+                return insets;
+            });
+            if (avoid != null) {
+                avoid.getViewTreeObserver().addOnGlobalLayoutListener(apply::run);
+            }
+            ViewCompat.requestApplyInsets(view);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static int bottomMargin(android.view.View view) {
+        android.view.ViewGroup.LayoutParams lp = view.getLayoutParams();
+        return lp instanceof android.view.ViewGroup.MarginLayoutParams
+                ? ((android.view.ViewGroup.MarginLayoutParams) lp).bottomMargin : 0;
+    }
+
+    private static void setBottomMargin(android.view.View view, int margin) {
+        android.view.ViewGroup.LayoutParams lp = view.getLayoutParams();
+        if (lp instanceof android.view.ViewGroup.MarginLayoutParams) {
+            ((android.view.ViewGroup.MarginLayoutParams) lp).bottomMargin = margin;
+            view.setLayoutParams(lp);
+        }
+    }
+
+    /**
+     * 同上，但「额外避开的高度」在 insets 派发时<b>实时读</b>（传要避开的那
+     * 个 View，例如底栏）——  onCreate 里拿不到它的高度（还没布局），
+     * 写死 0 的话最后一行会被底栏压住。
+     *
+     * @param avoid 要避开高度的 View；传 {@code null} 等价于 {@link #applyBottom(View, int)}
+     *              的 {@code extra = 0}
+     */
+    public static void applyBottom(android.view.View view, android.view.View avoid) {
+        if (view == null) {
+            return;
+        }
+        try {
+            final int base = view.getPaddingBottom();
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                int bottom = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()).bottom;
+                int extra = avoid == null ? 0 : avoid.getHeight();
+                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(),
+                        v.getPaddingRight(), base + bottom + extra);
                 return insets;
             });
             ViewCompat.requestApplyInsets(view);

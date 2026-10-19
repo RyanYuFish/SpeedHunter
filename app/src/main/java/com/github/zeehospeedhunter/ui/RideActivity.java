@@ -11,9 +11,6 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.materialswitch.MaterialSwitch;
 
@@ -23,13 +20,13 @@ import com.github.zeehospeedhunter.R;
 import com.github.zeehospeedhunter.core.Keys;
 
 /**
- * 模块设置界面（Material You）。
+ * 骑行记录页（Material You）—— 底栏 5 个 tab 之一，与其余 4 个平级。
  *
  * <p>展示当前对 ZEEHO App 的挂载方式（网络层 / 视图层）并允许开关切换。
  * 开关写入本模块的 SharedPreferences，hook 进程经
  * {@code ConfigProvider}（导出的 ContentProvider）读取 —— 改完冷重启 ZEEHO App 生效。</p>
  */
-public final class MainActivity extends AppCompatActivity {
+public final class RideActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
 
@@ -44,16 +41,13 @@ public final class MainActivity extends AppCompatActivity {
     private ImageView icStatus;
     private TextView tvModeChip;
 
-    /** 5 个功能页容器，底栏切换（同一时间只显示一个）。 */
-    private View[] pages;
-    /** 底栏选中项 id → 页下标。 */
-    private int[] navIds;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setupEdgeToEdge();
-        setContentView(R.layout.activity_main);
+        // ★ 只做窗口设置：给 view 挂 insets 必须等 setContentView 之后，
+        //   早调 findViewById 只会拿到 null（标题飘到状态栏就是这么来的）
+        EdgeToEdge.applyWindow(this);
+        setContentView(R.layout.activity_ride);
         BackGestureCompat.install(this);
         applyInsets();
 
@@ -91,60 +85,15 @@ public final class MainActivity extends AppCompatActivity {
         swView.setOnCheckedChangeListener(listener);
         swRideFill.setOnCheckedChangeListener(listener);
 
-        // 仪表 OTA 推送：跳 OTA 操作台（P2P 建连 / 推包 / 触发 / 看日志）
-        findViewById(R.id.btn_ota_flash).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    startActivity(new android.content.Intent(
-                            MainActivity.this, OtaActivity.class));
-                } catch (Throwable t) {
-                    Toast.makeText(MainActivity.this, "打不开 OTA 操作台：" + t,
-                            Toast.LENGTH_LONG).show();
-                }
-            }
-        });
-
-        findViewById(R.id.btn_wallpaper_push).setOnClickListener(v ->
-                startActivity(new android.content.Intent(MainActivity.this, WallpaperActivity.class)));
-
         // 压弯标定：8 个阈值实时可调，每项带「调它会发生什么」说明
         findViewById(R.id.btn_tune).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 try {
                     startActivity(new android.content.Intent(
-                            MainActivity.this, TuneActivity.class));
+                            RideActivity.this, TuneActivity.class));
                 } catch (Throwable t) {
-                    Toast.makeText(MainActivity.this, "打不开标定台：" + t,
-                            Toast.LENGTH_LONG).show();
-                }
-            }
-        });
-
-        // 仪表投屏：独立入口，绕过官方 App 手动操作（解析二维码 → 连 AP → 拉起投屏）
-        findViewById(R.id.btn_mirror).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    startActivity(new android.content.Intent(
-                            MainActivity.this, MirrorActivity.class));
-                } catch (Throwable t) {
-                    Toast.makeText(MainActivity.this, "打不开投屏页：" + t,
-                            Toast.LENGTH_LONG).show();
-                }
-            }
-        });
-
-        // 车端诊断：DoIP/UDS 只读 + RS485 解码 + 写操作闸门（来自 zeeho-diag）
-        findViewById(R.id.btn_diag).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    startActivity(new android.content.Intent(
-                            MainActivity.this, DiagActivity.class));
-                } catch (Throwable t) {
-                    Toast.makeText(MainActivity.this, "打不开诊断台：" + t,
+                    Toast.makeText(RideActivity.this, "打不开标定台：" + t,
                             Toast.LENGTH_LONG).show();
                 }
             }
@@ -154,56 +103,16 @@ public final class MainActivity extends AppCompatActivity {
         updateStatus();
     }
 
-    // ==================== 底栏 tab 切换 ====================
+    // ==================== 底栏 tab ====================
 
     /**
-     * 主要功能分 5 个 tab：骑行记录 / OTA 推送 / 壁纸推送 / 仪表投屏 / 车辆诊断。
-     * 底栏点选即切换容器可见性（不做 ViewPager：避免为一次滑动多引一个依赖）。
+     * 5 个 tab：骑行记录 / OTA 推送 / 壁纸推送 / 仪表投屏 / 车辆诊断。
+     * 装配与跳转统一在 {@link NavBar}（底栏常驻 + 同级切换）。
      */
     private void setupTabs() {
-        pages = new View[]{
-                findViewById(R.id.page_ride),
-                findViewById(R.id.page_ota),
-                findViewById(R.id.page_wallpaper),
-                findViewById(R.id.page_mirror),
-                findViewById(R.id.page_diag),
-        };
-        navIds = new int[]{
-                R.id.nav_ride, R.id.nav_ota, R.id.nav_wallpaper,
-                R.id.nav_mirror, R.id.nav_diag,
-        };
-
-        com.google.android.material.bottomnavigation.BottomNavigationView nav =
-                findViewById(R.id.bottom_nav);
-        nav.setSelectedItemId(R.id.nav_ride);
-        nav.setOnItemSelectedListener(item -> {
-            int index = -1;
-            for (int i = 0; i < navIds.length; i++) {
-                if (item.getItemId() == navIds[i]) {
-                    index = i;
-                    break;
-                }
-            }
-            if (index < 0) return false;
-            for (int i = 0; i < pages.length; i++) {
-                pages[i].setVisibility(i == index ? View.VISIBLE : View.GONE);
-            }
-            return true;
-        });
+        NavBar.install(this, R.id.nav_ride, R.id.ride_scroll);
     }
 
-    // ==================== 手机端日志 ====================
-
-    /**
-     * 日志现在<b>只在 OTA 操作台页内</b>显示（{@code activity_ota.xml} 的日志区 + Tab 切两份）。
-     *
-     * <p>2026-10-04 之前这里有个「悬浮窗权限」入口，为的是操作台挂日志悬浮窗。
-     * 实测两个问题：悬浮窗会盖在 ZEEHO App 上（而这一步本来就要来回切 App 看状态），
-     * 而且平白多要一个 {@code SYSTEM_ALERT_WINDOW} 授权页。改成页内日志区后都不需要了。</p>
-     *
-     * <p>日志本身一直照常落文件（{@code com.cfmoto/files/zeeho_hook.log}）＋ logcat tag
-     * {@code ZeehoHook}，要完整历史仍可用 adb 读文件。</p>
-     */
     private String versionName() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
@@ -212,37 +121,15 @@ public final class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ==================== edge-to-edge ====================
-
     /**
-     * 沉浸式 + 修状态栏图标明暗。
+     * 沉浸式 insets：顶栏吃状态栏高度（标题不再飘到状态栏上）。
+     * 底栏与内容区的避让由 {@link NavBar#install} 统一处理。
      *
-     * <p>已抽到 {@link EdgeToEdge} 供三个页面共用 —— 原来只有这里调，
-     * 另两页（操作台 / 标定台）浅色底上是白图标，等于白底白字看不见。</p>
-     */
-    private void setupEdgeToEdge() {
-        EdgeToEdge.setup(this, findViewById(R.id.root_main));
-    }
-
-    /**
-     * 内容区吃系统栏 inset：底部多留一截，免得最后一行被底栏压住。
-     * 5 个 tab 页都是 ScrollView，逐个挂监听太啰嗦，直接挂到容器上。
+     * <p>★ 必须在 {@code setContentView} <b>之后</b>调 —— 之前 {@code findViewById}
+     * 只拿得到 null，insets 谁都没挂，标题就压在状态栏上了。</p>
      */
     private void applyInsets() {
-        final View container = findViewById(R.id.page_container);
-        final int baseLeft = container.getPaddingLeft();
-        final int baseTop = container.getPaddingTop();
-        final int baseRight = container.getPaddingRight();
-        final int baseBottom = container.getPaddingBottom();
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(container, (v, insets) -> {
-            androidx.core.graphics.Insets bars = insets.getInsets(
-                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
-                            | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
-            v.setPadding(baseLeft + bars.left, baseTop + bars.top,
-                    baseRight + bars.right, baseBottom + bars.bottom);
-            return insets;
-        });
-        androidx.core.view.ViewCompat.requestApplyInsets(container);
+        EdgeToEdge.applyTop(findViewById(R.id.app_bar));
     }
 
 

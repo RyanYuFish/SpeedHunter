@@ -102,7 +102,9 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
         setContentView(R.layout.activity_mirror);
         access=new P2pAccess(this, message -> { tvStatus.setText(message); append(message); });
         BackGestureCompat.install(this);
-        EdgeToEdge.setup(this, findViewById(R.id.root_mirror));
+        EdgeToEdge.applyWindow(this);
+        EdgeToEdge.applyTop(findViewById(R.id.root_mirror));
+        NavBar.install(this, R.id.nav_mirror, R.id.page_scroll);
         tvLog = findViewById(R.id.tv_log); tvStatus = findViewById(R.id.tv_status);
         etUrl = findViewById(R.id.et_mirror_url);
         tvConnectionInfo = findViewById(R.id.tv_mirror_info);
@@ -121,7 +123,6 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
         etUrl.setText(getPreferences(MODE_PRIVATE).getString("qrUrl", ""));
         try { showConnectionInfo(MirrorRequest.parse(etUrl.getText().toString())); }
         catch (IllegalArgumentException ignored) { }
-        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
         findViewById(R.id.btn_clear_log).setOnClickListener(v -> { log.setLength(0); tvLog.setText(""); });
         findViewById(R.id.btn_parse_url).setOnClickListener(v -> parseUrl());
         findViewById(R.id.btn_start_mirror).setOnClickListener(v -> startMirror());

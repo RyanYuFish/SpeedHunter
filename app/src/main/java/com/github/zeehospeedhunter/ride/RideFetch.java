@@ -128,7 +128,7 @@ public final class RideFetch {
         }
     }
 
-    /** 供 {@code MainActivity} 说明文案用：把 {@link #PAGE_SIZE} 讲成人话。 */
+    /** 供 {@code RideActivity} 说明文案用：把 {@link #PAGE_SIZE} 讲成人话。 */
     public static String describe() {
         return String.format(Locale.ROOT, "每页 %d 条", PAGE_SIZE);
     }

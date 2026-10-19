@@ -30,12 +30,6 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <ImageButton
-                    android:id="@+id/btn_back"
-                    style="@style/NavCircleButton"
-                    android:contentDescription="返回"
-                    android:src="@drawable/ic_arrow_back" />
-
                 <Space
                     android:layout_width="0dp"
                     android:layout_height="1dp"
@@ -45,7 +39,7 @@
                     android:id="@+id/btn_clear_log"
                     style="@style/TopIconButton"
                     android:contentDescription="清空日志"
-                    android:src="@drawable/ic_clear" />
+                    android:src="@drawable/ic_delete_log" />
             </LinearLayout>
 
             <TextView
@@ -228,4 +222,11 @@
                 android:text="流程：二维码 → 本机 P2P 配对 → EC/PXC 握手 → H.264 屏幕投影。不需要官方 App。视频已发送不等于仪表已解码，最终以仪表实际画面为准。此版本需要实车验证。" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
+
+    <!-- 底栏（常驻）：与其余 tab 页共用同一份 -->
+    <include
+        layout="@layout/view_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

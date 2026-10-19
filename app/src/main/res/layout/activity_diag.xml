@@ -8,15 +8,22 @@
     ⑤ 维修操作：红色卡，写类默认硬禁
     ⑥ 日志 / 结果
 -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root_diag"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/colorBackground"
-    android:clipToPadding="false"
-    android:fillViewport="true"
-    android:scrollbars="none">
+    android:background="?android:attr/colorBackground">
+
+    <!-- 原根 ScrollView：现在外面套一层，好在底部挂常驻底栏 -->
+    <ScrollView
+        android:id="@+id/diag_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:scrollbars="none">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -27,23 +34,16 @@
         android:paddingTop="12dp"
         android:paddingBottom="16dp">
 
-        <!-- ===== ① 顶栏：返回 + 标题 + 状态胶囊 ===== -->
+        <!-- ===== ① 顶栏：标题 + 状态胶囊 ===== -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <ImageButton
-                android:id="@+id/btn_back"
-                style="@style/NavCircleButton"
-                android:contentDescription="返回"
-                android:src="@drawable/ic_arrow_back" />
-
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
@@ -1026,4 +1026,12 @@
         </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
-</ScrollView>
+    </ScrollView>
+
+    <!-- 底栏（常驻）：与其余 tab 页共用同一份 -->
+    <include
+        layout="@layout/view_bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom" />
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

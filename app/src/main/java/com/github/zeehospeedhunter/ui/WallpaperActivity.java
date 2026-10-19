@@ -91,7 +91,9 @@ public final class WallpaperActivity extends AppCompatActivity {
         setContentView(R.layout.activity_wallpaper);
         BackGestureCompat.install(this);
         // ★ 状态栏：必须走 EdgeToEdge，否则状态栏区域露出主题白底
-        EdgeToEdge.setup(this, findViewById(R.id.wallpaper_root));
+        EdgeToEdge.applyWindow(this);
+        EdgeToEdge.applyTop(findViewById(R.id.wallpaper_root));
+        NavBar.install(this, R.id.nav_wallpaper, R.id.wallpaper_scroll);
 
         fileLabel = findViewById(R.id.wallpaper_file);
         linkStatus = findViewById(R.id.wp_link_status);
@@ -104,7 +106,6 @@ public final class WallpaperActivity extends AppCompatActivity {
         pvSmall = findViewById(R.id.wallpaper_preview_small);
         pvBig = findViewById(R.id.wallpaper_preview_big);
 
-        findViewById(R.id.wallpaper_back).setOnClickListener(v -> finish());
         findViewById(R.id.wallpaper_clear_log).setOnClickListener(v -> log.setText(""));
 
         // ① 连接

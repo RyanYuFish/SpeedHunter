@@ -1,10 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- 图片/壁纸：外框 + 山 + 太阳 -->
-    <path
-        android:fillColor="#FF000000"
-        android:pathData="M4,5h16v14H4zM5.5,6.5v11h13v-11zM8,9a1.6,1.6 0 1,0 0,3.2A1.6,1.6 0 1,0 8,9zM17.5,16.5l-4,-4 -3,3 -2,-2 -3.5,3.5v1.5h12.5z" />
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- 壁纸推送 · Material Symbols "Wallpaper Slideshow"（filled，960 网格；viewBox 是 0 -960 960 960 ⇒ group 下移 960） -->
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M651.5-651.5Q640-663 640-680t11.5-28.5Q663-720 680-720t28.5 11.5Q720-697 720-680t-11.5 28.5Q697-640 680-640t-28.5-11.5ZM360-400l108-140 62 80 92-120 138 180H360ZM160-80q-33 0-56.5-23.5T80-160v-560h80v560h560v80H160Zm80-505v-215q0-33 23.5-56.5T320-880h200v80H320v215h-80Zm80 345q-33 0-56.5-23.5T240-320v-185h80v185h200v80H320Zm280 0v-80h200v-185h80v185q0 33-23.5 56.5T800-240H600Zm200-345v-215H600v-80h200q33 0 56.5 23.5T880-800v215h-80Z" />
+    </group>
 </vector>

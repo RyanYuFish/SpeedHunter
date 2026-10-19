@@ -120,7 +120,9 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_ota);
         BackGestureCompat.install(this);
-        EdgeToEdge.setup(this, findViewById(R.id.root_ota));
+        EdgeToEdge.applyWindow(this);
+        EdgeToEdge.applyTop(findViewById(R.id.root_ota));
+        NavBar.install(this, R.id.nav_ota, R.id.page_scroll);
         main = new Handler(Looper.getMainLooper());
 
         tvLog = findViewById(R.id.tv_log);
@@ -160,7 +162,6 @@ public final class OtaActivity extends androidx.appcompat.app.AppCompatActivity
         setupLinkTabs();
         renderCarInfo();      // 先渲染占位行，避免"连接了但信息区空白"
 
-        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
         findViewById(R.id.btn_clear_log).setOnClickListener(v -> clearLog());
         findViewById(R.id.btn_copy_log).setOnClickListener(v -> copyLog());
         findViewById(R.id.btn_bluetooth).setOnClickListener(v -> openBluetoothSettings());

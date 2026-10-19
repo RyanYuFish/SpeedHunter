@@ -101,7 +101,9 @@ public final class DiagActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_diag);
-        EdgeToEdge.setup(this, findViewById(R.id.root_diag));
+        EdgeToEdge.applyWindow(this);
+        EdgeToEdge.applyTop(findViewById(R.id.root_diag));
+        NavBar.install(this, R.id.nav_diag, R.id.diag_scroll);
         BackGestureCompat.install(this);
         main = new Handler(Looper.getMainLooper());
 
@@ -135,7 +137,6 @@ public final class DiagActivity extends AppCompatActivity {
         groupKeys = DataStreams.groupKeys();
         spGroup.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, DataStreams.groupTitles()));
 
-        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
         findViewById(R.id.btn_clear_log).setOnClickListener(v -> clearLog());
 
         setupCollapsibles();
