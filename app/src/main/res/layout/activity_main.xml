@@ -1,657 +1,732 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/colorBackground"
-    android:clipToPadding="false"
-    android:fillViewport="true"
-    android:scrollbars="none">
+    android:background="?android:attr/colorBackground">
 
-    <LinearLayout
-        android:id="@+id/root_scroll"
+    <!-- ===== 顶栏：标题 + 状态胶囊（MD3 TopAppBar） ===== -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="16dp">
+        android:background="?attr/colorSurface"
+        app:elevation="0dp">
 
-        <!-- ===== 标题 ===== -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textAppearance="?attr/textAppearanceHeadlineMedium"
-            android:textColor="?attr/colorOnSurface" />
-
-        <!-- ===== 当前挂载方式（状态卡，accent 容器色） ===== -->
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.appbar.MaterialToolbar
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            app:cardBackgroundColor="?attr/colorPrimaryContainer"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="0dp">
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            app:title="@string/app_name"
+            app:titleTextColor="?attr/colorOnSurface" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- ===== 5 个功能页容器：同一时间只显示一个 ===== -->
+    <FrameLayout
+        android:id="@+id/page_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <!-- ===== ① 骑行记录 ===== -->
+        <ScrollView
+            android:id="@+id/page_ride"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:scrollbars="none">
 
             <LinearLayout
+                android:id="@+id/root_scroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="18dp"
-                android:paddingEnd="18dp"
-                android:paddingTop="16dp"
-                android:paddingBottom="16dp">
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="20dp">
 
-                <ImageView
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/ic_check_circle"
-                    app:tint="?attr/colorOnPrimaryContainer" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
+                <!-- 当前挂载方式（状态卡）：激活 = 「已激活」+ 实现方式注释；全关 = 「未激活」 -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    app:cardBackgroundColor="?attr/colorPrimaryContainer"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="当前挂载方式"
-                        android:textAppearance="?attr/textAppearanceTitleMedium"
-                        android:textColor="?attr/colorOnPrimaryContainer" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="18dp"
+                        android:paddingEnd="18dp"
+                        android:paddingTop="16dp"
+                        android:paddingBottom="16dp">
 
-                    <TextView
-                        android:id="@+id/tv_status_detail"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:textColor="?attr/colorOnPrimaryContainer"
-                        android:alpha="0.85"
-                        android:text="—" />
-                </LinearLayout>
+                        <ImageView
+                            android:id="@+id/ic_status"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_check_circle"
+                            app:tint="?attr/colorOnPrimaryContainer" />
 
-                <TextView
-                    android:id="@+id/tv_mode_chip"
-                    android:layout_width="wrap_content"
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="14dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tv_status_title"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="已激活"
+                                android:textAppearance="?attr/textAppearanceTitleMedium"
+                                android:textColor="?attr/colorOnPrimaryContainer" />
+
+                            <TextView
+                                android:id="@+id/tv_status_detail"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:alpha="0.85"
+                                android:text="—"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnPrimaryContainer" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tv_mode_chip"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_chip"
+                            android:paddingStart="10dp"
+                            android:paddingEnd="10dp"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp"
+                            android:text="WEB"
+                            android:textAppearance="?attr/textAppearanceLabelMedium"
+                            android:textColor="?attr/colorOnPrimary" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- 挂载方式开关 -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_chip"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:textAppearance="?attr/textAppearanceLabelMedium"
-                    android:text="WEB"
-                    android:textColor="?attr/colorOnPrimary" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
 
-        <!-- ===== 挂载方式开关 ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <!-- 网络层（主开关） -->
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_public"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="网络层改写（推荐）" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="hook okhttp 响应，改写车型能力位 —— 与 iOS Shadowrocket 方案同一组字段" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/sw_web"
-                        style="@style/SettingRowSwitch" />
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <!-- G1 -->
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_public"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="G1 · vehicleKinds = 2" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="「骑行分析」入口 + 极速" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/sw_g1"
-                        style="@style/SettingRowSwitch" />
-                </LinearLayout>
-
-                <!-- G2 -->
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_public"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="G2 · cyclingEventStatisticFlag = true" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="急加速 / 急刹 / 压弯" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/sw_g2"
-                        style="@style/SettingRowSwitch" />
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <!-- 视图层兜底 -->
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_visibility"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="视图层强制显示（兜底）" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="旧方案：把控件沿祖先链点亮，网络层失效时才用" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/sw_view"
-                        style="@style/SettingRowSwitch" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- ===== 仪表 OTA 推送 ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_flash"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="仪表OTA推送" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="Wi-Fi Direct 建连 → 推送 OTA 包 → 触发仪表刷写，四步全在手机上完成" />
-                    </LinearLayout>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_ota_flash"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:text="操作台"
-                        android:textSize="12sp" />
-                </LinearLayout>
+                        android:orientation="vertical">
 
-                <View style="@style/SettingDivider" />
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_public"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="网络层改写（推荐）" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="hook okhttp 响应，改写车型能力位 —— 与 iOS Shadowrocket 方案同一组字段" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_web"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
 
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_public"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="仪表壁纸推送" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="Dashboard Studio ZIP · 独立于固件 OTA 的壁纸通道" />
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_public"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="G1 · vehicleKinds = 2" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="「骑行分析」入口 + 极速" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_g1"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_public"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="G2 · cyclingEventStatisticFlag = true" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="急加速 / 急刹 / 压弯" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_g2"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_visibility"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="视图层强制显示（兜底）" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="旧方案：把控件沿祖先链点亮，网络层失效时才用" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_view"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
                     </LinearLayout>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_wallpaper_push"
-                        android:layout_width="wrap_content"
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- 骑行数据回填 -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:text="操作台"
-                        android:textSize="12sp" />
-                </LinearLayout>
+                        android:orientation="vertical">
 
-                <View style="@style/SettingDivider" />
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_visibility"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="急刹 / 压弯回填" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="从行程轨迹还原缺失的急刹 / 压弯数；只补 0 值，服务端有数的不动" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_ride_fill"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
 
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="刷写前提" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="车要上电、仪表进升级模式（下键 + SET 长按 10 秒）；电量 ≥25%、不在充电、非 Ready、原装电池；刷写全程别断电" />
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="怎么补全" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="「历史轨迹」按月发请求且没有上拉加载，故自动把每页 20 条放大到 200 条；逐月点开即可补齐" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_tune"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="压弯标定" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="嫌压弯次数太多 / 太少？8 个阈值实时可调，改完翻一遍历史轨迹即可重算" />
+                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_tune"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="12dp"
+                                android:text="标定"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                </com.google.android.material.card.MaterialCardView>
 
-        <!-- ===== 车端诊断（DoIP/UDS + RS485 解码，来自 zeeho-diag） ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
+                <!-- 版本 / 应用改动 / 数据说明 -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_public"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="车端诊断（DoIP / UDS）" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="连车机 AP 读车辆信息 / 故障码 / ECU 身份 / 扫 DID / 看数据流；RS485 抓包离线解码；写操作默认硬禁" />
-                    </LinearLayout>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_diag"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:text="诊断"
-                        android:textSize="12sp" />
-                </LinearLayout>
+                        android:orientation="vertical">
 
-                <View style="@style/SettingDivider" />
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="版本 · 目标应用" />
+                                <TextView
+                                    android:id="@+id/tv_version"
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="com.cfmoto（LSPosed 作用域需勾选）" />
+                            </LinearLayout>
+                        </LinearLayout>
 
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="前提" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="手机连车机 AP（ZEEHO-xxxx，热点关）；DoIP 走 192.168.49.1:13400，与 OTA 的 0.1:10950 不是同一通道" />
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="应用改动" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="开关实时送达运行中的 ZEEHO App；改动后建议冷重启一次确认效果" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="数据说明" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="只改能力位，极速/加速/急刹/压弯数值均为服务端真值" />
+                            </LinearLayout>
+                        </LinearLayout>
                     </LinearLayout>
-                </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        </ScrollView>
 
-        <!-- ===== 仪表投屏（EasyConnect 镜像，绕过官方 App） ===== -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- ===== ② OTA 推送 ===== -->
+        <ScrollView
+            android:id="@+id/page_ota"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_flash"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="仪表投屏（独立入口）" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="扫码连接仪表 → Wi-Fi Direct 配对 → 独立屏幕投影，无需官方 App 或 LSPosed" />
-                    </LinearLayout>
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_mirror"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:minWidth="0dp"
-                        android:minHeight="0dp"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:text="投屏"
-                        android:textSize="12sp" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- ===== 骑行数据回填（急刹 / 压弯） ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_visibility"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="急刹 / 压弯回填" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="从行程轨迹还原 7 月 2 日后缺失的急刹 / 压弯数；只补 0 值，服务端有数的不动" />
-                    </LinearLayout>
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/sw_ride_fill"
-                        style="@style/SettingRowSwitch" />
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="回填到哪" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="按天落在 com.cfmoto 的 files/zeeho_days/，给「每日 / 月度」两页聚合用；关掉即停，旧数据保留" />
-                    </LinearLayout>
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="怎么补全" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="「我的骑行 → 历史轨迹」按月发请求且没有上拉加载，所以自动把每页 20 条放大到 200 条；逐月点开 7 / 8 / 9 / 10 月即可把 7 月 2 日之后全部行程补齐" />
-                    </LinearLayout>
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- ===== 压弯标定（运行时调参入口） ===== -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeWidth="0dp">
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="18dp">
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="20dp">
 
-                <LinearLayout
-                    style="@style/SettingRow"
-                    android:paddingStart="0dp"
-                    android:paddingEnd="0dp"
-                    android:paddingTop="0dp"
-                    android:paddingBottom="6dp">
-
-                    <ImageView
-                        android:layout_width="22dp"
-                        android:layout_height="22dp"
-                        android:importantForAccessibility="no"
-                        android:src="@drawable/ic_tune"
-                        app:tint="?attr/colorOnSurface" />
-
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="压弯标定" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="嫌压弯次数太多 / 太少？8 个阈值实时可调，每项都写清了「调它会发生什么」，改完回 App 翻一遍历史轨迹即可重算" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_tune"
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="打开标定台" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
 
-        <!-- ===== 手机端日志（只在 OTA 操作台显示） ===== -->
-        <com.google.android.material.card.MaterialCardView
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_flash"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="仪表 OTA 推送" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="Wi-Fi Direct 建连 → SAF 选包 → 六项检查 → 推包并触发刷写，四步全在手机上完成" />
+                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_ota_flash"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="12dp"
+                                android:text="操作台"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="刷写前提" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="车要上电、仪表进升级模式（下键 + SET 长按 10 秒）；电量 ≥25%、不在充电、非 Ready、原装电池；刷写全程别断电" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="4dp"
+                    android:text="车机只校验内层 MD5SUM，其余检查由 U-Boot 执行且失败无提示 —— 推送前请确认六项检查全过。"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- ===== ③ 壁纸推送 ===== -->
+        <ScrollView
+            android:id="@+id/page_wallpaper"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="20dp">
 
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_visibility"
-                        app:tint="?attr/colorPrimary"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="手机端日志（仅 OTA 页）" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="悬浮窗只在上一个「操作台」里挂：进去自动上屏、退出自动收起。平时不在模块里常挂，免得刷车时挡视线" />
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_public"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="仪表壁纸推送" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="选图 → 裁 307×460 / 1024×600 两档定尺图 → 打包推送，独立于固件 OTA 的壁纸通道" />
+                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_wallpaper_push"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="12dp"
+                                android:text="操作台"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="前提" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="仪表不回报应用结果，成功与否以屏幕为准；官方 App 占用该通道时需先退出" />
+                            </LinearLayout>
+                        </LinearLayout>
                     </LinearLayout>
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="手机端日志" />
-                        <TextView
-                            android:id="@+id/tv_hud_state"
-                            style="@style/SettingRowSubtitle"
-                            android:text="—" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <!-- 完整历史日志始终落在文件 + logcat 里，页内只看得到本次操作产生的部分 -->
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="没有悬浮窗时怎么看" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="hook 侧日志落在 com.cfmoto 的 files/zeeho_hook.log，logcat 用 tag「ZeehoHook」—— 一样能查，只是要连 adb" />
-                    </LinearLayout>
-                </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        </ScrollView>
 
-        <!-- ===== 说明 ===== -->
-        <com.google.android.material.card.MaterialCardView
+        <!-- ===== ④ 仪表投屏 ===== -->
+        <ScrollView
+            android:id="@+id/page_mirror"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="?attr/colorSurface"
-            app:cardCornerRadius="24dp"
-            app:cardElevation="0dp"
-            app:strokeColor="?attr/colorOutline"
-            app:strokeWidth="1dp">
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="20dp">
 
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="版本 · 目标应用" />
-                        <TextView
-                            android:id="@+id/tv_version"
-                            style="@style/SettingRowSubtitle"
-                            android:text="com.cfmoto（LSPosed 作用域需勾选）" />
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_flash"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="仪表投屏（独立）" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="扫码连接仪表 → Wi-Fi Direct 配对 → App 自身抓屏编码推给仪表，无需官方 App 或 LSPosed" />
+                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_mirror"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="12dp"
+                                android:text="投屏"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="卡顿排查" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="开「流畅度测试画面」，看编码率 / 发送率 / 仪表请求频率差在哪一环；默认平衡档 15 fps / 800 kbps" />
+                            </LinearLayout>
+                        </LinearLayout>
                     </LinearLayout>
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="应用改动" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="开关实时送达运行中的 ZEEHO App；改动后建议冷重启一次确认效果" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <View style="@style/SettingDivider" />
-
-                <LinearLayout style="@style/SettingRow">
-                    <ImageView
-                        style="@style/SettingRowIcon"
-                        android:src="@drawable/ic_info"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-                    <LinearLayout style="@style/SettingRowText">
-                        <TextView
-                            style="@style/SettingRowTitle"
-                            android:text="数据说明" />
-                        <TextView
-                            style="@style/SettingRowSubtitle"
-                            android:text="只改能力位，极速/加速/急刹/压弯数值均为服务端真值" />
-                    </LinearLayout>
-                </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        </ScrollView>
 
-    </LinearLayout>
-</ScrollView>
+        <!-- ===== ⑤ 车辆诊断 ===== -->
+        <ScrollView
+            android:id="@+id/page_diag"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="20dp">
+
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_public"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="车端诊断（DoIP / UDS）" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="读车辆信息 / 故障码 / ECU 身份 / 扫 DID / 看数据流；RS485 抓包离线解码；写操作默认硬禁" />
+                            </LinearLayout>
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_diag"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingStart="12dp"
+                                android:paddingEnd="12dp"
+                                android:text="诊断"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_info"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="建链路" />
+                                <TextView
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="「Wi-Fi Direct 扫描」点仪表建组，或系统设置连车机热点后「网络诊断」；组主地址靠探测，不写死" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+    <!-- ===== 底栏（MD3 BottomNavigation） ===== -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottom_nav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="?attr/colorSurface"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/main_nav" />
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

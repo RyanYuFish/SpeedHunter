@@ -5,6 +5,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,8 +40,14 @@ public final class MainActivity extends AppCompatActivity {
     private MaterialSwitch swRideFill;
 
     private TextView tvStatusDetail;
+    private TextView tvStatusTitle;
+    private ImageView icStatus;
     private TextView tvModeChip;
-    private TextView tvHudState;
+
+    /** 5 个功能页容器，底栏切换（同一时间只显示一个）。 */
+    private View[] pages;
+    /** 底栏选中项 id → 页下标。 */
+    private int[] navIds;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,8 +68,9 @@ public final class MainActivity extends AppCompatActivity {
         swView = findViewById(R.id.sw_view);
         swRideFill = findViewById(R.id.sw_ride_fill);
         tvStatusDetail = findViewById(R.id.tv_status_detail);
+        tvStatusTitle = findViewById(R.id.tv_status_title);
+        icStatus = findViewById(R.id.ic_status);
         tvModeChip = findViewById(R.id.tv_mode_chip);
-        tvHudState = findViewById(R.id.tv_hud_state);
 
         swWeb.setChecked(prefs.getBoolean(Keys.KEY_WEB_LAYER, true));
         swG1.setChecked(prefs.getBoolean(Keys.KEY_GATE_ANALYSE, true));
@@ -142,7 +150,46 @@ public final class MainActivity extends AppCompatActivity {
             }
         });
 
+        setupTabs();
         updateStatus();
+    }
+
+    // ==================== 底栏 tab 切换 ====================
+
+    /**
+     * 主要功能分 5 个 tab：骑行记录 / OTA 推送 / 壁纸推送 / 仪表投屏 / 车辆诊断。
+     * 底栏点选即切换容器可见性（不做 ViewPager：避免为一次滑动多引一个依赖）。
+     */
+    private void setupTabs() {
+        pages = new View[]{
+                findViewById(R.id.page_ride),
+                findViewById(R.id.page_ota),
+                findViewById(R.id.page_wallpaper),
+                findViewById(R.id.page_mirror),
+                findViewById(R.id.page_diag),
+        };
+        navIds = new int[]{
+                R.id.nav_ride, R.id.nav_ota, R.id.nav_wallpaper,
+                R.id.nav_mirror, R.id.nav_diag,
+        };
+
+        com.google.android.material.bottomnavigation.BottomNavigationView nav =
+                findViewById(R.id.bottom_nav);
+        nav.setSelectedItemId(R.id.nav_ride);
+        nav.setOnItemSelectedListener(item -> {
+            int index = -1;
+            for (int i = 0; i < navIds.length; i++) {
+                if (item.getItemId() == navIds[i]) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index < 0) return false;
+            for (int i = 0; i < pages.length; i++) {
+                pages[i].setVisibility(i == index ? View.VISIBLE : View.GONE);
+            }
+            return true;
+        });
     }
 
     // ==================== 手机端日志 ====================
@@ -157,13 +204,6 @@ public final class MainActivity extends AppCompatActivity {
      * <p>日志本身一直照常落文件（{@code com.cfmoto/files/zeeho_hook.log}）＋ logcat tag
      * {@code ZeehoHook}，要完整历史仍可用 adb 读文件。</p>
      */
-    private void updateHudState() {
-        if (tvHudState != null) {
-            tvHudState.setText("日志在「自制固件 OTA 操作台」页内显示（Tab 可切「操作日志 / 车机日志」），"
-                    + "不再用悬浮窗；同时落 zeeho_hook.log，adb 可直接读");
-        }
-    }
-
     private String versionName() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
@@ -181,17 +221,20 @@ public final class MainActivity extends AppCompatActivity {
      * 另两页（操作台 / 标定台）浅色底上是白图标，等于白底白字看不见。</p>
      */
     private void setupEdgeToEdge() {
-        EdgeToEdge.setup(this, findViewById(android.R.id.content));
+        EdgeToEdge.setup(this, findViewById(R.id.root_main));
     }
 
-    /** XML 里的 padding 是基准值，系统栏 insets 叠加在上面。 */
+    /**
+     * 内容区吃系统栏 inset：底部多留一截，免得最后一行被底栏压住。
+     * 5 个 tab 页都是 ScrollView，逐个挂监听太啰嗦，直接挂到容器上。
+     */
     private void applyInsets() {
-        final View root = findViewById(R.id.root_scroll);
-        final int baseLeft = root.getPaddingLeft();
-        final int baseTop = root.getPaddingTop();
-        final int baseRight = root.getPaddingRight();
-        final int baseBottom = root.getPaddingBottom();
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+        final View container = findViewById(R.id.page_container);
+        final int baseLeft = container.getPaddingLeft();
+        final int baseTop = container.getPaddingTop();
+        final int baseRight = container.getPaddingRight();
+        final int baseBottom = container.getPaddingBottom();
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(container, (v, insets) -> {
             androidx.core.graphics.Insets bars = insets.getInsets(
                     androidx.core.view.WindowInsetsCompat.Type.systemBars()
                             | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
@@ -199,13 +242,23 @@ public final class MainActivity extends AppCompatActivity {
                     baseRight + bars.right, baseBottom + bars.bottom);
             return insets;
         });
-        androidx.core.view.ViewCompat.requestApplyInsets(root);
+        androidx.core.view.ViewCompat.requestApplyInsets(container);
     }
 
 
+    /**
+     * 状态卡三态：
+     * <ul>
+     *   <li><b>已激活</b>（网络层 / 视图层任一开）—— 标题「已激活」，第二行写实现方式，
+     *       图标 ✅（{@code ic_check_circle}）；</li>
+     *   <li><b>未激活</b>（两者全关）—— 标题「未激活」，图标 ✖（{@code ic_clear}）。</li>
+     * </ul>
+     * 修复点：以前全关时标题仍是固定的「当前挂载方式」且图标恒为 ✅，看起来像已经生效。
+     */
     private void updateStatus() {
         boolean web = swWeb.isChecked();
         boolean view = swView.isChecked();
+        boolean active = web || view;
 
         String detail;
         String chip;
@@ -222,12 +275,15 @@ public final class MainActivity extends AppCompatActivity {
             detail = "未挂载——不修改 ZEEHO App";
             chip = "OFF";
         }
+        tvStatusTitle.setText(active ? "已激活" : "未激活");
         tvStatusDetail.setText(detail);
         tvModeChip.setText(chip);
 
+        icStatus.setImageResource(active ? R.drawable.ic_check_circle : R.drawable.ic_clear);
+
         // chip 底色跟状态走：激活用 colorPrimary，关闭用 onSurfaceVariant
         int color = ContextCompat.getColor(this,
-                (web || view) ? R.color.chip_active : R.color.chip_off);
+                active ? R.color.chip_active : R.color.chip_off);
         tvModeChip.getBackground().mutate().setTint(color);
         tvModeChip.setTextColor(Color.WHITE);
 

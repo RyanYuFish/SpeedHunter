@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 上传/升级：向上箭头 + 底盘 -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,3.5L7.5,8h3.2v5h2.6V8h3.2z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M5,17h4v2H5zM15,17h4v2h-4zM5,13.5h14V15H5z" />
+</vector>
