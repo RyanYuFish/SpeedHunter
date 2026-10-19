@@ -842,6 +842,7 @@ public final class DiagActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        NavBar.reselect(this, R.id.nav_diag);
         // 从系统 WLAN / 定位设置返回时继续排队中的 P2P 扫描
         if (p2pPanel != null) p2pPanel.onResume();
     }

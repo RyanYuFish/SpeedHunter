@@ -31,6 +31,22 @@ public final class NavBar {
     }
 
     /**
+     * 回到本页时把底栏选中态拉回本页对应的 tab —— 每个 tab 页的 {@code onResume} 都要调。
+     *
+     * <p>★ 为什么必须补这一步：切 tab 时当前页的底栏已经把所点 tab 选中了（要让药丸
+     * 立刻跟手），而这些 Activity 是 {@code REORDER_TO_FRONT} <b>复用</b>的 ——
+     * 回到某页时，它那份「上一次点击」的选中态还留在那儿，于是高亮药丸停在上次点的
+     * tab 上、不跟着当前页面走。本页自己的 id 重新选中一次即可。</p>
+     */
+    public static void reselect(Activity activity, int selectedId) {
+        com.google.android.material.bottomnavigation.BottomNavigationView nav =
+                activity.findViewById(R.id.bottom_nav);
+        if (nav != null) {
+            nav.setSelectedItemId(selectedId);   // 同 id 也会走 setChecked(true)，顺带把药丸重画
+        }
+    }
+
+    /**
      * @param activity    当前 Activity
      * @param selectedId  本页对应的 tab id（点它 = 已在本页，不重复跳转）
      * @param contentId   本页滚动容器 id（要避开底栏的那个 View）

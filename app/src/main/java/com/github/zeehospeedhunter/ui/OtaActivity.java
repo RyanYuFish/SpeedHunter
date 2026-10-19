@@ -984,6 +984,7 @@ new Thread(() -> {
     @Override
     protected void onResume() {
         super.onResume();
+        NavBar.reselect(this, R.id.nav_ota);
         refreshWifi();
         if (p2pAccess != null) p2pAccess.onResume();
         // ★ P2P 若早已建组，系统不会因为「回到页面」再发一次 onGroup 回调，

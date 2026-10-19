@@ -144,6 +144,13 @@ public final class WallpaperActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // 底栏选中态拉回本页（切 tab 时上一页留下的选中态会带回来）
+        NavBar.reselect(this, R.id.nav_wallpaper);
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);

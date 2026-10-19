@@ -186,7 +186,11 @@ public final class MirrorActivity extends androidx.appcompat.app.AppCompatActivi
             tvStatus.setText("无法打开相机，请检查权限或继续手动粘贴 URL");
         }
     }
-    @Override protected void onResume() { super.onResume(); if(access!=null) access.onResume(); }
+    @Override protected void onResume() {
+        super.onResume();
+        NavBar.reselect(this, R.id.nav_mirror);
+        if (access != null) access.onResume();
+    }
     @Override protected void onDestroy() { if(access!=null) access.close(); super.onDestroy(); }
     private void startMirror() {
         MirrorRequest qr=parseUrl(); if(qr==null) return;

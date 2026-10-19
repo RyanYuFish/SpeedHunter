@@ -113,6 +113,13 @@ public final class RideActivity extends AppCompatActivity {
         NavBar.install(this, R.id.nav_ride, R.id.ride_scroll);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 底栏选中态拉回本页（切 tab 时上一页留下的选中态会带回来）
+        NavBar.reselect(this, R.id.nav_ride);
+    }
+
     private String versionName() {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
