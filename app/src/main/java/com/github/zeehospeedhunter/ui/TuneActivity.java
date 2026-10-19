@@ -136,6 +136,9 @@ public final class TuneActivity extends AppCompatActivity {
                 requestClearStore();
             }
         });
+        // 本页是子页（无底栏），返回键是唯一的显式出口 —— 系统返回手势之外必须有它
+        findViewById(R.id.btn_back).setOnClickListener(v -> finish());
+
         // 顶栏右上角小按钮：只把滑块拨回默认值 + 发一次广播，不 finish / 不 recreate
         findViewById(R.id.btn_reset).setOnClickListener(new View.OnClickListener() {
             @Override

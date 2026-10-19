@@ -81,6 +81,27 @@
         <item name="android:textSize">13sp</item>
     </style>
 
+    <!--
+      底栏 5 个 tab 页专用：关掉一切窗口转场动画。
+      切 tab 要像 Google Play —— 内容瞬间换、底栏纹丝不动，
+      而不是「开了一个新窗口」的滑入/淡入。FLAG_ACTIVITY_NO_ANIMATION 只压掉
+      标准转场，主题里的 windowAnimationStyle 照样会跑，必须一起清掉。
+    -->
+    <style name="AppTheme.NoTabAnim" parent="AppTheme">
+        <item name="android:windowAnimationStyle">@style/WindowAnimation.None</item>
+    </style>
+
+    <style name="WindowAnimation.None" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+        <item name="android:taskOpenEnterAnimation">@null</item>
+        <item name="android:taskOpenExitAnimation">@null</item>
+        <item name="android:taskCloseEnterAnimation">@null</item>
+        <item name="android:taskCloseExitAnimation">@null</item>
+    </style>
+
     <!-- ===== 「压弯标定」页 ===== -->
     <style name="CardBlock">        <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>

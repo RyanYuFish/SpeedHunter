@@ -156,7 +156,7 @@
             android:name=".ui.RideActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/AppTheme">
+            android:theme="@style/AppTheme.NoTabAnim">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -174,13 +174,13 @@
             android:exported="false"
             android:label="仪表 OTA 推送"
             android:launchMode="singleTop"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.NoTabAnim" />
 
         <activity
             android:name=".ui.WallpaperActivity"
             android:exported="false"
             android:label="仪表壁纸推送"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.NoTabAnim" />
 
         <!--
           壁纸选图/裁切（uCrop）：仪表要两张定尺图——
@@ -201,7 +201,7 @@
             android:name=".ui.MirrorActivity"
             android:exported="false"
             android:label="仪表投屏"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.NoTabAnim" />
 
         <!--
           ★ 车端诊断台（DoIP/UDS + RS485 离线解码）—— 能力来自 zeeho-diag（Electron 桌面端）。
@@ -212,7 +212,7 @@
             android:name=".ui.DiagActivity"
             android:exported="false"
             android:label="车端诊断"
-            android:theme="@style/AppTheme" />
+            android:theme="@style/AppTheme.NoTabAnim" />
 
         <!--
           推送期间的前台服务：106MB / 约 26000 帧要跑一两分钟，

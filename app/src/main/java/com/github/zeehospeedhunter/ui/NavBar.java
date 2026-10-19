@@ -58,12 +58,24 @@ public final class NavBar {
                     | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             try {
                 activity.startActivity(intent);
+                // 兜底压掉残余转场（主题里已清 windowAnimationStyle，这里再保一道）
+                activity.overridePendingTransition(0, 0);
             } catch (Throwable t) {
                 android.widget.Toast.makeText(activity, "打不开对应页面：" + t,
                         android.widget.Toast.LENGTH_LONG).show();
             }
             return true;   // 选中态留在所点 tab
         });
+
+        // 系统导航条（手势区）沉浸：刷成底栏同一个色（colorSurfaceContainer）。
+        // edge-to-edge 下它是透明的 ⇒ 露的是页面底色，跟底栏有色差、看着不沉浸。
+        try {
+            int barColor = com.google.android.material.color.MaterialColors.getColor(
+                    activity, com.google.android.material.R.attr.colorSurfaceContainer,
+                    android.graphics.Color.TRANSPARENT);
+            activity.getWindow().setNavigationBarColor(barColor);
+        } catch (Throwable ignored) {
+        }
 
         EdgeToEdge.applyBottomMargin(nav);
 

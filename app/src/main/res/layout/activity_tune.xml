@@ -17,13 +17,21 @@
         android:paddingEnd="18dp"
         android:paddingBottom="24dp">
 
-        <!-- ===== 顶栏：右上角「恢复默认」 ===== -->
+        <!-- ===== 顶栏：返回 + 右上角「恢复默认」 =====
+             本页是子页（从骑行记录页的「标定」进来），不是底栏 tab，
+             没有底栏可走 ⇒ 必须有返回键。 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingTop="10dp">
+
+            <ImageButton
+                android:id="@+id/btn_back"
+                style="@style/NavCircleButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_arrow_back" />
 
             <Space
                 android:layout_width="0dp"
