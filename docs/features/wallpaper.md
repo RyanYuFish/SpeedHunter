@@ -34,9 +34,15 @@ wallpaper.zip
 设了哪张推哪张；`wallpaperNum` 自动推导。
 
 ```bash
-adb shell am start -n com.github.speedhunter/.ui.WallpaperActivity \
+adb shell am start -n com.github.speedhunter/.ui.MainActivity \
+    --ei extra_tab 2131296584 \
     --es auto push --es file <zip> --es num 2 [--ez dry true]
 ```
+
+> **v4.0+ 入口已变**：单 `MainActivity` + Fragment，`WallpaperActivity` 不存在。
+> `--ei extra_tab` 传 `R.id.nav_wallpaper` 的数值（**v4.6 实测 `2131296584`**；资源变动后用
+> `aapt2 dump resources <apk> | grep id/nav_wallpaper` 复核）。extras 由宿主转发给
+> `WallpaperFragment`（`auto=push` / `file` / `num` / `dry`）。
 
 ## 边界
 
