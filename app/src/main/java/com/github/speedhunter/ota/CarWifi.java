@@ -40,8 +40,38 @@ import java.util.List;
  */
 public final class CarWifi {
 
-    /**车机 AP 的 SSID 前缀。 */
+    /**车机 AP 的 SSID 前缀（保留旧常量，供单前缀判断的旧代码引用）。 */
     public static final String SSID_PREFIX = "ZEEHO-";
+
+    /**
+     * 车机 AP 的 SSID 前缀全集 —— 除 {@link #SSID_PREFIX} 外也支持 {@code CFMOTO-}。
+     *
+     * <p>两套前缀对应两批车机的热点命名：仪表广播出来的 AP 名既可能是
+     * {@code ZEEHO-xxxx}，也可能是 {@code CFMOTO-xxxx}，只认一个会漏掉另一半。</p>
+     */
+    public static final String[] SSID_PREFIXES = {SSID_PREFIX, "CFMOTO-"};
+
+    /**
+     * SSID 是否为车机 AP（{@code ZEEHO-} / {@code CFMOTO-} 开头）。
+     *
+     * <p>★ {@code WifiInfo#getSSID()} 返回的名字<b>带首尾双引号</b>，而扫描结果
+     * {@code ScanResult#SSID} 不带 ⇒ 这里先剥引号再判前缀，两处调用才能都正确。</p>
+     */
+    public static boolean isCarSsid(String ssid) {
+        if (ssid == null) {
+            return false;
+        }
+        String s = ssid.trim();
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length() - 1);
+        }
+        for (String prefix : SSID_PREFIXES) {
+            if (s.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * 默认车机 AP 名。
@@ -61,7 +91,7 @@ public final class CarWifi {
     }
 
     /**
-     * 列出附近匹配 {@link #SSID_PREFIX} 的 SSID —— 用来确认车机 AP 在范围内、
+     * 列出附近匹配 {@link #SSID_PREFIXES} 的 SSID —— 用来确认车机 AP 在范围内、
      * 并自动挑一个，省得用户手填。
      */
     public static List<String> scanCarAp(Context ctx) {
@@ -79,7 +109,7 @@ public final class CarWifi {
             List<ScanResult> results = wm.getScanResults();
             if (results != null) {
                 for (ScanResult r : results) {
-                    if (r.SSID != null && r.SSID.startsWith(SSID_PREFIX)
+                    if (r.SSID != null && isCarSsid(r.SSID)
                             && !out.contains(r.SSID)) {
                         out.add(r.SSID);
                     }

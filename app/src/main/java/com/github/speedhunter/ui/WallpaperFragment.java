@@ -184,31 +184,63 @@ public final class WallpaperFragment extends BaseTabFragment {
                 }
             });
         }
-        linkStatus.setText("扫描中…");
+        linkStatus.setText("扫描中，等待仪表发现结果…");
         append("=== Wi-Fi Direct 扫描车机设备 ===");
         p2p.scan();
     }
 
+    /**
+     * 渲染设备列表 —— 与 OTA 页「连接仪表」同一套设计：
+     * 复用 {@code view_peer_row}（设备名 / MAC / 状态 三行 + 右侧按钮），<b>整行可点</b>；
+     * 仪表设备标「仪表设备 · 优先连接」并自动预选；状态同步写到 {@link #linkStatus}，
+     * 不再是「只有几个裸按钮 + 扫不到时毫无反馈」。
+     */
     private void showPeers(List<WifiP2pDevice> peers) {
         peerList.removeAllViews();
         if (peers == null || peers.isEmpty()) {
+            // ★ 空列表也要给状态：区分「还在扫」与「扫完了没设备」，否则点了扫描像没反应
+            linkStatus.setText(p2p != null && p2p.isScanning()
+                    ? "扫描中，等待仪表发现结果…"
+                    : "未发现设备；确认仪表处于 OTA Update，且手机定位与 WLAN 已开启。");
             return;
         }
-        for (final WifiP2pDevice d : peers) {
-            if (!CarP2p.isCarName(d.deviceName)) {
-                continue;
+        WifiP2pDevice target = null;
+        for (WifiP2pDevice d : peers) {
+            if (CarP2p.isCarName(d.deviceName)) {
+                target = d;
+                break;
             }
-            MaterialButton b = new MaterialButton(requireContext(), null,
-                    com.google.android.material.R.attr.materialButtonOutlinedStyle);
-            b.setText(d.deviceName + (d.deviceAddress == null ? "" : "\n" + d.deviceAddress));
-            b.setGravity(Gravity.CENTER);
-            b.setOnClickListener(v -> {
-                append("连接 " + d.deviceName + " …");
-                p2p.connect(d);
-            });
-            peerList.addView(b, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
+        if (target == null) {
+            target = peers.get(0);
+        }
+        for (final WifiP2pDevice d : peers) {
+            View row = getLayoutInflater().inflate(R.layout.view_peer_row, peerList, false);
+            ((TextView) row.findViewById(R.id.peer_name)).setText(
+                    d.deviceName == null ? "(无名设备)" : d.deviceName);
+            ((TextView) row.findViewById(R.id.peer_mac)).setText(
+                    d.deviceAddress == null ? "MAC 未知" : d.deviceAddress);
+            boolean isCar = CarP2p.isCarName(d.deviceName);
+            ((TextView) row.findViewById(R.id.peer_state)).setText(
+                    isCar ? "仪表设备 · 优先连接"
+                            : (d.status == WifiP2pDevice.CONNECTED ? "已连接" : "可用"));
+            MaterialButton btn = row.findViewById(R.id.peer_connect);
+            btn.setText(d == target ? "连接" : "选择");
+            View.OnClickListener act = v -> {
+                append("连接 " + d.deviceName + " …");
+                linkStatus.setText("已请求连接 "
+                        + (d.deviceName == null ? d.deviceAddress : d.deviceName)
+                        + "，等待系统建组…");
+                if (p2p != null) {
+                    p2p.connect(d);
+                }
+            };
+            row.setOnClickListener(act);
+            btn.setOnClickListener(act);
+            peerList.addView(row);
+        }
+        linkStatus.setText("发现 " + peers.size() + " 台，已选 "
+                + (target.deviceName == null ? target.deviceAddress : target.deviceName));
     }
 
     private void probeLink() {

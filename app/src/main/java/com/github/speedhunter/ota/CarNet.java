@@ -391,7 +391,7 @@ public final class CarNet {
             if (res != null) {
                 for (ScanResult r : res) {
                     String ssid = r.SSID;
-                    if (ssid == null || !ssid.startsWith(CarWifi.SSID_PREFIX)) continue;
+                    if (ssid == null || !CarWifi.isCarSsid(ssid)) continue;
                     ApInfo info = new ApInfo(ssid, r.frequency);
                     ApInfo prev = best.get(ssid);
                     // 同 SSID 保留频段更高（5GHz 优先）的那条

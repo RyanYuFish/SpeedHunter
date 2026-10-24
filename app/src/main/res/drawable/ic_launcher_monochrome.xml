@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Material You「主题图标」专用图层（adaptive-icon 的 <monochrome>）。
+
+  ★ 与 foreground 的区别：尺寸铺满 66dp 安全区（scale 2.75 → 24dp 字形放大到 66dp，
+    translate 21 → 落在 108dp 视口的 21..87 正中间）。系统只取这一层的<b>轮廓</b>并按壁纸
+    取色重新着色，所以：
+      · 必须是<b>单色、无背景</b>的剪影（fillColor 会被系统替换，写白即可）；
+      · 必须落在安全区里，否则主题图标会被裁掉边角。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.75"
+        android:scaleY="2.75"
+        android:translateX="21"
+        android:translateY="21">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M15.5,5.5a2.5,2.5 0 1,0 0,5a2.5,2.5 0 1,0 0,-5zM5,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM19,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM15,15.5l-3,-3.5h-3l-2,-3H4v1.5h2.17l2.5,3.5h4.66l2.5,3.5h-2.33v1.5h4.5v-1.5h-2.67z" />
+    </group>
+</vector>

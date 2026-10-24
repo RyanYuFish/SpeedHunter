@@ -243,6 +243,12 @@ public final class OtaFragment extends BaseTabFragment
             if (carP2p != null) {
                 append("=== 扫描仪表 Wi-Fi Direct（只建网络，不发 OTA） ===");
                 tvP2pStatus.setText("扫描中，等待仪表发现结果…");
+                // ★ 状态必须三处一起刷：只刷 P2P 状态行的话，下面「连接仪表」与
+                //   「车机信息」两张卡会一直停在旧值 —— 表现就是「点了扫描但状态没动」。
+                if (tvLinkStatus != null && !p2pConnected) {
+                    tvLinkStatus.setText("扫描中…");
+                }
+                renderCarInfo();
                 carP2p.scan();
             }
         });
@@ -321,6 +327,7 @@ public final class OtaFragment extends BaseTabFragment
             if (carP2p != null && carP2p.isConnecting()) {
                 // ★ 连接进行中：系统可能短暂回空列表，此时不能回退成「未扫描到设备」
                 tvP2pStatus.setText("正在连接仪表，请稍候…");
+                renderCarInfo();
                 return;
             }
             if (p2pConnected) return;
@@ -328,6 +335,7 @@ public final class OtaFragment extends BaseTabFragment
                     ? "扫描中，等待仪表发现结果…"
                     : "未发现设备；查看下方扫描结果，确认仪表处于 OTA Update。");
             selectedP2p = null;
+            renderCarInfo();
             return;
         }
         selectedP2p = null;
@@ -377,6 +385,11 @@ public final class OtaFragment extends BaseTabFragment
         tvP2pStatus.setText("发现 " + peers.size() + " 台，已选 "
                 + (selectedP2p.deviceName == null ? selectedP2p.deviceAddress
                 : selectedP2p.deviceName));
+        // ★ 同步刷新另外两处状态（发现设备那一刻状态就要动，不能等建组回调）
+        if (tvLinkStatus != null && !p2pConnected) {
+            tvLinkStatus.setText("发现 " + peers.size() + " 台设备；点设备行的「连接」建组");
+        }
+        renderCarInfo();
     }
 
     // ==================== 车机信息表 ====================
@@ -436,7 +449,9 @@ public final class OtaFragment extends BaseTabFragment
             infoRow("网卡尾号", d.deviceAddress.substring(d.deviceAddress.length() - 6));
         }
         infoRow("主类型", d == null ? null : d.primaryDeviceType);
-        infoRow("发现状态", p2pConnected ? "已连接" : (d == null ? "未扫描" : "待连接"));
+        infoRow("发现状态", p2pConnected ? "已连接"
+                : (carP2p != null && carP2p.isScanning() ? "扫描中…"
+                : (d == null ? "未扫描" : "待连接")));
         infoRow("推送地址", carHost() + ":" + OtaSocketPusher.CAR_PORT);
         infoRow("本机角色", p2pConnected
                 ? (OtaSocketPusher.isLocalGroupOwner() ? "组主（手机）" : "客户端（仪表是组主）")
@@ -880,7 +895,7 @@ public final class OtaFragment extends BaseTabFragment
                 return;
             }
             String bssid = wi.getBSSID() == null ? "" : " / " + wi.getBSSID();
-            boolean isCar = ssid.contains("ZEEHO");
+            boolean isCar = com.github.speedhunter.ota.CarWifi.isCarSsid(ssid);
             tvWifi.setText("当前 Wi-Fi：" + ssid.replace("\"", "") + bssid
                     + (isCar ? "  ← 仪表 AP ✔" : "  ← 不是仪表 AP ⚠"));
         } catch (Exception e) {

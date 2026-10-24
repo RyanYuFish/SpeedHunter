@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  横屏布局（Material 3 响应式范式）。
+
+  ★ 为什么横屏不继续用底栏：M3 的窗口尺寸分级里，手机横屏属于 **medium width class**
+    （宽度 ≥600dp）。该档位的规范导航容器不是底部 Navigation bar，而是**侧边
+    Navigation rail** —— 底栏在横屏会吃掉宝贵的竖向空间（80dp 底栏 + 内容只剩一半高），
+    而 rail 只占 80dp 宽度，把竖向空间全部还给内容。
+
+  ★ 与竖屏一样：导航容器只在此处创建一次，切 tab 只换 content 里的 Fragment
+    （show/hide），保证 active indicator 动画与点击波纹连续稳定。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:orientation="horizontal">
+
+    <!-- 侧边导航栏（M3 medium/expanded 档位）；菜单与竖屏底栏共用 @menu/main_nav -->
+    <com.google.android.material.navigationrail.NavigationRailView
+        android:id="@+id/nav_rail"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/main_nav" />
+
+    <!-- 内容容器：横屏时左侧由 rail 占位，底部只补系统手势区（见 EdgeToEdge.applyBottomAvoid） -->
+    <FrameLayout
+        android:id="@+id/content"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1" />
+</LinearLayout>

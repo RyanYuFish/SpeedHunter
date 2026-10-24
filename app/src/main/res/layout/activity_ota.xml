@@ -136,7 +136,8 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_info" />
+                        android:src="@drawable/ic_info"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -214,7 +215,8 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_visibility" />
+                        android:src="@drawable/ic_visibility"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -394,7 +396,8 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_check_circle" />
+                        android:src="@drawable/ic_check_circle"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -448,7 +451,8 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_public" />
+                        android:src="@drawable/ic_public"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -595,7 +599,8 @@
                         android:layout_width="20dp"
                         android:layout_height="20dp"
                         android:contentDescription="@null"
-                        android:src="@drawable/ic_tune" />
+                        android:src="@drawable/ic_tune"
+                        app:tint="?attr/colorPrimary" />
 
                     <TextView
                         android:layout_width="wrap_content"
