@@ -16,5 +16,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Zeeho-SpeedHunter"
+rootProject.name = "SpeedHunter"
 include ':app'

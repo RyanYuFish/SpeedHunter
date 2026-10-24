@@ -31,7 +31,7 @@ public String getPackageName(){return "test";} public void startActivity(Intent 
 ActivityResultLauncher<I> l=new ActivityResultLauncher<>();launcher=(ActivityResultLauncher<String[]>)l;callback=(ActivityResultCallback<java.util.Map<String,Boolean>>)cb;return l;}}''',
 'androidx/core/content/ContextCompat.java': '''package androidx.core.content;import android.content.Context;
 public class ContextCompat {public static int checkSelfPermission(Context c,String p){return c.grants.getOrDefault(p,-1);}}''',
-'com/github/zeehospeedhunter/ota/CarNet.java': '''package com.github.zeehospeedhunter.ota;import android.content.Context;
+'com/github/speedhunter/ota/CarNet.java': '''package com.github.speedhunter.ota;import android.content.Context;
 public class CarNet {public static boolean isLocationOn(Context c){return c.location;}}''',
 'com/google/android/material/dialog/MaterialAlertDialogBuilder.java': '''package com.google.android.material.dialog;import android.content.*;
 public class MaterialAlertDialogBuilder {public static MaterialAlertDialogBuilder last;public DialogInterface.OnClickListener positive,negative;public DialogInterface.OnCancelListener cancel;
@@ -40,7 +40,7 @@ public MaterialAlertDialogBuilder setPositiveButton(String s,DialogInterface.OnC
 public MaterialAlertDialogBuilder setNegativeButton(String s,DialogInterface.OnClickListener l){negative=l;return this;}
 public MaterialAlertDialogBuilder setOnCancelListener(DialogInterface.OnCancelListener l){cancel=l;return this;}public void show(){}
 }''',
-'com/github/zeehospeedhunter/ui/AccessTest.java': '''package com.github.zeehospeedhunter.ui;
+'com/github/speedhunter/ui/AccessTest.java': '''package com.github.speedhunter.ui;
 import android.Manifest.permission;import android.os.Build;import androidx.activity.ComponentActivity;import java.util.*;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 public class AccessTest {static int cases;static void ok(boolean b,String s){if(!b)throw new AssertionError(s);}
@@ -74,8 +74,8 @@ def main():
         root = Path(d)
         for p, text in {'android/os/Build.java':STUBS['android/os/Build.java'], **EXTRA}.items():
             f=root/p;f.parent.mkdir(parents=True,exist_ok=True);f.write_text(text)
-        source=repo/'app/src/main/java/com/github/zeehospeedhunter/ui/P2pAccess.java'
+        source=repo/'app/src/main/java/com/github/speedhunter/ui/P2pAccess.java'
         subprocess.run([str(jdk/'bin/javac'),'-d',str(root/'classes'),str(source),*map(str,root.rglob('*.java'))],check=True)
-        subprocess.run([str(jdk/'bin/java'),'-cp',str(root/'classes'),'com.github.zeehospeedhunter.ui.AccessTest'],check=True)
+        subprocess.run([str(jdk/'bin/java'),'-cp',str(root/'classes'),'com.github.speedhunter.ui.AccessTest'],check=True)
 
 if __name__=='__main__':main()

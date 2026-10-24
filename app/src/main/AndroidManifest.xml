@@ -57,7 +57,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
     <!--
-      ★★★ 蓝牙（BLE 透传诊断链路，2026-10-15 移植 zeeho-diag iOS 版）：
+      ★★★ 蓝牙（BLE 透传诊断链路，2026-10-15 移植 第三方诊断工具 iOS 版）：
         iOS 版的主诊断通道不是 Wi-Fi DoIP，而是经 HC-02 / I6328A-485 / ESP32-CANE 这类
         **串口透传模块**直连车辆 RS485 针脚或 CAN 总线 —— 手机直接上总线，不经过车机热点。
         这是「换胎压传感器 / 清 ABS 泵 / NFC 学卡」这类只有总线层能做的事的唯一路径。
@@ -158,7 +158,7 @@
             也是消除「底栏抖动 / 无点击波纹 / 快速点击闪烁」的根因修复。
             外部入口（OtaPushService / StandaloneMirrorService 的通知）用
             EXTRA_TAB 指定初始 tab。
-            adb: am start -n com.github.zeehospeedhunter/.ui.MainActivity
+            adb: am start -n com.github.speedhunter/.ui.MainActivity
         -->
         <activity
             android:name=".ui.MainActivity"
@@ -210,7 +210,7 @@
 
         <!--
           压弯标定页：运行时调压弯/急刹阈值，每项都带「调它会发生什么」说明。
-          adb: am start -n com.github.zeehospeedhunter/.ui.TuneActivity
+          adb: am start -n com.github.speedhunter/.ui.TuneActivity
         -->
         <activity
             android:name=".ui.TuneActivity"
@@ -221,7 +221,7 @@
         <!-- 开关的跨进程读取通道：hook 进程（com.cfmoto）从这里 query -->
         <provider
             android:name=".core.ConfigProvider"
-            android:authorities="com.github.zeehospeedhunter.settings"
+            android:authorities="com.github.speedhunter.settings"
             android:exported="true"
             android:grantUriPermissions="true" />
 

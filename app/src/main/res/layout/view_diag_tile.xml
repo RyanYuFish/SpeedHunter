@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   功能宫格单格：图标 + 标题 + 副标题。
-  对齐第三方 zeeho-diag 的功能卡片视觉：emoji 图标在上、粗标题、带灰度的说明文字。
+  对齐第三方诊断工具 的功能卡片视觉：emoji 图标在上、粗标题、带灰度的说明文字。
   整格可点击（android:clickable + foreground 涟漪），不是按钮。
 -->
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"

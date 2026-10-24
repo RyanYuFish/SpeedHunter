@@ -1,0 +1,83 @@
+package com.github.speedhunter;
+
+import android.os.Process;
+
+import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import com.github.speedhunter.core.HookKit;
+import com.github.speedhunter.core.HookLog;
+import com.github.speedhunter.core.MobGuard;
+import com.github.speedhunter.core.Targets;
+import com.github.speedhunter.ble.BleHooks;
+import com.github.speedhunter.net.MqttHooks;
+import com.github.speedhunter.net.NetPatch;
+import com.github.speedhunter.ota.OtaHooks;
+import com.github.speedhunter.ota.OtaSocketProbe;
+import com.github.speedhunter.ota.OtaSocketTrace;
+import com.github.speedhunter.ride.RideFetch;
+import com.github.speedhunter.ride.RideHooks;
+
+/**
+ * SpeedHunter —— LSPosed 模块入口。
+ *
+ * <p>作用域只有 {@code com.cfmoto}（官方 App）。目标 App 的业务代码被爱加密加固，
+ * 反编译拿不到类名，因此所有 hook 都建立在「加固后依然稳定」的锚点上：
+ * Manifest 里的组件类名、layout 里的控件资源名、公开库的类名。
+ * 任何一个锚点失效只会让对应功能变成 no-op，不会让模块整体崩溃。</p>
+ *
+ * <p>主要能力：</p>
+ * <ul>
+ *   <li>{@code net.NetPatch} —— <b>主机制</b>：改网络层的车型能力位
+ *       （vehicleKinds / cyclingEventStatisticFlag），让 App 自己显示骑行分析入口与
+ *       极速/急加速/急刹/压弯；这条线来自 iOS 端 8 轮消融的结论，与 Shadowrocket
+ *       脚本 {@code VehicleType.min.js} 处理的是同一组字段。</li>
+ *   <li>{@link RideHooks} —— 视图层兜底（实时开关，默认关，见 {@code ride.RideOptions}）；</li>
+ *   <li>{@link OtaHooks} —— OTA 界面解锁 + 全链路流量记录（只读，不伪造服务端数据）；</li>
+ *   <li>{@link BleHooks} —— BLE 车控帧双向捕获。</li>
+ *   <li>{@link OtaChannelProbe} —— 车机 OTA 通道知识表 + 只读探针。2026-10-05 车边实测
+ *       确认：官方任务单是本模块注入伪造的，车机 TCP {@code 10950} 并不监听，
+ *       真实通道是 {@code /dev/cfmoto_cfcp}（CFCP，见 {@link com.github.speedhunter.ota.OtaChannels}）。
+ *       本探针只打印结论与探测类是否存在，<b>不下发任何指令</b>。</li>
+ * </ul>
+ *
+ * <p>日志出口见 {@link HookLog} —— 这套 LSPosed 不把日志写进 logcat，所以要读文件。</p>
+ */
+public final class MainHook implements IXposedHookLoadPackage {
+
+    @Override
+    public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
+        if (!Targets.PACKAGE.equals(lpparam.packageName)) {
+            return;
+        }
+
+        HookKit.setClassLoader(lpparam.classLoader);
+        HookLog.init(lpparam.packageName,
+                lpparam.appInfo == null ? null : lpparam.appInfo.dataDir);
+
+        // 首行日志：pid 用来对齐进程，两个路径用来确认日志到底写去哪了
+        HookLog.log("========== " + HookLog.MODULE + " attached: pid=" + Process.myPid()
+                + " pkg=" + lpparam.packageName
+                + " " + HookLog.describeWriters() + " ==========");
+
+        if (lpparam.packageName.equals(lpparam.processName)) {
+            try { com.github.speedhunter.ota.MirrorTrigger.install(); }
+            catch (Throwable t) { HookLog.log(HookLog.MIRROR + " bridge install failed: " + t.getClass().getSimpleName()); }
+        }
+        MobGuard.install(lpparam);   // 先保命：规避 MobTech SDK 的启动崩溃
+        RideFetch.installAll();      // 请求侧：把 ridetrack_v2 的 pageSize 放大到 200
+        NetPatch.installAll();       // 主机制：网络层能力位改写 + 急刹/压弯回填
+        MqttHooks.installAll();      // ★ MQTT broker/凭据/topic 捕获（只读）
+        RideHooks.installAll();      // 视图层兜底（默认关）
+        OtaHooks.installAll();
+        BleHooks.installAll();
+        OtaSocketTrace.install();    // ★ 记录官方 EasyConnect 与车机 10950 的往来帧（只读）
+        OtaSocketProbe.runAsync();   // ★ 主动 connect 192.168.0.1:10950（只握手，不发任何字节）
+
+        // 2026-10-17 已移除（结论已固化在 docs/53~55，不再维护）：
+        //   OtaChannelProbe / EcSdkConfigProbe —— 通道知识表与 FTP/P2C 参数，逆向已收尾
+        //   OtaMdnsProbe / OtaMdnsRawProbe —— EC PXC 免投屏路已判死（NsdManager 在 API 36 被拒，
+        //      车机只回连官方 App 投屏建立的端口，见 docs/52）
+        //   PatchServer —— 手机侧 HTTP 等车机来拉包，协议换成 socket_l 10950 后无人调用
+        //   OtaFlash + AdbPush —— P2P+ADB 推送已判死（adb 端口不监听，见 docs/33）
+    }
+}

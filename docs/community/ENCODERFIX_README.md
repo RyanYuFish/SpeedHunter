@@ -29,6 +29,6 @@ APK 使用此前 3.6.0 同一证书，可直接覆盖安装（versionCode=40）�
 
 ## 源码
 
-累计补丁基于 RyanYuFish/Zeeho-SpeedHunter 提交 a0bb0b925e69218d6faaacdd419f523d868ba811。附 Go 协议库全部源码、GPL-3.0 许可证及可直接用于编译的 app/libs/ridedaemon.aar；构建步骤见 STANDALONE_README.md 和 native/build-android.sh。
+累计补丁基于 RyanYuFish/SpeedHunter 提交 a0bb0b925e69218d6faaacdd419f523d868ba811。附 Go 协议库全部源码、GPL-3.0 许可证及可直接用于编译的 app/libs/ridedaemon.aar；构建步骤见 STANDALONE_README.md 和 native/build-android.sh。
 
 3.6.1 增量补丁基于本会话交付的 3.6.0 独立版。其余原项目功能仍可能依赖官方 App hook，本次独立化仅针对仪表投屏。

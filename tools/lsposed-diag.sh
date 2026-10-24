@@ -15,7 +15,7 @@
 #      /data/adb/lspd/log/modules_*.log】。所以在 adb logcat 里 grep 模块 tag
 #      永远是空的 —— 这不代表模块没生效。
 #   3. 判断模块是否真的生效，用官方 CLI：lspctl hook-debug dump
-#   4. 读模块日志，看 Zeeho-SpeedHunter 自己写的文件（见第 5 步）。
+#   4. 读模块日志，看 SpeedHunter 自己写的文件（见第 5 步）。
 #
 # 用法：
 #   ./lsposed-diag.sh                 # 只诊断，不改设备状态
@@ -25,7 +25,7 @@
 
 set -uo pipefail
 
-MODULE_PKG="${MODULE_PKG:-com.github.zeehospeedhunter}"
+MODULE_PKG="${MODULE_PKG:-com.github.speedhunter}"
 TARGET_PKG="${TARGET_PKG:-com.cfmoto}"
 TARGET_ACTIVITY="${TARGET_ACTIVITY:-com.cfmoto/.ui.login.SplashActivity}"
 OTA_ACTIVITY="${OTA_ACTIVITY:-com.cfmoto/com.cfmoto.ui.mine.ota.OTAUpgradeActivity}"
@@ -65,8 +65,8 @@ shroot() { "$ADB" shell su -c "$1" 2>&1 | tr -d '\r'; }
 LSPCTL=/data/adb/modules/zygisk_lsposed/lspctl
 
 # 模块自己写的日志（两个位置，任一可读即可）
-LOG_EXT="/sdcard/Android/data/$TARGET_PKG/files/zeeho_hook.log"
-LOG_INT="/data/user/0/$TARGET_PKG/files/zeeho_hook.log"
+LOG_EXT="/sdcard/Android/data/$TARGET_PKG/files/speedhunter_hook.log"
+LOG_INT="/data/user/0/$TARGET_PKG/files/speedhunter_hook.log"
 
 read_log() {
   local data
@@ -130,7 +130,7 @@ else
   echo "  ---- 启动横幅 / hook 装配结果 ----"
   printf '%s\n' "$L" | grep -E "attached|hooks installed|install failed|skip " | head -12 | sed 's/^/    /'
   echo "  ---- OTA 接口（仅请求行，去重）----"
-  printf '%s\n' "$L" | grep '\[ZeehoHTTP\]' \
+  printf '%s\n' "$L" | grep '\[HTTP\]' \
     | grep -oE "https://[^ ]*" | sed 's/[?&].*//' | sort -u | sed 's/^/    /'
 fi
 
@@ -161,6 +161,6 @@ fi
 
 echo
 echo "完成。常用过滤："
-echo "  只看 OTA 接口   : $ADB shell cat $LOG_EXT | grep ZeehoHTTP | sed 's/[?&].*//' | sort -u"
+echo "  只看 OTA 接口   : $ADB shell cat $LOG_EXT | grep '\[HTTP\]' | sed 's/[?&].*//' | sort -u"
 echo "  只看固件线索   : $ADB shell cat $LOG_EXT | grep '★'"
 echo "  只看响应体     : $ADB shell cat $LOG_EXT | grep 'body '"

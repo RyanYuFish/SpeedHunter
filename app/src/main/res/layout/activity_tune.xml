@@ -300,7 +300,7 @@
 
                     <TextView
                         style="@style/ParamHelp"
-                        android:text="下面就是逐趟的判定过程：每个候选弯一行，含下标区间 / 累计转角 / 方向 / 段内最高速，被拒的会写明哪道闸挡的。回 ZEEHO App 翻一次「历史轨迹」就出。" />
+                        android:text="下面就是逐趟的判定过程：每个候选弯一行，含下标区间 / 累计转角 / 方向 / 段内最高速，被拒的会写明哪道闸挡的。回官方 App 翻一次「历史轨迹」就出。" />
 
                     <!-- 裸 TextView，不要套 ScrollView（见 activity_ota.xml 里的实测说明） -->
                     <TextView

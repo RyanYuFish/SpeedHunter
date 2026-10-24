@@ -30,7 +30,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:text="ZEEHO-xxxxxx"
+            android:text="SSID-xxxxxx"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp"
             android:textStyle="bold" />

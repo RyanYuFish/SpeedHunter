@@ -1,4 +1,4 @@
-import com.github.zeehospeedhunter.mirror.AvcFrames;
+import com.github.speedhunter.mirror.AvcFrames;
 import java.util.Arrays;
 public final class AvcFramesTest {
  public static void main(String[] args) {

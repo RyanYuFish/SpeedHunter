@@ -27,7 +27,7 @@ Release编译、APK签名验证通过。与3.5.2-mirrorfix及此前3.5.1-p2pfix�
 
 ## 源码
 
-上游：https://github.com/RyanYuFish/Zeeho-SpeedHunter
+上游：https://github.com/RyanYuFish/SpeedHunter
 基准提交：a0bb0b925e69218d6faaacdd419f523d868ba811。
 
 扫码补丁包内speedhunter-3.5.3.patch是相对此基准的完整差异，含此前P2P和投屏修复，新增扫码类、测试及说明。源码未推送到远程仓库。执行git apply后，使用JDK17、SDK35、Build Tools35.0.0及Gradle8.7构建。

@@ -64,7 +64,7 @@ public class WifiP2pManager {
  public void removeGroup(Channel c,ActionListener l){if(l!=null)l.onSuccess();}}
 ''',
 'DiscoveryTest.java': '''import android.content.*;import android.os.*;import android.net.wifi.p2p.*;import java.util.*;
-import com.github.zeehospeedhunter.ota.CarP2p;
+import com.github.speedhunter.ota.CarP2p;
 public class DiscoveryTest {
  static int cases;static void check(boolean b,String msg){if(!b)throw new AssertionError(msg);}
  static class Fixture implements CarP2p.Listener {
@@ -102,7 +102,7 @@ def main():
             f = root/p
             f.parent.mkdir(parents=True, exist_ok=True)
             f.write_text(text)
-        source = repo/'app/src/main/java/com/github/zeehospeedhunter/ota/CarP2p.java'
+        source = repo/'app/src/main/java/com/github/speedhunter/ota/CarP2p.java'
         subprocess.run([str(jdk/'bin/javac'),'-d',str(root/'classes'),str(source),
                         *map(str,root.rglob('*.java'))],check=True)
         subprocess.run([str(jdk/'bin/java'),'-cp',str(root/'classes'),'DiscoveryTest'],check=True)

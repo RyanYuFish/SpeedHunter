@@ -41,7 +41,7 @@
                 <TextView
                     style="@style/ParamHelp"
                     android:layout_marginTop="2dp"
-                    android:text="Not only Unleash more information for ZEEHO" />
+                    android:text="Not only Unleash more information with SpeedHunter" />
 
                 <!--
                   状态卡（SukiSU 式）：左上徽章 + 大号状态字 + 说明行。
@@ -355,7 +355,7 @@
                                     android:text="应用改动" />
                                 <TextView
                                     style="@style/SettingRowSubtitle"
-                                    android:text="开关实时送达运行中的 ZEEHO App；改动后建议冷重启一次确认效果" />
+                                    android:text="开关实时送达运行中的官方 App；改动后建议冷重启一次确认效果" />
                             </LinearLayout>
                         </LinearLayout>
 

@@ -45,7 +45,7 @@
 
 本压缩包提供整个 Android 工程、Java 源码、资源、Manifest、Gradle Wrapper、第三方 Go 协议源码及 GPL-3.0 许可证、Go 依赖锁定、测试和可直接使用的 ridedaemon.aar。不是仅提供差异补丁。
 
-- 基于 RyanYuFish/Zeeho-SpeedHunter 的 a0bb0b925e69218d6faaacdd419f523d868ba811，加上本会话 3.6.1 独立投屏实现。
+- 基于 RyanYuFish/SpeedHunter 的 a0bb0b925e69218d6faaacdd419f523d868ba811，加上本会话 3.6.1 独立投屏实现。
 - 第三方协议库来源 https://github.com/charliecharlieO-o/ridedaemon-lib ，上游提交 d6c9294ee65a94a1632da536d0317de72dedbc40。修改后完整源码在 native/ridedaemon。
 - Android：JDK 17、SDK 35、Build-tools 35.0.0、Gradle 8.7、AGP 8.6.1。用 Android Studio 导入，或运行 `./gradlew :app:assembleRelease`；Windows 用 `gradlew.bat :app:assembleRelease`。
 - 依赖使用标准 Maven 仓库，需联网。国内下载不畅可用 `gradlew.bat -I tools/mirrors.gradle :app:assembleRelease`。本工程带有必需的 android.useAndroidX=true。

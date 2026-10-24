@@ -18,7 +18,7 @@ if [ -z "$ADB" ]; then
   ADB="${ADB:-${ANDROID_SDK_ROOT:+$ANDROID_SDK_ROOT/platform-tools/adb}}"
   ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
 fi
-LOG=${LOG:-/sdcard/Android/data/com.cfmoto/files/zeeho_hook.log}
+LOG=${LOG:-/sdcard/Android/data/com.cfmoto/files/speedhunter_hook.log}
 
 MODE=${1:-}
 
@@ -28,9 +28,9 @@ case "$MODE" in
     exit 0
     ;;
   --all)
-    $ADB shell cat "$LOG" | grep -E "ZeehoNet|ZeehoHTTP .*(analyse|myRideInfo|vehicle)" || true
+    $ADB shell cat "$LOG" | grep -E "[Net]|[HTTP] .*(analyse|myRideInfo|vehicle)" || true
     ;;
   *)
-    $ADB shell cat "$LOG" | grep -E "ZeehoNet" || echo "(no ZeehoNet line yet — 模块没注入？先看 ZeehoSpeedHunter attached)"
+    $ADB shell cat "$LOG" | grep -E "[Net]" || echo "(no [Net] line yet — 模块没注入？先看 SpeedHunter attached)"
     ;;
 esac

@@ -30,7 +30,7 @@
 使用 GPL-3.0 的 https://github.com/charliecharlieO-o/ridedaemon-lib ，固定提交 d6c9294ee65a94a1632da536d0317de72dedbc40。
 其 Go 源码及许可证位于 native/ridedaemon。保留原作者权利及许可证。
 
-本次适配：极核 com.cfmoto 握手包名、真实手机品牌/型号、P2P 地址绑定、视频发送计数、启动取消及端口释放、修正初始化错误被 Close() 结果覆盖、补充模拟仪表测试。没有包含官方 App 私有二进制，也没有发送 OTA/升级命令或更改车辆固件。
+本次适配：com.cfmoto 握手包名、真实手机品牌/型号、P2P 地址绑定、视频发送计数、启动取消及端口释放、修正初始化错误被 Close() 结果覆盖、补充模拟仪表测试。没有包含官方 App 私有二进制，也没有发送 OTA/升级命令或更改车辆固件。
 
 ## 构建
 

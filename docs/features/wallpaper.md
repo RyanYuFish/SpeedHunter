@@ -34,7 +34,7 @@ wallpaper.zip
 设了哪张推哪张；`wallpaperNum` 自动推导。
 
 ```bash
-adb shell am start -n com.github.zeehospeedhunter/.ui.WallpaperActivity \
+adb shell am start -n com.github.speedhunter/.ui.WallpaperActivity \
     --es auto push --es file <zip> --es num 2 [--ez dry true]
 ```
 

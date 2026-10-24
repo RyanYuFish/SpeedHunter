@@ -1,4 +1,4 @@
-// 生成器：把 zeeho-diag/lib/datastreams.js 转成 Android 端 diag/DataStreams.java
+// 生成器：把 第三方诊断工具/lib/datastreams.js 转成 Android 端 diag/DataStreams.java
 // 用法：node tools/gen_datastreams_java.js <datastreams.js> <DataStreams.java>
 const fs = require("fs");
 const path = require("path");
@@ -40,7 +40,7 @@ for (const k of Object.keys(groups)) if (!order.includes(k)) order.push(k);
 
 const groupBlocks = order.map(emitGroup).join("\n");
 
-const java = `package com.github.zeehospeedhunter.diag;
+const java = `package com.github.speedhunter.diag;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -49,10 +49,10 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * ZEEHO 实时数据（数据流，「看数据流」）—— 由 zeeho-diag {@code lib/datastreams.js}
+ * 车辆实时数据（数据流，「看数据流」）—— 由第三方诊断工具 {@code lib/datastreams.js}
  * 经 {@code tools/gen_datastreams_java.js} 生成（${order.length} 组 / ${order.reduce((n, k) => n + groups[k].length, 0)} 项）。
  *
- * <p>来源：ZSCAN-Mb DP 数据包（CN_DIAG.lib，sqlite3mc 解密）中 ZEEHO 各 ECU 的
+ * <p>来源：ZSCAN-Mb DP 数据包（CN_DIAG.lib，sqlite3mc 解密）中各 ECU 的
  * 「数值数据流」定义（UDS 0x22 读 DID + 字节位置 + 解析表达式 + 显示格式）。</p>
  *
  * <p>桌面端用 {@code new Function(...)} 直接 eval 表达式；Android 端没有 JS 引擎，

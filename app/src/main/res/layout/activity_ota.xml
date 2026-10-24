@@ -73,7 +73,7 @@
             <TextView
                 android:id="@+id/tv_subtitle"
                 style="@style/ParamHelp"
-                android:text="p2pTool · cfmoto_P2p_server（实测唯一可用写包通道）" />
+                android:text="p2pTool · 车机 P2P 通道（实测唯一可用写包通道）" />
 
             <!-- ==================== 风险警告 ==================== -->
             <LinearLayout

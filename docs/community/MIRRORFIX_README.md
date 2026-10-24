@@ -4,8 +4,8 @@
 
 ## 安装与使用
 
-1. 安装 `zeeho-speedhunter-v3.5.2-mirrorfix.apk`。与此前本对话提供的3.5.1-p2pfix使用相同测试签名，可覆盖升级。其他来源/原始3.5的签名可能不同，不保证覆盖兼容。
-2. 在LSPosed中启用模块、勾选官方极核App。更新模块后结束官方App并重新打开一次，使新Hook加载。
+1. 安装 `speedhunter-v3.5.2-mirrorfix.apk`。与此前本对话提供的3.5.1-p2pfix使用相同测试签名，可覆盖升级。其他来源/原始3.5的签名可能不同，不保证覆盖兼容。
+2. 在LSPosed中启用模块、勾选官方 App 作用域（com.cfmoto）。更新模块后结束官方App并重新打开一次，使新Hook加载。
 3. 官方App开启Wi-Fi，授予定位权限（Android11同时开启系统定位）或附近Wi-Fi设备权限（适用版本）；关闭手机个人热点。
 4. 仪表进入手机互联/投屏二维码页。复制完整二维码URL到模块的“仪表投屏”，保留name、action、mac等参数，点击解析，然后开始。
 5. 模块收到宿主确认后切换到官方App，由官方MotoPlay页面初始化SDK，发起Wi-Fi Direct连接。按提示完成系统配对、车辆授权及屏幕捕获授权。
@@ -47,7 +47,7 @@
 
 ## 源码与构建
 
-`mirrorfix.patch`为相对上述上游提交的完整源码差异，包含新增类、测试、上一版P2P修复和本说明。克隆 https://github.com/RyanYuFish/Zeeho-SpeedHunter 并切到上述提交，执行 `git apply mirrorfix.patch` 后即可导入Android Studio。包内另附测试脚本与上游许可证；不包含任何签名私钥、用户二维码、机器路径或Gradle缓存。
+`mirrorfix.patch`为相对上述上游提交的完整源码差异，包含新增类、测试、上一版P2P修复和本说明。克隆 https://github.com/RyanYuFish/SpeedHunter 并切到上述提交，执行 `git apply mirrorfix.patch` 后即可导入Android Studio。包内另附测试脚本与上游许可证；不包含任何签名私钥、用户二维码、机器路径或Gradle缓存。
 
 JDK17、Android SDK35、Build Tools35.0.0；执行 `./gradlew :app:assembleRelease`。默认仓库为上游配置。重建默认测试签名不等于本次已发布测试证书，如需覆盖自己的版本请使用自己的原签名。
 

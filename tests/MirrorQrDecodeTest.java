@@ -3,7 +3,7 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.QRCodeReader;
 import com.google.zxing.qrcode.QRCodeWriter;
-import com.github.zeehospeedhunter.ota.MirrorRequest;
+import com.github.speedhunter.ota.MirrorRequest;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -19,8 +19,8 @@ public final class MirrorQrDecodeTest {
     }
     public static void main(String[] args) throws Exception {
         String[] urls = {
-            "https://zhbackend.zeehoev.com/app_download/?action=9&name=ZEEHO-TEST&ssid=AP&pwd=a%26b%3Dc%2B&mac=12%3A34%3A56",
-            "https://x.test/?action=8&name=%E6%9E%81%E6%A0%B8%20AE5i&ssid=ZEEHO%2BTEST",
+            "https://backend.example.com/app_download/?action=9&name=SPEED-TEST&ssid=AP&pwd=a%26b%3Dc%2B&mac=12%3A34%3A56",
+            "https://x.test/?action=8&name=%E6%B5%8B%E8%AF%95%E8%BD%A6%E5%9E%8B&ssid=SPEED%2BTEST",
             "https://x.test/?action=wifi&name=CAR",
             "https://x.test/?name=CAR&action=9&pwd="
         };
@@ -32,9 +32,9 @@ public final class MirrorQrDecodeTest {
             count++;
         }
         MirrorRequest info=MirrorRequest.parse(scan(urls[0]));
-        if(!"ZEEHO-TEST".equals(info.name)||!"AP".equals(info.ssid)||!"12:34:56".equals(info.mac)||!info.hasPassword) throw new AssertionError("connection summary wrong"); count++;
+        if(!"SPEED-TEST".equals(info.name)||!"AP".equals(info.ssid)||!"12:34:56".equals(info.mac)||!info.hasPassword) throw new AssertionError("connection summary wrong"); count++;
         info=MirrorRequest.parse(scan(urls[1]));
-        if(!"极核 AE5i".equals(info.name)||!"ZEEHO+TEST".equals(info.ssid)||info.hasPassword) throw new AssertionError("Unicode/plus metadata wrong"); count++;
+        if(!"测试车型".equals(info.name)||!"SPEED+TEST".equals(info.ssid)||info.hasPassword) throw new AssertionError("Unicode/plus metadata wrong"); count++;
         for(String invalid:new String[]{"ordinary text","https://x.test/?action=9&ssid=AP","https://x.test/?action=1&name=CAR"}) {
             String decoded=scan(invalid);
             try {MirrorRequest.parse(decoded);throw new AssertionError("accepted wrong QR");}

@@ -1,6 +1,6 @@
 # 从源码构建
 
-包名 `com.github.zeehospeedhunter`。
+包名 `com.github.speedhunter`。
 
 | 项 | 要求 |
 |---|---|
@@ -12,7 +12,7 @@
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)   # Linux 指向 JDK 17 根目录
 ./gradlew assembleRelease
-# 产物 release/zeeho-speedhunter-v<version>.apk
+# 产物 release/speedhunter-v<version>.apk
 ```
 
 Windows：`gradlew.bat assembleRelease`。国内下载不畅加 `-I tools/mirrors.gradle`。

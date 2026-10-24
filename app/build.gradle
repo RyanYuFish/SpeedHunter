@@ -18,15 +18,15 @@ def releaseKeyReady = {
 }
 
 android {
-    namespace 'com.github.zeehospeedhunter'
+    namespace 'com.github.speedhunter'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.github.zeehospeedhunter"
+        applicationId "com.github.speedhunter"
         minSdk 24
         targetSdk 34
-        versionCode 45
-        versionName "4.5"
+        versionCode 46
+        versionName "4.6"
     }
 
     signingConfigs {
@@ -54,7 +54,7 @@ android {
     applicationVariants.configureEach { variant ->
         variant.outputs.configureEach { output ->
             if (variant.buildType.name == 'release') {
-                output.outputFileName = "zeeho-speedhunter-v${variant.versionName}.apk"
+                output.outputFileName = "speedhunter-v${variant.versionName}.apk"
             }
         }
     }
@@ -73,7 +73,7 @@ android {
 afterEvaluate {
     tasks.matching { it.name == 'assembleRelease' }.configureEach {
         doLast {
-            def apk = "zeeho-speedhunter-v${android.defaultConfig.versionName}.apk"
+            def apk = "speedhunter-v${android.defaultConfig.versionName}.apk"
             copy {
                 from layout.buildDirectory.file("outputs/apk/release/${apk}")
                 into layout.projectDirectory.dir("../release")

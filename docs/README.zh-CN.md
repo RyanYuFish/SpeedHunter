@@ -1,11 +1,11 @@
-# ZEEHO Speed Hunter
+# SpeedHunter
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/Zeeho-SpeedHunter/blob/main/LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?logo=gnu&logoColor=white)](https://github.com/RyanYuFish/SpeedHunter/blob/main/LICENSE)
 
 [English](../README.md) | **简体中文**
 
-面向 ZEEHO App（`com.cfmoto`）的 LSPosed 模块，用于个人设备上的兼容性研究与界面恢复。
-**与 ZEEHO / CFMOTO 无任何隶属或授权关系。**
+面向官方车机 App（`com.cfmoto`）的 LSPosed 模块，用于个人设备上的兼容性研究与界面恢复。
+**与任何车厂及其关联公司无隶属或授权关系。**
 
 ## 功能
 
@@ -22,7 +22,7 @@
 ## 使用前提
 
 - 在 Xposed / LSPosed 中安装并启用模块，作用域限定为 `com.cfmoto`；
-- 启用后强制停止并重开 ZEEHO App；
+- 启用后强制停止并重开官方车机 App；
 - 部分功能（投屏、壁纸推送）可脱离模块独立使用。
 
 ## 从源码构建
@@ -32,7 +32,7 @@ JDK 17 + Android SDK 35：
 ```bash
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)   # Linux 指向 JDK 17 根目录
 ./gradlew assembleRelease
-# 产物 release/zeeho-speedhunter-v<version>.apk
+# 产物 release/speedhunter-v<version>.apk
 ```
 
 Windows：`gradlew.bat assembleRelease`。签名密钥不随仓库分发，缺失时回退 debug 签名。详见 [`build.md`](build.md)。
@@ -44,7 +44,7 @@ Windows：`gradlew.bat assembleRelease`。签名密钥不随仓库分发，缺�
 ## 安全与隐私
 
 - 不上传骑行记录、车辆信息、位置或账号数据；
-- 不修改 ZEEHO APK，不绕过账号权限，不改变车辆控制逻辑；
+- 不修改官方车机 App 的 APK，不绕过账号权限，不改变车辆控制逻辑；
 - 速度数据仅供界面显示，不能替代仪表或作为安全决策依据；
 - **请勿在骑行过程中操作手机或依赖本模块读数**；
 - 刷写固件有变砖风险，推送前务必确认检查全过，并保证电量充足、非充电、非 Ready 状态；
@@ -52,6 +52,6 @@ Windows：`gradlew.bat assembleRelease`。签名密钥不随仓库分发，缺�
 
 ## 非官方声明与许可证
 
-本项目与 ZEEHO、CFMOTO 及其关联公司没有隶属、授权、赞助或合作关系。相关名称、图标归各自权利人所有。本项目仅用于个人设备上的兼容性研究与界面恢复，不提供官方支持，也不保证持续兼容。使用者应确保对目标设备具有合法使用权，并自行遵守所在地法律与厂商保修政策。
+本项目与任何车厂及其关联公司没有隶属、授权、赞助或合作关系。相关名称、图标归各自权利人所有。本项目仅用于个人设备上的兼容性研究与界面恢复，不提供官方支持，也不保证持续兼容。使用者应确保对目标设备具有合法使用权，并自行遵守所在地法律与厂商保修政策。
 
-原创代码及文档以 **AGPL-3.0** 授权；该许可不适用于 ZEEHO / CFMOTO 的 APK、商标及通过其接口获取的数据内容。
+原创代码及文档以 **AGPL-3.0** 授权；该许可不适用于第三方 APK、商标及通过其接口获取的数据内容。
