@@ -320,7 +320,7 @@
 
                 <!--
                   ===== 原理说明（放最底下）=====
-                  「怎么用」和「为什么默认是这组数」是参考资料，不是操作入口，
+                  「原理与用法」是参考资料，不是操作入口，
                   摆在最前面会让人先读一大段文字才看到滑块。
                 -->
                 <com.google.android.material.card.MaterialCardView
@@ -345,27 +345,10 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <com.google.android.material.card.MaterialCardView
-                    style="@style/CardBlock"
-                    app:cardBackgroundColor="?attr/colorSecondaryContainer">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="18dp">
-
-                        <TextView
-                            style="@style/CardBlockTitle"
-                            android:text="为什么默认是这组数"
-                            android:textColor="?attr/colorOnSecondaryContainer" />
-
-                        <TextView
-                            style="@style/CardBlockBody"
-                            android:text="@string/tune_why"
-                            android:textColor="?attr/colorOnSecondaryContainer" />
-                    </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
+                <!--
+                  ★ 2026-10-25 移除「为什么默认是这组数」整张卡（含 @string/tune_why）：
+                    那是一段实验数据解释，对调参没有操作价值，且数字会随样本过期。
+                -->
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>

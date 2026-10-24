@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ 与 ic_launcher.xml 同内容的「圆形」变体，供 android:roundIcon 使用。
+
+  为什么需要它：Pixel / Nothing / 一加 / 三星 等一批启动器会<b>单独请求圆形图标</b>。
+  只提供方形自适应图标时，启动器会自己把方形裁成圆 —— 这一步拿的是
+  background + foreground 合成图，<b>monochrome 图层用不上</b>，Material You 主题图标
+  于是失效（表现就是「图标不跟着壁纸取色」）。补上这份带 monochrome 的圆形变体，
+  启动器走 roundIcon 这条路也能取到单色图层。
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>
