@@ -1,25 +1,83 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Material You「主题图标」专用图层（adaptive-icon 的 <monochrome>）。
+  SpeedHunter 启动器图标 · **monochrome 图层**（Material You 主题图标专用）
 
-  ★ 与 foreground 的区别：尺寸铺满 66dp 安全区（scale 2.75 → 24dp 字形放大到 66dp，
-    translate 21 → 落在 108dp 视口的 21..87 正中间）。系统只取这一层的<b>轮廓</b>并按壁纸
-    取色重新着色，所以：
-      · 必须是<b>单色、无背景</b>的剪影（fillColor 会被系统替换，写白即可）；
-      · 必须落在安全区里，否则主题图标会被裁掉边角。
+  ★ 系统只取这一层的<b>轮廓</b>，用 Monet 从壁纸取到的颜色重新着色，画在动态色底板上。
+    因此：
+      · 必须是<b>单色、无背景</b>的剪影（fillColor / strokeColor 会被系统 tint 覆盖，写白即可）；
+      · 图形必须落在中央 66dp 安全区（21..87），否则被遮罩裁掉；
+      · **坐标直接写进 108 视口，不使用 &lt;group&gt; 变换** —— 个别启动器抽取 monochrome
+        时对嵌套变换处理不一致，会导致图形错位甚至取到空图（这正是此前主题图标不生效的
+        可疑点之一）；
+      · 造型与 foreground 完全一致（骑手 + 斗篷 + 自行车），保证主题图标与常规图标是同一图形。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group
-        android:scaleX="2.75"
-        android:scaleY="2.75"
-        android:translateX="21"
-        android:translateY="21">
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M15.5,5.5a2.5,2.5 0 1,0 0,5a2.5,2.5 0 1,0 0,-5zM5,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM19,17a3,3 0 1,0 0,6a3,3 0 1,0 0,-6zM15,15.5l-3,-3.5h-3l-2,-3H4v1.5h2.17l2.5,3.5h4.66l2.5,3.5h-2.33v1.5h4.5v-1.5h-2.67z" />
-    </group>
+
+    <!-- 车轮（环形） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M36,52a15,15 0 1,0 0,30a15,15 0 1,0 0,-30zM36,58a9,9 0 1,0 0,18a9,9 0 1,0 0,-18zM72,52a15,15 0 1,0 0,30a15,15 0 1,0 0,-30zM72,58a9,9 0 1,0 0,18a9,9 0 1,0 0,-18z" />
+
+    <!-- 车架 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,67 L47,47 M54,67 L66,48 M47,47 L66,48 M54,67 L36,67 M36,67 L47,47 M66,48 L72,67"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4.5" />
+
+    <!-- 座垫 + 车把 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M42,46 L51,45 M66,47 L70,43 M70,43 L75,45"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="5" />
+
+    <!-- 牙盘 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,63.5a3.5,3.5 0 1,0 0,7a3.5,3.5 0 1,0 0,-7z" />
+
+    <!-- 斗篷 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55,34C45,36 33,42 27,51C33.5,48.5 39,52.5 45,56.5C49.5,51.5 53,47 56,43Z" />
+
+    <!-- 躯干 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M47,44 L57,35 L64,40 L53,50 Z" />
+
+    <!-- 头盔 + 头 + 帽檐 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M52,31a8,8 0 0,1 16,0z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,26a6,6 0 1,0 0,12a6,6 0 1,0 0,-12z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,28.5 L72,31 L66,33.5 Z" />
+
+    <!-- 手臂 + 腿 -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M61,38 L69,45"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M49,48 L59,56 L54,66"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="5.5" />
 </vector>
