@@ -9,15 +9,15 @@ An LSPosed module for the ZEEHO App, intended for compatibility research and int
 
 ## Features
 
-| #    | Capability                                    | Description                                                  |
-| :--- | :-------------------------------------------- | :----------------------------------------------------------- |
-| 1    | **Ride record restoration**                   | Displays ride statistics hidden by the server: ride analysis entry, top speed, hard acceleration, hard braking, and cornering |
-| 2    | **OTA traffic logging**                       | Read-only observation of the OTA chain; does not forge or rewrite any server-side data |
-| 3    | **OTA push console**                          | Pushes update packages to the dashboard, with mandatory six-item consistency checks before any push; if any check fails, pushing is blocked |
-| 4    | **Dashboard wallpaper push**                  | Pushes custom wallpapers to the dashboard; supports generating wallpaper packages by cropping gallery images |
-| 5    | **Dashboard screen mirroring**                | Mirrors the phone screen to the dashboard; runs independently of the official App |
-| 6    | **Vehicle diagnostics**                       | *Under construction* — UI removed in this version; being reworked in a later release (placeholder shown in-app) |
-| 7    | **Network direct connection**                 | Connects to the vehicle Wi-Fi / Wi-Fi Direct and detects the vehicle address for OTA pushing |
+| #    | Capability                     | Description                                                  |
+| :--- | :----------------------------- | :----------------------------------------------------------- |
+| 1    | **Ride record restoration**    | Displays ride statistics hidden by the server: ride analysis entry, top speed, hard acceleration, hard braking, and cornering |
+| 2    | **OTA traffic logging**        | Read-only observation of the OTA chain; does not forge or rewrite any server-side data |
+| 3    | **OTA push console**           | Pushes update packages to the dashboard, with mandatory six-item consistency checks before any push; if any check fails, pushing is blocked |
+| 4    | **Dashboard wallpaper push**   | Pushes custom wallpapers to the dashboard; supports generating wallpaper packages by cropping gallery images |
+| 5    | **Dashboard screen mirroring** | Mirrors the phone screen to the dashboard; runs independently of the official App |
+| 6    | **Vehicle diagnostics**        | *Under construction*                                         |
+| 7    | **Network direct connection**  | Connects to the vehicle Wi-Fi / Wi-Fi Direct and detects the vehicle address for OTA pushing |
 
 ## Prerequisites
 
