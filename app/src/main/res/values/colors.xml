@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      ★ 启动器图标底色 = adaptive-icon 的 <background>。
+
+      ★ 必须是 @color（纯色 ColorDrawable），不能是 @drawable 矢量图：
+        启动器做 Monet 主题化时的做法是「取出背景层的纯色 → 换成壁纸动态色，
+        再给 monochrome 剪影重新着色」。背景是矢量图时取不到纯色，
+        启动器会直接放弃主题化、原样显示背景+前景 —— 那就是「图标不跟随取色」。
+        参照可正常取色的 com.dergoogler.mmrl：<background> 用的就是 @color。
+
+      主题化生效时这一层被 Monet 覆盖；只有回退态（启动器不套主题化）才显示这里的白色。
+      白色 + 深色自行车 = 回退态也是干净的常规图标（不会出现彩色/黑白争议）。
+    -->
+    <color name="ic_launcher_background">#FFFFFFFF</color>
     <color name="chip_active">#8C4A4E</color>
     <color name="chip_off">#857372</color>
 </resources>

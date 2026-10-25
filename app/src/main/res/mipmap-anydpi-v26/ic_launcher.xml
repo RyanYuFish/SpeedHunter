@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SpeedHunter 启动器图标（Material Design 自适应图标规范）
+
+  结构对齐「可正常跟随 Monet 取色」的 com.dergoogler.mmrl（mipmap-anydpi-v26/launcher.xml）：
+    · <background>  = @color 纯色（ColorDrawable）。启动器主题化时要取这一层的纯色、
+                      换成壁纸 Monet 动态色；用 @drawable 矢量图取不到纯色 ⇒
+                      启动器放弃主题化、原样显示背景+前景 ⇒ 图标永远不跟随取色。
+    · <foreground>  = @drawable/ic_launcher_foreground（自行车图形，深色 #212121，
+                      复用 app 内「骑行记录」tab 图标 ic_tab_ride 的造型，缩放居中）。
+    · <monochrome>  = 同一个 foreground drawable。系统/启动器取这一层轮廓，
+                      用 Monet 从壁纸取到的颜色重新着色，画在动态色底板上。
+                      主题化时前景自身颜色被覆盖，所以深浅都不影响主题图标效果。
+
+  非主题化回退态 = 白底 + 深色自行车（干净、无彩色争议）。
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
+    <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <!--
-      ★ Material You 主题图标：系统取这一层的轮廓，用 Monet 壁纸色重新着色、画在动态色底板上。
-        ic_launcher_monochrome 是单个 <path>、坐标烘焙进 108 视口、无 <group> 的单色剪影
-        （与设备上可正常主题化的图标结构一致），这样才能被启动器识别为主题图标。
-    -->
-    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
 </adaptive-icon>
