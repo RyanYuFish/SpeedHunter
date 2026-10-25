@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#8C4A4E</color>
+    <!--
+      ★ 启动器图标底色：务必为中性色，绝不能写品牌红棕。
+      自适应图标的 <background> 只在「非主题化」回退时直接显示；
+      主题化（Monet）生效时系统会用壁纸取到的动态色覆盖这一层。
+      这里用浅中性灰，保证任何状态下都不会冒出红棕色。
+    -->
+    <color name="ic_launcher_background">#F2F2F2</color>
     <color name="chip_active">#8C4A4E</color>
     <color name="chip_off">#857372</color>
 </resources>
