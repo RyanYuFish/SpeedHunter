@@ -3,12 +3,11 @@
   SpeedHunter 启动器图标 · **monochrome 图层**（Material You 主题图标专用）
 
   ★ 系统只取这一层的<b>轮廓</b>，用 Monet 从壁纸取到的颜色重新着色，画在动态色底板上。
-    经与设备上可正常主题化的图标（Digital Wellbeing）逐项比对，其 monochrome 的关键特征：
+    与设备上可正常主题化的图标（Digital Wellbeing）比对后的关键特征：
       · 一个 VectorDrawable，**单个 <path>、坐标直接烘焙进 108 视口**；
       · **不使用 <group> 变换**；
       · 单色填充（fillColor 会被系统 tint 覆盖，写白即可）。
-    此前本层用了 <group scaleX/scaleY/translate>，导致启动器取不到 monochrome、
-    回退成 background+foreground（表现为「白底黑色图标、不跟随 Monet」）。现已改为烘焙坐标。
+    （此前用 <group> 会导致启动器取不到 monochrome、回退成 background+foreground。）
 
   造型与 foreground 完全一致（app 内「骑行记录」自行车），保证主题图标与常规图标同一图形。
 -->
@@ -19,5 +18,5 @@
     android:viewportHeight="108">
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M61.7,39.7a5.5,5.5 0 1,0 0,11a5.5,5.5 0 1,0 0,-11zM38.6,65a6.6,6.6 0 1,0 0,13.2a6.6,6.6 0 1,0 0,-13.2zM69.4,65a6.6,6.6 0 1,0 0,13.2a6.6,6.6 0 1,0 0,-13.2zM60.6,61.7l-6.6,-7.7h-6.6l-4.4,-6.6H36.4v3.3h4.774l5.5,7.7h10.252l5.5,7.7h-5.126v3.3h9.9v-3.3h-5.874z" />
+        android:pathData="M60.3,42.3a4.5,4.5 0 1,0 0,9a4.5,4.5 0 1,0 0,-9zM41.4,63a5.4,5.4 0 1,0 0,10.8a5.4,5.4 0 1,0 0,-10.8zM66.6,63a5.4,5.4 0 1,0 0,10.8a5.4,5.4 0 1,0 0,-10.8zM59.4,60.3l-5.4,-6.3h-5.4l-3.6,-5.4H39.6v2.7h3.906l4.5,6.3h8.388l4.5,6.3h-4.194v2.7h8.1v-2.7h-4.806z" />
 </vector>

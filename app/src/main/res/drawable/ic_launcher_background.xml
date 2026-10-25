@@ -2,12 +2,11 @@
 <!--
   SpeedHunter 启动器图标 · 背景层（Material Design 自适应图标规范）
 
-  自适应图标必须由 background / foreground / monochrome 三个 drawable 组成，
-  且都是 108×108dp / viewport 108×108。
+  自适应图标 = background / foreground / monochrome 三个 drawable，均 108×108dp / viewport 108×108。
 
-  主题化（Monet）生效时，系统会用壁纸动态色覆盖这一层、并给 monochrome 剪影重新着色；
-  仅当启动器不套主题化时，才显示这里的底色。
-  取一个干净的品牌中性蓝（非红棕、非灰、非粉），保证回退态也是有颜色的图标、不会变成黑白。
+  主题化（Monet）生效时，系统用壁纸动态色覆盖这一层、并给 monochrome 剪影重新着色；
+  仅当启动器不套主题化时才显示这里的底色。
+  用中性白，不带任何品牌色（红棕/蓝/粉都被否过），保证回退态干净、且主题化时被 Monet 完全覆盖。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -15,6 +14,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#1565C0"
+        android:fillColor="#FFFFFF"
         android:pathData="M0,0h108v108H0z" />
 </vector>

@@ -3,9 +3,9 @@
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
     <!--
-      ★ Material You 主题图标：系统取这一层的轮廓按壁纸动态取色重新着色。
-        用专门的 ic_launcher_monochrome（铺满 66dp 安全区）而不是直接复用 foreground，
-        保证主题图标不被裁边、且是干净的单色剪影。
+      ★ Material You 主题图标：系统取这一层的轮廓，用 Monet 壁纸色重新着色、画在动态色底板上。
+        ic_launcher_monochrome 是单个 <path>、坐标烘焙进 108 视口、无 <group> 的单色剪影
+        （与设备上可正常主题化的图标结构一致），这样才能被启动器识别为主题图标。
     -->
     <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
 </adaptive-icon>
