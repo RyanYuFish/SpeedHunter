@@ -1,12 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!--
-      ★ 启动器图标底色：用户指定 #fb4899（活力粉），非品牌红棕、也非无色灰。
-      自适应图标的 <background> 只在「非主题化」回退时直接显示；
-      主题化（Monet）生效时系统会用壁纸取到的动态色覆盖这一层。
-      前景/monochrome 图形为白色，落在粉底上清晰可读。
-    -->
-    <color name="ic_launcher_background">#fb4899</color>
     <color name="chip_active">#8C4A4E</color>
     <color name="chip_off">#857372</color>
 </resources>
