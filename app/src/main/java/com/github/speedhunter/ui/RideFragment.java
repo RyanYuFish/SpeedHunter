@@ -302,13 +302,14 @@ public final class RideFragment extends BaseTabFragment {
         tvStatusTitle.setTextColor(fg);
         tvStatusDetail.setTextColor(fg);
         icStatus.setColorFilter(fg);
-        // ★ 未挂载时右上角那个 ✗ 只是装饰、点了也没有任何行为 ⇒ 直接不显示。
-        //   已挂载才给状态图标（激活=✓ / 未修改=ⓘ），让卡片右上角不再放一个无用的叉。
+        // ★ 未挂载：卡片本身已是 error 容器色调（见上方三态取色），
+        //   配 Material Symbols 的 error 图标，语义与色调一致。
         if (mounted) {
             icStatus.setVisibility(View.VISIBLE);
             icStatus.setImageResource(active ? R.drawable.ic_check_circle : R.drawable.ic_info);
         } else {
-            icStatus.setVisibility(View.GONE);
+            icStatus.setVisibility(View.VISIBLE);
+            icStatus.setImageResource(R.drawable.ic_error);
         }
 
         // chip 徽章：跟随当前 tone（不再是写死的 chip_active / chip_off）
