@@ -2,14 +2,18 @@
 <!--
   SpeedHunter 启动器图标 · 前景（Material Design 自适应图标规范）
 
-  规范要点（与设备上可正常主题化的图标结构对齐）：
+  规范要点：
     · 108×108dp / viewport 108×108；
-    · 坐标<b>直接写进 108 视口、不用 <group> 变换</b>；
+    · 坐标直接写进 108 视口、不用 <group> 变换；
     · 主体只占图标约 1/3（约 36dp 宽 ≤ 66dp 安全区的 60%），不大面积铺满；
     · 前景只画图形，不带背景（背景由 adaptive-icon 的 background 提供）。
 
   造型：复用 app 内「骑行记录」tab 图标（ic_tab_ride.xml）的自行车图形，
-  按 1.8 缩放居中烘焙进 108 视口，**造型不变**。深色落在白底上，回退态是干净的常规图标。
+  按 1.8 缩放居中烘焙进 108 视口，**造型不变**。
+
+  ★ 颜色：白色（#FFFFFF）。底色是 Monet 动态色（见 values-v31/colors.xml 的
+    @android:color/system_accent1_600），白图形落在动态色底上才清晰 ——
+    与 MMRL 的白线条图形同做法。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -17,6 +21,6 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#212121"
+        android:fillColor="#FFFFFF"
         android:pathData="M60.3,42.3a4.5,4.5 0 1,0 0,9a4.5,4.5 0 1,0 0,-9zM41.4,63a5.4,5.4 0 1,0 0,10.8a5.4,5.4 0 1,0 0,-10.8zM66.6,63a5.4,5.4 0 1,0 0,10.8a5.4,5.4 0 1,0 0,-10.8zM59.4,60.3l-5.4,-6.3h-5.4l-3.6,-5.4H39.6v2.7h3.906l4.5,6.3h8.388l4.5,6.3h-4.194v2.7h8.1v-2.7h-4.806z" />
 </vector>

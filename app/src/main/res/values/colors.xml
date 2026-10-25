@@ -1,18 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      ★ 启动器图标底色 = adaptive-icon 的 <background>。
+      ★ 启动器图标底色 = adaptive-icon 的 <background>（@color 纯色，见 ic_launcher.xml）。
 
-      ★ 必须是 @color（纯色 ColorDrawable），不能是 @drawable 矢量图：
-        启动器做 Monet 主题化时的做法是「取出背景层的纯色 → 换成壁纸动态色，
-        再给 monochrome 剪影重新着色」。背景是矢量图时取不到纯色，
-        启动器会直接放弃主题化、原样显示背景+前景 —— 那就是「图标不跟随取色」。
-        参照可正常取色的 com.dergoogler.mmrl：<background> 用的就是 @color。
+      ★ 动态取色（Monet）实现方式 —— 与手机上已安装的 MMRL（com.dergoogler.mmrl
+        v34346-playstore，已拉取其 APK 逐项比对确认）完全一致：
+          · values/colors.xml（本文件）   → 静态兜底色，只有 API < 31 的老系统才会用到
+          · values-v31/colors.xml        → @android:color/system_accent1_600，
+                                           API 31+ 的 Monet 动态色（随壁纸取色）
 
-      主题化生效时这一层被 Monet 覆盖；只有回退态（启动器不套主题化）才显示这里的白色。
-      白色 + 深色自行车 = 回退态也是干净的常规图标（不会出现彩色/黑白争议）。
+        原理：自适应图标的背景层直接引用系统动态色 ⇒ 图标底色自动跟随 Monet 变色，
+        **不依赖启动器是否支持「主题图标」**（MMRL 就是这样做到动态底色的）。
+        这是比 <monochrome> 主题图标更可靠的路径：monochrome 要启动器配合才生效，
+        而背景层动态色由框架在图标 inflated 时直接解析，任何启动器都生效。
+
+      静态兜底色用深中性蓝灰 #37474F：白色图形落在上面清晰可读；
+      API 31+ 设备上永远看不到这个值（被动态色覆盖）。
     -->
-    <color name="ic_launcher_background">#FFFFFFFF</color>
+    <color name="ic_launcher_background">#37474F</color>
     <color name="chip_active">#8C4A4E</color>
     <color name="chip_off">#857372</color>
 </resources>

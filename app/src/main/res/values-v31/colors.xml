@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      ★ API 31+（Android 12+）：启动器图标底色改用 Monet 系统动态色。
+
+        与 MMRL（com.dergoogler.mmrl，v34346-playstore）同实现：
+        system_accent1_600 是框架在运行时按当前壁纸生成的动态色，
+        自适应图标的 <background> 引用它 ⇒ 图标底色自动跟随壁纸 Monet 取色，
+        无需启动器支持「主题图标」，也不需要 <monochrome> 层配合。
+    -->
+    <color name="ic_launcher_background">@android:color/system_accent1_600</color>
+</resources>
