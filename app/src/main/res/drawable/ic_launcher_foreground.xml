@@ -3,13 +3,13 @@
   SpeedHunter 启动器图标 · 前景（Material Design 自适应图标规范）
 
   规范要点：
-    · 108×108dp 视口，图形落在中央 **66dp 安全区**（21..87）内，并刻意缩小，
-      任何形状的遮罩都裁不掉；
-    · 前景只画图形，不带背景（背景由 adaptive-icon 的 background 提供，现为中性灰）；
+    · 108×108dp 视口，图形落在中央 66dp 安全区（21..87）内且偏小；
+    · 前景只画图形，不带背景（背景由 adaptive-icon 的 background 提供，现为 #fb4899 粉）；
     · 坐标直接写进 108 视口、**不用 <group> 变换**。
 
-  造型：Material Icons 风格的「骑行小人 + 自行车」线稿（无斗篷、简洁），车头朝右。
-  前景色用近黑 #212121，落在浅灰底上，在「非主题化」回退时依然清晰。
+  造型：白底粉上的「戴斗篷的骑行小人」—— 车头朝右，斗篷自肩后向左上方飘出，
+  与车身（两个圆环轮 + 简洁菱形车架）明显分离，不会再被误读成「汽车」。
+  配色：白色图形落在粉色底上，非主题化回退时也是干净的有色图标（不是黑白）。
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -19,59 +19,51 @@
 
     <!-- 车轮（环形，evenOdd 挖出内孔） -->
     <path
-        android:fillColor="#212121"
+        android:fillColor="#FFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M28,68a11,11 0 1,0 22,0a11,11 0 1,0 -22,0zM33,68a6,6 0 1,0 12,0a6,6 0 1,0 -12,0zM58,68a11,11 0 1,0 22,0a11,11 0 1,0 -22,0zM63,68a6,6 0 1,0 12,0a6,6 0 1,0 -12,0z" />
+        android:pathData="M30,70a10,10 0 1,0 20,0a10,10 0 1,0 -20,0zM34,70a6,6 0 1,0 12,0a6,6 0 1,0 -12,0zM58,70a10,10 0 1,0 20,0a10,10 0 1,0 -20,0zM62,70a6,6 0 1,0 12,0a6,6 0 1,0 -12,0z" />
 
-    <!-- 车架：座管 / 下管 / 上管 / 后下叉 / 后上叉 / 前叉 -->
+    <!-- 车架：座管 / 下管 / 上管 / 前叉 / 车把（简洁菱形，省去后下叉/后上叉/牙盘） -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M54,68 L47,54 M54,68 L61,54 M47,54 L61,54 M54,68 L39,68 M39,68 L47,54 M61,54 L69,68"
-        android:strokeColor="#212121"
+        android:pathData="M54,70 L47,56 M54,70 L63,56 M47,56 L63,56 M63,56 L68,70 M63,56 L66,52"
+        android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:strokeWidth="3" />
 
-    <!-- 座垫 + 车把 -->
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M61,54 L64,50 M47,54 L49,51"
-        android:strokeColor="#212121"
-        android:strokeLineCap="round"
-        android:strokeWidth="3.5" />
-
-    <!-- 牙盘（曲柄中心） -->
-    <path
-        android:fillColor="#212121"
-        android:pathData="M54,65.5a2.5,2.5 0 1,0 0,5a2.5,2.5 0 1,0 0,-5z" />
-
     <!-- 骑手：头（近圆，图标尺寸下读作头盔） -->
     <path
-        android:fillColor="#212121"
-        android:pathData="M58,31.5a5.5,5.5 0 1,0 0,11a5.5,5.5 0 1,0 0,-11z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M58,34a5,5 0 1,0 0,10a5,5 0 1,0 0,-10z" />
 
     <!-- 躯干（俯身前倾） -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M49,52 L56,43"
-        android:strokeColor="#212121"
+        android:pathData="M49,54 L56,45"
+        android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"
         android:strokeWidth="4.5" />
 
     <!-- 手臂（肩 → 车把） -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M56,43 L61,53"
-        android:strokeColor="#212121"
+        android:pathData="M56,45 L63,53"
+        android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"
         android:strokeWidth="3.5" />
 
-    <!-- 腿（髋 → 膝 → 脚踏，蹬踏姿势） -->
+    <!-- 腿（髋 → 脚踏） -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M49,52 L55,61 L53,67"
-        android:strokeColor="#212121"
+        android:pathData="M49,54 L54,68"
+        android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:strokeWidth="4" />
+
+    <!-- 斗篷：自肩后向左上方飘出，与车身分离，避免被误读成汽车 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,44 C46,39 36,41 31,49 C38,52 46,52 53,50 Z" />
 </vector>
