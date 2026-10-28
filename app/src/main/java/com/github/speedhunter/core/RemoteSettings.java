@@ -146,9 +146,30 @@ public final class RemoteSettings {
                         androidx.core.content.ContextCompat.RECEIVER_EXPORTED);
                 receiverRegistered = true;
                 HookLog.log(TAG + " config receiver registered");
+                // 反向拉取：接收器刚注册就向 UI 要一次最新配置。
+                // 覆盖「用户在 SpeedHunter 里先拨开关、后打开官方 App」的时序——
+                // 那条 ACTION_CONFIG 早于本接收器就绪会被静默丢弃，导致 enabled() 读默认值 false。
+                requestConfigSync(app);
             } catch (Throwable t) {
                 HookLog.log(TAG + " register receiver failed: " + t);
             }
+        }
+    }
+
+    /**
+     * hook → UI：请求 UI 把当前 SharedPreferences 经 {@link Keys#ACTION_CONFIG} 重发一遍。
+     *
+     * <p>必须 {@code setPackage(模块包)}：UI 进程是 {@code com.github.speedhunter}，
+     * 跨进程广播不加定向包名会被 Android 8+ 的隐式广播限制拦掉。</p>
+     */
+    private static void requestConfigSync(Context context) {
+        try {
+            Intent sync = new Intent(Keys.ACTION_CONFIG_SYNC);
+            sync.setPackage("com.github.speedhunter");
+            context.sendBroadcast(sync);
+            HookLog.log(TAG + " config sync requested (pull latest from UI)");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " config sync request failed: " + t);
         }
     }
 
@@ -197,6 +218,7 @@ public final class RemoteSettings {
                 put(config, intent, Keys.KEY_RIDE_FILL, true);
                 put(config, intent, Keys.KEY_RIDE_FULLSCAN, true);
                 put(config, intent, Keys.KEY_TUNE_EXPORT, false);
+                put(config, intent, Keys.KEY_CUSTOM_KEY_FORCE, false);
                 put(config, intent, Keys.KEY_DEBUG_BEND, false);
                 // 标定参数：extra 里缺失时不覆盖（让 RideConfig 走 DEF_* 默认值）
                 putNum(config, intent, Keys.KEY_BEND_V_MIN);

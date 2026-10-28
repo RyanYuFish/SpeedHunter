@@ -44,6 +44,8 @@ public final class HookLog {
     public static final String MIRROR = "[Mirror]";
     /** 车端诊断（DoIP/UDS + RS485 离线解码，见 diag/ 包）。 */
     public static final String DIAG = "[Diag]";
+    /** 自定义键强制为「切换信息组（功能码 7）」（来源 DashProbe v0.6.0，已实车验证）。 */
+    public static final String KEY = "[Key]";
 
     private static final String FILE_NAME = "speedhunter_hook.log";
     private static final long MAX_BYTES = 4L * 1024 * 1024;

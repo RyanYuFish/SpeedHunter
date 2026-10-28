@@ -47,6 +47,8 @@ public final class RideFragment extends BaseTabFragment {
     private MaterialSwitch swG2;
     private MaterialSwitch swView;
     private MaterialSwitch swRideFill;
+    private MaterialSwitch swCustomKey;
+    private TextView tvCustomKeyHint;
 
     private TextView tvStatusDetail;
     private TextView tvStatusTitle;
@@ -110,6 +112,8 @@ public final class RideFragment extends BaseTabFragment {
         swG2 = view.findViewById(R.id.sw_g2);
         swView = view.findViewById(R.id.sw_view);
         swRideFill = view.findViewById(R.id.sw_ride_fill);
+        swCustomKey = view.findViewById(R.id.sw_custom_key);
+        tvCustomKeyHint = view.findViewById(R.id.tv_custom_key_hint);
         tvStatusDetail = view.findViewById(R.id.tv_status_detail);
         tvStatusTitle = view.findViewById(R.id.tv_status_title);
         icStatus = view.findViewById(R.id.ic_status);
@@ -121,6 +125,8 @@ public final class RideFragment extends BaseTabFragment {
         swG2.setChecked(prefs.getBoolean(Keys.KEY_GATE_EVENT, true));
         swView.setChecked(prefs.getBoolean(Keys.KEY_VIEW_LAYER, false));
         swRideFill.setChecked(prefs.getBoolean(Keys.KEY_RIDE_FILL, true));
+        swCustomKey.setChecked(prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
+        updateCustomKeyHint();
 
         // 首次打开就把默认值落盘 —— 否则 prefs 文件不存在，
         // hook 进程的 XSharedPreferences 兜底通道拿不到任何键
@@ -134,6 +140,7 @@ public final class RideFragment extends BaseTabFragment {
         swG2.setOnCheckedChangeListener(listener);
         swView.setOnCheckedChangeListener(listener);
         swRideFill.setOnCheckedChangeListener(listener);
+        swCustomKey.setOnCheckedChangeListener(listener);
 
         // 压弯标定：8 个阈值实时可调，每项带「调它会发生什么」说明
         view.findViewById(R.id.btn_tune).setOnClickListener(new View.OnClickListener() {
@@ -333,27 +340,16 @@ public final class RideFragment extends BaseTabFragment {
                     .putBoolean(Keys.KEY_GATE_EVENT, swG2.isChecked())
                     .putBoolean(Keys.KEY_VIEW_LAYER, swView.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FILL, swRideFill.isChecked())
+                    .putBoolean(Keys.KEY_CUSTOM_KEY_FORCE, swCustomKey.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FULLSCAN, true)
                     .commit();
         } catch (Throwable ignored) {
             // prefs 可能被 LSPosed 重定向或只读 —— 真正的通道是下面的广播
         }
 
-        // 主通道：显式广播给 com.cfmoto 里 hook 注册的动态接收器
+        // 主通道：经共享 ConfigSender 把当前 prefs 显式广播给 com.cfmoto 里 hook 注册的动态接收器
         // （官方 App 运行中 → 内存即时生效 + hook 自己落盘；冷重启后从落盘文件恢复）
-        try {
-            android.content.Intent intent = new android.content.Intent(Keys.ACTION_CONFIG);
-            intent.setPackage("com.cfmoto");
-            intent.putExtra(Keys.KEY_WEB_LAYER, swWeb.isChecked());
-            intent.putExtra(Keys.KEY_GATE_ANALYSE, swG1.isChecked());
-            intent.putExtra(Keys.KEY_GATE_EVENT, swG2.isChecked());
-            intent.putExtra(Keys.KEY_VIEW_LAYER, swView.isChecked());
-            intent.putExtra(Keys.KEY_RIDE_FILL, swRideFill.isChecked());
-            intent.putExtra(Keys.KEY_RIDE_FULLSCAN, true);
-            intent.setPackage(Keys.TARGET_PKG);   // ★ 见 Keys#TARGET_PKG：不加这行 Android 8+ 会拦掉
-            requireContext().sendBroadcast(intent);
-        } catch (Throwable ignored) {
-        }
+        com.github.speedhunter.core.ConfigSender.pushFromPrefs(requireContext(), prefs);
         makePrefsWorldReadable();
     }
 
@@ -380,6 +376,23 @@ public final class RideFragment extends BaseTabFragment {
             // 关掉网络层时保持 G1/G2 视觉跟随（值保留，重新打开即恢复）
             persist();
             updateStatus();
+            updateCustomKeyHint();
         }
+    }
+
+    /**
+     * 自定义键开关的提示文案（压弯数据卡下方的状态行）：
+     * <ul>
+     *   <li>开 → 「自定义键设置全映射为切换信息组」（里程组 ⇄ 胎压组）</li>
+     *   <li>关 → 「自定义键功能按照 ZEEHO App 的选项为准」</li>
+     * </ul>
+     */
+    private void updateCustomKeyHint() {
+        if (tvCustomKeyHint == null || swCustomKey == null) {
+            return;
+        }
+        tvCustomKeyHint.setText(swCustomKey.isChecked()
+                ? "已开启：自定义键设置全映射为切换信息组（里程组 ⇄ 胎压组，首页显示前后轮胎压/胎温）"
+                : "关闭：自定义键功能按照 ZEEHO App 的选项为准");
     }
 }

@@ -19,6 +19,16 @@ public final class Keys {
     public static final String ACTION_CONFIG = "com.github.speedhunter.CONFIG";
 
     /**
+     * hook → UI：请求 UI 重新下发一遍配置（UI 收到后回 {@link #ACTION_CONFIG}）。
+     *
+     * <p>为什么需要这条反向广播：UI 侧「打开开关」发出的 {@link #ACTION_CONFIG} 可能早于
+     * com.cfmoto 里的接收器就绪（用户在 SpeedHunter 里先拨开关、再打开官方 App 的典型顺序），
+     * 那条广播会被静默丢掉，导致 hook 侧 {@code enabled()} 一直读到默认值 false。
+     * 改为<b>挂钩后由 hook 主动来要</b>：接收器一旦注册就向 UI 拉一次最新配置，覆盖上述时序。</p>
+     */
+    public static final String ACTION_CONFIG_SYNC = "com.github.speedhunter.CONFIG_SYNC";
+
+    /**
      * 广播的定向包名（= hook 所在的 App）。
      *
      * <p>★ 必须 {@code intent.setPackage(TARGET_PKG)}：Android 8（API 26）起
@@ -168,6 +178,17 @@ public final class Keys {
      * 键本身仍可被 hook 进程读到，将来做「环境体检 → 直接上屏」那条路时能复用。</p>
      */
     public static final String KEY_HUD = "hud_enabled";
+
+    /**
+     * 自定义键强制为「切换信息组（功能码 7）」—— opt-in，默认关。
+     *
+     * <p>来源：DashProbe v0.6.0（2026-10-28 实车验证通过）。开启后，在官方 App 的
+     * {@code CustomKeySelectActivity#handleSave} 前置把 {@code CustomButtonCode.commandCode}
+     * 反射改写成 7，让仪表主页按自定义键即在里程组 ⇄ 胎压组间切换，从而把前后轮胎压/胎温显示出来。</p>
+     *
+     * <p>默认关：不开启时完全不触碰任何字段，等价于模块对该设置项无感知。</p>
+     */
+    public static final String KEY_CUSTOM_KEY_FORCE = "custom_key_force";
 
     public static final String EXTRA_MIRROR_QR_URL = "mirror_qr_url";
     public static final String EXTRA_MIRROR_REQUEST_ID = "mirror_request_id";

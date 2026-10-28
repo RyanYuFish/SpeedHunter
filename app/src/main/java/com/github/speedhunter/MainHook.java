@@ -9,6 +9,7 @@ import com.github.speedhunter.core.HookLog;
 import com.github.speedhunter.core.MobGuard;
 import com.github.speedhunter.core.Targets;
 import com.github.speedhunter.ble.BleHooks;
+import com.github.speedhunter.customkey.CustomKeyForce;
 import com.github.speedhunter.net.MqttHooks;
 import com.github.speedhunter.net.NetPatch;
 import com.github.speedhunter.ota.OtaHooks;
@@ -34,6 +35,9 @@ import com.github.speedhunter.ride.RideHooks;
  *   <li>{@link RideHooks} —— 视图层兜底（实时开关，默认关，见 {@code ride.RideOptions}）；</li>
  *   <li>{@link OtaHooks} —— OTA 界面解锁 + 全链路流量记录（只读，不伪造服务端数据）；</li>
  *   <li>{@link BleHooks} —— BLE 车控帧双向捕获。</li>
+ *   <li>{@link com.github.speedhunter.customkey.CustomKeyForce} —— 自定义键强制为「切换信息组
+ *       （功能码 7）」，让仪表主页按自定义键在里程组 ⇄ 胎压组间切换（opt-in，默认关；
+ *       来源 DashProbe v0.6.0，2026-10-28 实车验证通过）。</li>
  *   <li>{@link OtaChannelProbe} —— 车机 OTA 通道知识表 + 只读探针。2026-10-05 车边实测
  *       确认：官方任务单是本模块注入伪造的，车机 TCP {@code 10950} 并不监听，
  *       真实通道是 {@code /dev/cfmoto_cfcp}（CFCP，见 {@link com.github.speedhunter.ota.OtaChannels}）。
@@ -70,6 +74,7 @@ public final class MainHook implements IXposedHookLoadPackage {
         RideHooks.installAll();      // 视图层兜底（默认关）
         OtaHooks.installAll();
         BleHooks.installAll();
+        CustomKeyForce.installAll(); // 自定义键强制 = 切换信息组（opt-in，默认关）
         OtaSocketTrace.install();    // ★ 记录官方 EasyConnect 与车机 10950 的往来帧（只读）
         OtaSocketProbe.runAsync();   // ★ 主动 connect 192.168.0.1:10950（只握手，不发任何字节）
 

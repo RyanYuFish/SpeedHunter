@@ -39,7 +39,7 @@ Windows: `gradlew.bat assembleRelease`. Signing keys are not distributed; withou
 
 ## Documentation
 
-[ride-records](docs/features/ride-records.md) · [ota-logging](docs/features/ota-logging.md) · [ota-push](docs/features/ota-push.md) · [wallpaper](docs/features/wallpaper.md) · [mirroring](docs/features/mirroring.md) · [diagnostics](docs/features/diagnostics.md) · [network](docs/features/network.md) · [build](docs/build.md) · [logging](docs/logging.md) · [changelog](docs/changelog.md) · [community](docs/community/)
+[ride-records](docs/features/ride-records.md) · [ota-logging](docs/features/ota-logging.md) · [ota-push](docs/features/ota-push.md) · [wallpaper](docs/features/wallpaper.md) · [mirroring](docs/features/mirroring.md) · [diagnostics](docs/features/diagnostics.md) · [network](docs/features/network.md) · [custom-key](docs/features/custom-key.md) · [build](docs/build.md) · [logging](docs/logging.md) · [changelog](docs/changelog.md) · [community](docs/community/)
 
 ## Safety and Privacy
 

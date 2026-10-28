@@ -308,6 +308,44 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <!-- 自定义键映射（压弯数据回填 与 版本 之间） -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurface"
+                    app:cardCornerRadius="24dp"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutline"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <LinearLayout style="@style/SettingRow">
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_tune"
+                                app:tint="?attr/colorPrimary" />
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="自定义键 = 切换信息组" />
+                                <TextView
+                                    android:id="@+id/tv_custom_key_hint"
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="关闭：自定义键功能按照 ZEEHO App 的选项为准" />
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_custom_key"
+                                style="@style/SettingRowSwitch" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- 版本 / 应用改动 / 数据说明 -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
