@@ -94,6 +94,24 @@ public final class RemoteSettings {
         }
     }
 
+    /**
+     * 读一个整数配置（自定义键目标功能码等）。
+     *
+     * <p>与 {@link #getDouble} 同链路：解析失败 / 空值 / 非法一律回退默认值，
+     * 避免脏值被写进官方 App 的字段。</p>
+     */
+    public static int getInt(String key, int defaultValue) {
+        String raw = getString(key, null);
+        if (raw == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (RuntimeException e) {
+            return defaultValue;
+        }
+    }
+
     /** 读一个字符串配置；liveConfig 优先，其次持久化文件，都没有则返回 {@code null}。 */
     public static String getString(String key, String defaultValue) {
         Map<String, String> live = liveConfig;
@@ -219,6 +237,7 @@ public final class RemoteSettings {
                 put(config, intent, Keys.KEY_RIDE_FULLSCAN, true);
                 put(config, intent, Keys.KEY_TUNE_EXPORT, false);
                 put(config, intent, Keys.KEY_CUSTOM_KEY_FORCE, false);
+                putInt(config, intent, Keys.KEY_CUSTOM_KEY_TARGET, 7);
                 put(config, intent, Keys.KEY_DEBUG_BEND, false);
                 // 标定参数：extra 里缺失时不覆盖（让 RideConfig 走 DEF_* 默认值）
                 putNum(config, intent, Keys.KEY_BEND_V_MIN);
@@ -276,6 +295,11 @@ public final class RemoteSettings {
 
     private static void put(Map<String, String> map, Intent intent, String key, boolean def) {
         map.put(key, String.valueOf(intent.getBooleanExtra(key, def)));
+    }
+
+    /** 收一个整数配置（自定义键目标功能码）。与前两者一样统一存成字符串。 */
+    private static void putInt(Map<String, String> map, Intent intent, String key, int def) {
+        map.put(key, String.valueOf(intent.getIntExtra(key, def)));
     }
 
     /**

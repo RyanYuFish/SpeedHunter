@@ -32,6 +32,9 @@ public final class ConfigSender {
             intent.putExtra(Keys.KEY_RIDE_FILL, prefs.getBoolean(Keys.KEY_RIDE_FILL, true));
             intent.putExtra(Keys.KEY_CUSTOM_KEY_FORCE,
                     prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
+            // 默认 7 = 切换信息组（与 CustomKeyOptions.TARGET 一致；core 不反向依赖 customkey）
+            intent.putExtra(Keys.KEY_CUSTOM_KEY_TARGET,
+                    prefs.getInt(Keys.KEY_CUSTOM_KEY_TARGET, 7));
             intent.putExtra(Keys.KEY_RIDE_FULLSCAN, prefs.getBoolean(Keys.KEY_RIDE_FULLSCAN, true));
             intent.setPackage(Keys.TARGET_PKG);
             context.sendBroadcast(intent);

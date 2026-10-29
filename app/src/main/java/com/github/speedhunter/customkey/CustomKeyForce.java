@@ -9,11 +9,12 @@ import com.github.speedhunter.core.HookKit;
 import com.github.speedhunter.core.HookLog;
 
 /**
- * 自定义键强制为「切换信息组（功能码 7）」。
+ * 自定义键映射：保存时把功能码改写为配置的目标值（默认 7 = 切换信息组）。
  *
  * <h3>机制</h3>
  * <p>在官方 App 的 {@code com.cfmoto.ui.carsetting.CustomKeySelectActivity#handleSave()}
- * 执行<b>之前</b>，把该 Activity 里所有 {@code CustomButtonCode.commandCode} 反射改写成 7。
+ * 执行<b>之前</b>，把该 Activity 里所有 {@code CustomButtonCode.commandCode} 反射改写成
+ * {@link CustomKeyOptions#targetValue()}（默认 7；可选项见 {@link CustomKeyFunction}）。
  * App 随后按自己的通道（实测恒为 4G 云端，<b>不走 BLE</b>）把 7 发出去，车端
  * {@code SetItem4+0x0f} 落入 7，仪表主页按自定义键即在<b>里程组 ⇄ 胎压组</b>间切换，
  * 从而把前后轮胎压 / 胎温显示出来。</p>
@@ -62,6 +63,7 @@ public final class CustomKeyForce {
                         int target = CustomKeyOptions.targetValue();
                         int changed = applyForce(activity, target);
                         HookLog.log(TAG + " ★模型改写 target=" + target
+                                + "（" + CustomKeyFunction.nameOf(target) + "）"
                                 + " 命中 " + changed + " 个对象"
                                 + (changed == 0
                                     ? "（未找到 CustomButtonCode 字段，本次保存仍是原厂值）" : ""));
@@ -103,7 +105,7 @@ public final class CustomKeyForce {
                     }
                     if (setCode(v, target)) {
                         HookLog.log(TAG + "   commandCode " + before + " → " + target
-                                + "（切换信息组）");
+                                + "（" + CustomKeyFunction.nameOf(target) + "）");
                         changed++;
                     }
                 } catch (Throwable ignored) {

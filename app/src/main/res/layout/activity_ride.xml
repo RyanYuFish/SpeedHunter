@@ -324,6 +324,7 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
 
+                        <!-- 总开关 -->
                         <LinearLayout style="@style/SettingRow">
                             <ImageView
                                 style="@style/SettingRowIcon"
@@ -333,7 +334,7 @@
                             <LinearLayout style="@style/SettingRowText">
                                 <TextView
                                     style="@style/SettingRowTitle"
-                                    android:text="自定义键 = 切换信息组" />
+                                    android:text="自定义键映射" />
                                 <TextView
                                     android:id="@+id/tv_custom_key_hint"
                                     style="@style/SettingRowSubtitle"
@@ -343,6 +344,61 @@
                                 android:id="@+id/sw_custom_key"
                                 style="@style/SettingRowSwitch" />
                         </LinearLayout>
+
+                        <View style="@style/SettingDivider" />
+
+                        <!-- 按键功能选择（点击弹出 23 项功能码列表） -->
+                        <LinearLayout
+                            android:id="@+id/row_custom_key_func"
+                            style="@style/SettingRow"
+                            android:background="?android:attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true">
+
+                            <ImageView
+                                style="@style/SettingRowIcon"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_check_circle"
+                                app:tint="?attr/colorPrimary" />
+
+                            <LinearLayout style="@style/SettingRowText">
+                                <TextView
+                                    style="@style/SettingRowTitle"
+                                    android:text="按键功能" />
+                                <TextView
+                                    android:id="@+id/tv_custom_key_count"
+                                    style="@style/SettingRowSubtitle"
+                                    android:text="共 23 项功能可选" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/tv_custom_key_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="切换仪表信息组 · 7"
+                                android:textAppearance="?attr/textAppearanceTitleSmall"
+                                android:textColor="?attr/colorPrimary" />
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_marginStart="4dp"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_chevron_right"
+                                app:tint="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+
+                        <!-- 与官方 App 的配合方式 -->
+                        <TextView
+                            android:id="@+id/tv_custom_key_save_hint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:paddingStart="18dp"
+                            android:paddingEnd="18dp"
+                            android:paddingBottom="14dp"
+                            android:text="保存配置后，前往官方 App 的自定义键页面再次保存。"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

@@ -180,15 +180,26 @@ public final class Keys {
     public static final String KEY_HUD = "hud_enabled";
 
     /**
-     * 自定义键强制为「切换信息组（功能码 7）」—— opt-in，默认关。
+     * 自定义键映射总开关 —— opt-in，默认关。
      *
      * <p>来源：DashProbe v0.6.0（2026-10-28 实车验证通过）。开启后，在官方 App 的
      * {@code CustomKeySelectActivity#handleSave} 前置把 {@code CustomButtonCode.commandCode}
-     * 反射改写成 7，让仪表主页按自定义键即在里程组 ⇄ 胎压组间切换，从而把前后轮胎压/胎温显示出来。</p>
+     * 反射改写成 {@link #KEY_CUSTOM_KEY_TARGET} 指定的功能码（默认 7 = 切换信息组），
+     * 让仪表主页按自定义键即在里程组 ⇄ 胎压组间切换，从而把前后轮胎压/胎温显示出来。</p>
      *
      * <p>默认关：不开启时完全不触碰任何字段，等价于模块对该设置项无感知。</p>
      */
     public static final String KEY_CUSTOM_KEY_FORCE = "custom_key_force";
+
+    /**
+     * 自定义键目标功能码（int，默认 7 = 切换信息组）。
+     *
+     * <p>取值来自官方 App {@code CustomButtonCode.commandCode} 枚举的 23 项
+     * （见 {@code customkey.CustomKeyFunction}）。仪表对 SetItem4 里的这个字节
+     * <b>不做映射</b>：写进去多少就是多少。合法值 1/2/3/4/5/6/7/8/9/10/11/12/13/14/
+     * 15/16/17/18/19/20/21/28/31。</p>
+     */
+    public static final String KEY_CUSTOM_KEY_TARGET = "custom_key_target";
 
     public static final String EXTRA_MIRROR_QR_URL = "mirror_qr_url";
     public static final String EXTRA_MIRROR_REQUEST_ID = "mirror_request_id";
