@@ -18,6 +18,7 @@ An LSPosed module for the vehicle companion App (`com.cfmoto`), intended for com
 | 5    | **Dashboard screen mirroring** | Mirrors the phone screen to the dashboard; runs independently of the official App |
 | 6    | **Vehicle diagnostics**        | *Under construction*                                         |
 | 7    | **Network direct connection**  | Connects to the vehicle Wi-Fi / Wi-Fi Direct and detects the vehicle address for OTA pushing |
+| 8    | **Nitro entry**                | Displays the AE7-exclusive "Nitro boost" row in the vehicle settings page (vehicleKind(s)→3 + inject nitro field); UI-only, no vehicle effect |
 
 ## Prerequisites
 
@@ -39,7 +40,7 @@ Windows: `gradlew.bat assembleRelease`. Signing keys are not distributed; withou
 
 ## Documentation
 
-[ride-records](docs/features/ride-records.md) · [ota-logging](docs/features/ota-logging.md) · [ota-push](docs/features/ota-push.md) · [wallpaper](docs/features/wallpaper.md) · [mirroring](docs/features/mirroring.md) · [diagnostics](docs/features/diagnostics.md) · [network](docs/features/network.md) · [custom-key](docs/features/custom-key.md) · [build](docs/build.md) · [logging](docs/logging.md) · [changelog](docs/changelog.md) · [community](docs/community/)
+[ride-records](docs/features/ride-records.md) · [ota-logging](docs/features/ota-logging.md) · [ota-push](docs/features/ota-push.md) · [wallpaper](docs/features/wallpaper.md) · [mirroring](docs/features/mirroring.md) · [diagnostics](docs/features/diagnostics.md) · [network](docs/features/network.md) · [custom-key](docs/features/custom-key.md) · [nitro-ui](docs/features/nitro-ui.md) · [build](docs/build.md) · [logging](docs/logging.md) · [changelog](docs/changelog.md) · [community](docs/community/)
 
 ## Safety and Privacy
 

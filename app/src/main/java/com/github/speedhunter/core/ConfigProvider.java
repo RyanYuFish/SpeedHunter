@@ -40,12 +40,21 @@ public final class ConfigProvider extends ContentProvider {
                         @Nullable String selection, @Nullable String[] selectionArgs,
                         @Nullable String sortOrder) {
         if (getContext() == null) return null;
-        Map<String, ?> all = getContext().getSharedPreferences(
-                Keys.PREFS, android.content.Context.MODE_PRIVATE).getAll();
+        // ★ 与 UI 单一数据源保持一致：账号页 / 首页 / 标定页 / 反向同步都写
+        //   默认 SharedPreferences。旧实现读 Keys.PREFS 那份独立文件，升级后
+        //   这里会读到空表，兜底通道形同失效。
+        Map<String, ?> all = android.preference.PreferenceManager
+                .getDefaultSharedPreferences(getContext()).getAll();
         MatrixCursor cursor = new MatrixCursor(new String[]{COLUMN_KEY, COLUMN_VALUE});
         for (Map.Entry<String, ?> entry : all.entrySet()) {
             Object value = entry.getValue();
             if (value == null) continue;
+            // 登录凭证只走「广播 + hook 侧自落盘」通道，不从这个 exported provider 出去。
+            // provider 未加权限保护，任何应用都能 query；账号三键全部排除，避免凭据外泄。
+            // 这两条不参与 hook 决策以外的用途，排除不影响主链路。
+            String key = entry.getKey();
+            if (Keys.KEY_ACCOUNT_TOKEN.equals(key)
+                    || Keys.KEY_ACCOUNT_USERID.equals(key)) continue;
             cursor.addRow(new Object[]{entry.getKey(), String.valueOf(value)});
         }
         return cursor;

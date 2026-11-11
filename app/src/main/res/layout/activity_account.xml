@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  账号引导登录 —— 与「压弯标定」(activity_tune.xml) 同为独立二级页：
+  顶栏圆形返回 + 右上角文字按钮、PageTitle 大标题、CardBlock 卡片、
+  ParamTitle/ParamHelp/ParamDivider 统一排版、底部「原理与用法」色卡。
+  控件 id 全部沿用旧版，AccountActivity 不需要为排版改动业务逻辑。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_account"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="24dp">
+
+        <!-- ===== 顶栏：返回 + 右上角「清除凭证」 ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="10dp">
+
+            <ImageButton
+                android:id="@+id/btn_back"
+                style="@style/NavCircleButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_arrow_back" />
+
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_account_clear"
+                style="@style/TopTextButton"
+                android:text="清除凭证" />
+        </LinearLayout>
+
+        <!-- ===== 大标题 ===== -->
+        <TextView
+            style="@style/PageTitle"
+            android:layout_marginTop="6dp"
+            android:text="账号引导登录" />
+
+        <TextView
+            style="@style/ParamHelp"
+            android:layout_marginTop="6dp"
+            android:text="在其他客户端取得 token 与账号 ID 后填入，引导极核 App 以该凭证访问云端。多台设备填同一份凭证即可共同登录同一账号。" />
+
+        <!-- ===== ① 登录凭证 ===== -->
+        <com.google.android.material.card.MaterialCardView style="@style/CardBlock">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="16dp">
+
+                <TextView
+                    style="@style/CardBlockTitle"
+                    android:text="① 登录凭证" />
+
+                <TextView
+                    style="@style/ParamHelp"
+                    android:text="从 Shadowrocket 日志 / 几何面板等取得。token 只保存在本机模块配置中，不会回显到日志或状态区。" />
+
+                <TextView
+                    style="@style/ParamTitle"
+                    android:text="token（Bearer）" />
+
+                <EditText
+                    android:id="@+id/et_account_token"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:hint="粘贴 token"
+                    android:inputType="text|textNoSuggestions|textVisiblePassword"
+                    android:maxLines="3"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textColorHint="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    style="@style/ParamTitle"
+                    android:text="账号 ID（userId）" />
+
+                <EditText
+                    android:id="@+id/et_account_userid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:hint="粘贴 userId"
+                    android:inputType="text|textNoSuggestions"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textColorHint="?attr/colorOnSurfaceVariant" />
+
+                <View style="@style/ParamDivider" />
+
+                <LinearLayout
+                    style="@style/SettingRow"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp">
+
+                    <LinearLayout style="@style/SettingRowText">
+                        <TextView
+                            style="@style/SettingRowTitle"
+                            android:text="启用引导登录" />
+                        <TextView
+                            android:id="@+id/tv_account_hint"
+                            style="@style/SettingRowSubtitle"
+                            android:text="关闭：官方 App 保持原登录态" />
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/sw_account_login"
+                        style="@style/SettingRowSwitch" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_account_save"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="保存并登录" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_account_clear_app"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="清除 App 登录状态（退出极核 App 全部账号）" />
+
+                <TextView
+                    android:id="@+id/tv_account_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:fontFamily="monospace"
+                    android:text="本机凭证：未录入"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <!-- hook 回执：只认 com.cfmoto 进程实际生效的状态 -->
+                <TextView
+                    android:id="@+id/tv_account_hook"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/bg_status_pane"
+                    android:fontFamily="monospace"
+                    android:padding="12dp"
+                    android:text="模块生效状态：等待回执…"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSecondaryContainer" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== ② 签到与积分任务 ===== -->
+        <com.google.android.material.card.MaterialCardView style="@style/CardBlock">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="14dp"
+                android:paddingBottom="16dp">
+
+                <TextView
+                    style="@style/CardBlockTitle"
+                    android:text="② 签到与积分任务" />
+
+                <TextView
+                    style="@style/ParamHelp"
+                    android:text="全部请求关联上方当前账号。这里的查询由模块直连云端，用来校验 token 是否有效，不代表官方 App 已登录。" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_account_refresh"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="刷新状态" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_account_signin"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="立即签到" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tv_account_summary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="签到：未查询\n积分：未查询\n任务：未查询"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <View style="@style/ParamDivider" />
+
+                <TextView
+                    style="@style/ParamTitle"
+                    android:layout_marginTop="0dp"
+                    android:text="接口应答详情" />
+
+                <TextView
+                    android:id="@+id/tv_account_detail"
+                    android:layout_width="match_parent"
+                    android:layout_height="180dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_log_pane"
+                    android:fadeScrollbars="false"
+                    android:fontFamily="monospace"
+                    android:padding="10dp"
+                    android:scrollbarStyle="insideOverlay"
+                    android:scrollbars="vertical"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="#1A1111"
+                    android:textSize="10sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ===== 原理与用法（放最底下） ===== -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/CardBlock"
+            app:cardBackgroundColor="?attr/colorPrimaryContainer">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    style="@style/CardBlockTitle"
+                    android:text="原理与用法"
+                    android:textColor="?attr/colorOnPrimaryContainer" />
+
+                <TextView
+                    style="@style/CardBlockBody"
+                    android:text="凭证由模块 UI 写入本机配置，再经广播推给挂在极核 App 里的模块；模块在官方 App 发出的云端请求上注入 Authorization 与账号 ID，使云端按该账号返回数据。\n\n生效前提：LSPosed 中已勾选极核 App 作用域，且极核 App 至少启动过一次。填完凭证点「保存并登录」，看下方「模块生效状态」出现 ✓ 才算送达 —— 本页的查询成功只是 token 有效，不等于官方 App 已登录。\n\n要彻底退出极核 App 内登录的账号、回到干净未登录态，点「清除 App 登录状态」：它会清掉极核 App 自己的登录 SP / MMKV 并让 App 自动重启（本机录入的引导登录凭证保留，可随时重新开启）。右上角「清除凭证」则连本模块的 token / 账号 ID 一起删。既有抓包取证可能仍会记录请求头（只写本机，请妥善保管）。"
+                    android:textColor="?attr/colorOnPrimaryContainer" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+</ScrollView>

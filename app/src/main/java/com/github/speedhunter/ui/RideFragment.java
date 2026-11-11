@@ -55,6 +55,10 @@ public final class RideFragment extends BaseTabFragment {
     private TextView tvCustomKeyHint;
     private TextView tvCustomKeyValue;
     private TextView tvCustomKeyCount;
+    private MaterialSwitch swNitro;
+    private TextView tvNitroHint;
+    private MaterialSwitch swAbs;
+    private TextView tvAbsHint;
 
     private TextView tvStatusDetail;
     private TextView tvStatusTitle;
@@ -122,6 +126,10 @@ public final class RideFragment extends BaseTabFragment {
         tvCustomKeyHint = view.findViewById(R.id.tv_custom_key_hint);
         tvCustomKeyValue = view.findViewById(R.id.tv_custom_key_value);
         tvCustomKeyCount = view.findViewById(R.id.tv_custom_key_count);
+        swNitro = view.findViewById(R.id.sw_nitro);
+        tvNitroHint = view.findViewById(R.id.tv_nitro_hint);
+        swAbs = view.findViewById(R.id.sw_abs);
+        tvAbsHint = view.findViewById(R.id.tv_abs_hint);
         tvCustomKeyCount.setText("共 " + CustomKeyFunction.count() + " 项功能可选");
         view.findViewById(R.id.row_custom_key_func).setOnClickListener(
                 new View.OnClickListener() {
@@ -142,7 +150,11 @@ public final class RideFragment extends BaseTabFragment {
         swView.setChecked(prefs.getBoolean(Keys.KEY_VIEW_LAYER, false));
         swRideFill.setChecked(prefs.getBoolean(Keys.KEY_RIDE_FILL, true));
         swCustomKey.setChecked(prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
+        swNitro.setChecked(prefs.getBoolean(Keys.KEY_NITRO_UI, false));
+        swAbs.setChecked(prefs.getBoolean(Keys.KEY_ABS_UI, false));
         updateCustomKeyHint();
+        updateNitroHint();
+        updateAbsHint();
 
         // 首次打开就把默认值落盘 —— 否则 prefs 文件不存在，
         // hook 进程的 XSharedPreferences 兜底通道拿不到任何键
@@ -157,6 +169,22 @@ public final class RideFragment extends BaseTabFragment {
         swView.setOnCheckedChangeListener(listener);
         swRideFill.setOnCheckedChangeListener(listener);
         swCustomKey.setOnCheckedChangeListener(listener);
+        swNitro.setOnCheckedChangeListener(listener);
+        swAbs.setOnCheckedChangeListener(listener);
+
+        // 账号引导登录：token + 账号 ID 外置录入、签到与积分任务
+        view.findViewById(R.id.btn_account).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new android.content.Intent(
+                            requireActivity(), AccountActivity.class));
+                } catch (Throwable t) {
+                    Toast.makeText(requireContext(), "打不开账号页：" + t,
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        });
 
         // 压弯标定：8 个阈值实时可调，每项带「调它会发生什么」说明
         view.findViewById(R.id.btn_tune).setOnClickListener(new View.OnClickListener() {
@@ -357,6 +385,8 @@ public final class RideFragment extends BaseTabFragment {
                     .putBoolean(Keys.KEY_VIEW_LAYER, swView.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FILL, swRideFill.isChecked())
                     .putBoolean(Keys.KEY_CUSTOM_KEY_FORCE, swCustomKey.isChecked())
+                    .putBoolean(Keys.KEY_NITRO_UI, swNitro != null && swNitro.isChecked())
+                    .putBoolean(Keys.KEY_ABS_UI, swAbs != null && swAbs.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FULLSCAN, true)
                     .commit();
         } catch (Throwable ignored) {
@@ -393,6 +423,8 @@ public final class RideFragment extends BaseTabFragment {
             persist();
             updateStatus();
             updateCustomKeyHint();
+            updateNitroHint();
+            updateAbsHint();
         }
     }
 
@@ -415,6 +447,28 @@ public final class RideFragment extends BaseTabFragment {
         tvCustomKeyHint.setText(swCustomKey.isChecked()
                 ? "已开启：保存时改写为「" + name + "」（" + target + "）"
                 : "关闭：自定义键功能按照 ZEEHO App 的选项为准");
+    }
+
+    /**
+     * 氮气卡片状态行。
+     */
+    private void updateNitroHint() {
+        if (tvNitroHint == null || swNitro == null) {
+            return;
+        }
+        tvNitroHint.setText(swNitro.isChecked()
+                ? "已开启：vehicleKind(s)→3 + 补 nitro 字段（AE7 实采数据；仅 UI，勿拨 App 内开关）"
+                : "关闭：云端数据保持原样");
+    }
+
+    /** ABS 开关卡片状态行。 */
+    private void updateAbsHint() {
+        if (tvAbsHint == null || swAbs == null) {
+            return;
+        }
+        tvAbsHint.setText(swAbs.isChecked()
+                ? "已开启：注入 ANTI_LOCK_BRAKE_SYSTEM（仅显示，写入未验证，勿依赖拨动开关）"
+                : "关闭：云端数据保持原样");
     }
 
     /** 当前目标功能码；未知值回落 7（与 hook 侧 CustomKeyOptions 保持一致）。 */

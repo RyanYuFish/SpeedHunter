@@ -18,6 +18,7 @@
 | 5    | **仪表投屏**       | 将手机屏幕投到仪表，独立运行，不依赖官方 App                 |
 | 6    | **车端诊断**       | *施工中*                                                     |
 | 7    | **网络直连**       | 连接车机 Wi-Fi / Wi-Fi Direct 并探测车机地址，供 OTA 推送使用 |
+| 8    | **氮气加速入口**   | 在车辆设置页显示 AE7 专属「氮气加速」行（vehicleKind(s)→3 + 补 nitro 字段；仅 UI，车端不生效） |
 
 ## 使用前提
 
@@ -39,7 +40,7 @@ Windows：`gradlew.bat assembleRelease`。签名密钥不随仓库分发，缺�
 
 ## 详细文档
 
-[骑行记录恢复](features/ride-records.md) · [OTA 流量记录](features/ota-logging.md) · [OTA 推送](features/ota-push.md) · [壁纸推送](features/wallpaper.md) · [仪表投屏](features/mirroring.md) · [车端诊断](features/diagnostics.md) · [网络直连](features/network.md) · [构建](build.md) · [日志](logging.md) · [版本记录](changelog.md) · [社区说明](community/)
+[骑行记录恢复](features/ride-records.md) · [OTA 流量记录](features/ota-logging.md) · [OTA 推送](features/ota-push.md) · [壁纸推送](features/wallpaper.md) · [仪表投屏](features/mirroring.md) · [车端诊断](features/diagnostics.md) · [网络直连](features/network.md) · [氮气加速入口](features/nitro-ui.md) · [构建](build.md) · [日志](logging.md) · [版本记录](changelog.md) · [社区说明](community/)
 
 ## 安全与隐私
 

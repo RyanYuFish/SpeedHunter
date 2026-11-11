@@ -49,12 +49,17 @@ public final class HookLog {
 
     private static final String FILE_NAME = "speedhunter_hook.log";
     private static final long MAX_BYTES = 4L * 1024 * 1024;
+    /** 网络取证：完整响应体（不截断）单独落这个文件，与主日志分开轮转。 */
+    private static final String DUMP_FILE_NAME = "speedhunter_netdump.log";
+    private static final long DUMP_MAX_BYTES = 8L * 1024 * 1024;
     private static final Object LOCK = new Object();
     private static final SimpleDateFormat TIME =
             new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
 
     private static File internalFile;
     private static File externalFile;
+    private static File internalDumpFile;
+    private static File externalDumpFile;
 
     private HookLog() {
     }
@@ -62,20 +67,22 @@ public final class HookLog {
     /** 目标进程加载时调用一次：确定两个落盘位置，任何一个可用就够了。 */
     public static void init(String packageName, String appDataDir) {
         if (appDataDir != null) {
-            internalFile = prepare(new File(appDataDir, "files"));
+            internalFile = prepare(new File(appDataDir, "files"), FILE_NAME);
+            internalDumpFile = prepare(new File(appDataDir, "files"), DUMP_FILE_NAME);
         }
         try {
             File dir = new File(Environment.getExternalStorageDirectory(),
                     "Android/data/" + packageName + "/files");
-            externalFile = prepare(dir);
+            externalFile = prepare(dir, FILE_NAME);
+            externalDumpFile = prepare(dir, DUMP_FILE_NAME);
         } catch (Throwable ignored) {
         }
     }
 
-    private static File prepare(File dir) {
+    private static File prepare(File dir, String fileName) {
         try {
             if (dir.exists() || dir.mkdirs()) {
-                return new File(dir, FILE_NAME);
+                return new File(dir, fileName);
             }
         } catch (Throwable ignored) {
         }
@@ -110,13 +117,29 @@ public final class HookLog {
         }
     }
 
+    /**
+     * 网络取证出口：完整响应体原文写进独立的 speedhunter_netdump.log
+     * （单条可能几十 KB，混进主日志会把它冲爆），2MB 轮转、不截断。读取：
+     * <pre>adb shell cat /sdcard/Android/data/com.cfmoto/files/speedhunter_netdump.log</pre>
+     */
+    public static void dump(String message) {
+        synchronized (LOCK) {
+            appendTo(internalDumpFile, message, DUMP_MAX_BYTES);
+            appendTo(externalDumpFile, message, DUMP_MAX_BYTES);
+        }
+    }
+
     /** logcat 过滤 tag —— 手机上用 logcat 阅读器 grep 这个。 */
     public static final String LOGCAT_TAG = "SpeedHunter";
 
     private static void append(File file, String message) {
+        appendTo(file, message, MAX_BYTES);
+    }
+
+    private static void appendTo(File file, String message, long maxBytes) {
         if (file == null) return;
         try {
-            if (file.length() > MAX_BYTES) {
+            if (file.length() > maxBytes) {
                 File rotated = new File(file.getAbsolutePath() + ".old");
                 if (rotated.exists()) {
                     rotated.delete();

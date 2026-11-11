@@ -218,6 +218,12 @@
             android:label="压弯标定"
             android:theme="@style/AppTheme" />
 
+        <activity
+            android:name=".ui.AccountActivity"
+            android:exported="false"
+            android:label="账号引导登录"
+            android:theme="@style/AppTheme" />
+
         <!-- 开关的跨进程读取通道：hook 进程（com.cfmoto）从这里 query -->
         <provider
             android:name=".core.ConfigProvider"

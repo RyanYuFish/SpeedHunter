@@ -63,6 +63,10 @@ public final class RemoteSettings {
     /** 持久化文件解析出的值（冷启动恢复用）。 */
     private static volatile Map<String, String> persisted;
 
+    /** hook 侧引导登录请求注入的累计命中次数（供 PONG 回执，UI 据此确认真的生效了）。 */
+    private static final java.util.concurrent.atomic.AtomicInteger accountInjections =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     private static long fetchedAt;
     private static String source = "<init>";
     private static String lastLoggedSource = "";
@@ -132,6 +136,39 @@ public final class RemoteSettings {
         return liveConfig != null ? "broadcast" : source;
     }
 
+    /** 引导登录成功注入一次请求时由 {@code net.AccountLogin} 调用。 */
+    public static void noteAccountInjection() {
+        accountInjections.incrementAndGet();
+    }
+
+    /** hook 侧注入累计命中次数（PONG 回执用）。 */
+    public static int accountInjectionCount() {
+        return accountInjections.get();
+    }
+
+    /**
+     * hook 侧「自学习」：把 App 自己保存的账号相关值记进配置（内存立即生效 + 落盘）。
+     *
+     * <p>典型用途：用户点设置页「我的APP首页」的「确定」时，App 会调用
+     * {@code UserInfo#setHomepage(值)}；hook 借机把这个值记下来，
+     * 下次冷启动伪造 {@code UserInfo} 时就能原样填回去，
+     * 从而让首页落地跟随用户选的设置项，而不是回落到未登录默认的「极客」。</p>
+     */
+    public static void rememberAccountString(String key, String value) {
+        if (key == null || value == null || value.isEmpty()) return;
+        try {
+            Map<String, String> live = liveConfig;
+            live = live == null ? new HashMap<String, String>() : new HashMap<>(live);
+            live.put(key, value);
+            liveConfig = live;
+            Context ctx = currentApplication();
+            if (ctx != null) persistConfigToFile(ctx, new HashMap<>(live));
+            HookLog.log(TAG + " remember " + key + "=" + value + " (persisted=" + (ctx != null) + ")");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " remember " + key + " failed: " + t.getClass().getSimpleName());
+        }
+    }
+
     // ==================== 广播接收（主通道） ====================
 
     /**
@@ -154,6 +191,7 @@ public final class RemoteSettings {
             try {
                 IntentFilter filter = new IntentFilter(ACTION_CONFIG);
                 filter.addAction(com.github.speedhunter.core.Keys.ACTION_CLEAR_DAY_STORE);
+                filter.addAction(com.github.speedhunter.core.Keys.ACTION_CLEAR_LOGIN);
                 filter.addAction(com.github.speedhunter.core.Keys.ACTION_QUERY_STORE_STATE);
                 filter.addAction(com.github.speedhunter.core.Keys.ACTION_HOOK_PING);
                 filter.addAction(com.github.speedhunter.core.Keys.ACTION_QUERY_BEND_LOG);
@@ -199,6 +237,10 @@ public final class RemoteSettings {
                 clearDayStore();
                 return;
             }
+            if (com.github.speedhunter.core.Keys.ACTION_CLEAR_LOGIN.equals(action)) {
+                clearAppLogin(context);
+                return;
+            }
             if (com.github.speedhunter.core.Keys.ACTION_QUERY_STORE_STATE.equals(action)) {
                 replyStoreState(context);
                 return;
@@ -238,6 +280,21 @@ public final class RemoteSettings {
                 put(config, intent, Keys.KEY_TUNE_EXPORT, false);
                 put(config, intent, Keys.KEY_CUSTOM_KEY_FORCE, false);
                 putInt(config, intent, Keys.KEY_CUSTOM_KEY_TARGET, 7);
+                put(config, intent, Keys.KEY_NITRO_UI, false);
+                put(config, intent, Keys.KEY_ABS_UI, false);
+                // ★ 账号三键必须「按 extra 存在与否」决定覆盖 or 继承：
+                //   ConfigReceiver 末尾是 liveConfig = config 的【全量替换】，而
+                //   TuneActivity.apply() / sendDebugSwitch() 发的是只带局部参数的
+                //   ACTION_CONFIG（不带账号键）。旧实现无条件 put 默认值，任何一次
+                //   压弯标定保存都会把 token / userId 冲成空、开关冲成 false ——
+                //   这正是「账号页显示成功、官方 App 却没引导登录」的根因。
+                putAccountBool(config, intent, Keys.KEY_ACCOUNT_LOGIN);
+                putAccountString(config, intent, Keys.KEY_ACCOUNT_TOKEN);
+                putAccountString(config, intent, Keys.KEY_ACCOUNT_USERID);
+                // 「我的APP首页」是自学习值（保存设置时从 PUT baseInfo/others/{N} 学到）：
+                // 同样必须继承，否则任何一次局部广播（开关/标定保存）都会把它冲掉，
+                // 下一次冷启动首页又回落极客。
+                putAccountString(config, intent, Keys.KEY_ACCOUNT_HOMEPAGE);
                 put(config, intent, Keys.KEY_DEBUG_BEND, false);
                 // 标定参数：extra 里缺失时不覆盖（让 RideConfig 走 DEF_* 默认值）
                 putNum(config, intent, Keys.KEY_BEND_V_MIN);
@@ -264,7 +321,8 @@ public final class RemoteSettings {
                     } finally {
                         out.close();
                     }
-                    HookLog.log(TAG + " config via broadcast, saved " + json
+                    // ★ 日志脱敏：config 里含 Bearer token 明文，不能原样落日志
+                    HookLog.log(TAG + " config via broadcast, saved " + redact(json)
                             + " -> " + file.getAbsolutePath());
                 } else {
                     HookLog.log(TAG + " config via broadcast (external dir unavailable)");
@@ -284,10 +342,22 @@ public final class RemoteSettings {
      */
     private static void replyPong(Context context) {
         try {
-            Intent pong = new Intent(com.github.speedhunter.core.Keys.ACTION_HOOK_PONG);
+            Intent pong = new Intent(Keys.ACTION_HOOK_PONG);
             pong.setPackage("com.github.speedhunter");
+            // ★ 附上 hook 进程【实际生效】的引导登录状态。UI 只认这个，
+            //   不再拿「本进程保存成功 / AccountApi 查询成功」冒充登录成功。
+            String token = getString(Keys.KEY_ACCOUNT_TOKEN, "");
+            String userId = getString(Keys.KEY_ACCOUNT_USERID, "");
+            boolean on = getBool(Keys.KEY_ACCOUNT_LOGIN, false);
+            pong.putExtra(Keys.EXTRA_ACCOUNT_READY,
+                    on && !token.isEmpty() && !userId.isEmpty());
+            pong.putExtra(Keys.EXTRA_ACCOUNT_TOKEN_LEN, token.length());
+            pong.putExtra(Keys.EXTRA_ACCOUNT_UID_LEN, userId.length());
+            pong.putExtra(Keys.EXTRA_ACCOUNT_INJECT, accountInjectionCount());
             context.sendBroadcast(pong);
-            HookLog.log(TAG + " hook ping -> pong");
+            HookLog.log(TAG + " hook ping -> pong (account ready="
+                    + (on && !token.isEmpty() && !userId.isEmpty())
+                    + " tokenLen=" + token.length() + " inject=" + accountInjectionCount() + ")");
         } catch (Throwable t) {
             HookLog.log(TAG + " pong failed: " + t);
         }
@@ -295,6 +365,62 @@ public final class RemoteSettings {
 
     private static void put(Map<String, String> map, Intent intent, String key, boolean def) {
         map.put(key, String.valueOf(intent.getBooleanExtra(key, def)));
+    }
+
+    /**
+     * 账号键：只有这条广播<b>显式携带</b> extra 才覆盖，否则继承当前生效值。
+     *
+     * <p>{@code ConfigSender.pushFromPrefs()} 总是带上账号三键（清除凭证时是空串），
+     * 所以保存 / 清除 / 反向同步路径都能正常改值；而压弯标定页、调试开关等
+     * 只带局部参数的广播不再把凭证冲掉。</p>
+     */
+    private static void putAccountString(Map<String, String> map, Intent intent, String key) {
+        if (intent.hasExtra(key)) {
+            String value = intent.getStringExtra(key);
+            map.put(key, value == null ? "" : value);
+        } else {
+            map.put(key, currentAccountValue(key));
+        }
+    }
+
+    private static void putAccountBool(Map<String, String> map, Intent intent, String key) {
+        if (intent.hasExtra(key)) {
+            map.put(key, String.valueOf(intent.getBooleanExtra(key, false)));
+        } else {
+            map.put(key, String.valueOf("true".equals(currentAccountValue(key))));
+        }
+    }
+
+    /** 当前已生效的账号值：内存优先，其次落盘文件（冷启动恢复）。 */
+    private static String currentAccountValue(String key) {
+        Map<String, String> live = liveConfig;
+        if (live != null && live.containsKey(key)) {
+            String value = live.get(key);
+            return value == null ? "" : value;
+        }
+        return getString(key, "");
+    }
+
+    /** 日志脱敏：把 token 换成长度标记，其余键原样保留便于排查。 */
+    private static String redact(JSONObject json) {
+        try {
+            JSONObject copy = new JSONObject(json.toString());
+            String token = copy.optString(Keys.KEY_ACCOUNT_TOKEN, "");
+            copy.put(Keys.KEY_ACCOUNT_TOKEN,
+                    token.isEmpty() ? "" : "<redacted len=" + token.length() + ">");
+            return copy.toString();
+        } catch (Throwable t) {
+            return "{<redacted>}";
+        }
+    }
+
+    /**
+     * 收一个字符串配置（登录 token / 账号 ID）。空串也写入 —— 清空凭证时
+     * 必须让 hook 侧显式拿到空值，否则会残留上次落盘的 token。
+     */
+    private static void putString(Map<String, String> map, Intent intent, String key) {
+        String value = intent.getStringExtra(key);
+        map.put(key, value == null ? "" : value);
     }
 
     /** 收一个整数配置（自定义键目标功能码）。与前两者一样统一存成字符串。 */
@@ -327,6 +453,88 @@ public final class RemoteSettings {
         HookLog.log(TAG + " day store cleared: " + n + " files, pending="
                 + com.github.speedhunter.ride.RideDayStore.pendingDayCount()
                 + " days (requested by UI)");
+    }
+
+    /**
+     * 退出极核 App 内登录的全部账号 —— 由「账号引导登录」页的「清除App登录状态」按钮触发。
+     *
+     * <p>为什么必须走广播：登录态写在 {@code com.cfmoto} 自己的存储里，别的 App 既读不到
+     * 也写不进（Android 11+ 跨 App 限制，已实测 EACCES）。所以 UI 只发指令，由本进程
+     * （同 UID）清掉它自己的登录 SP / MMKV，并强制把 {@code account_login} 落盘为 false，
+     * 再杀掉自身让极核 App 干净重启 —— 重启后 {@code is_login} 读不到、引导登录也未启用，
+     * 于是停在未登录态，便于重新套用引导登录。</p>
+     *
+     * <p>★ 必须 {@code commit()}（同步）而非 {@code apply()}：紧接着就 kill 进程，
+     * 异步的 apply 可能来不及落盘；且 kill 前要把 {@code account_login=false} 也写进
+     * 持久化 JSON，否则重启后 primeConfigAtAttach 读回的还是 true，会被引导登录立刻顶回已登录。</p>
+     */
+    private static void clearAppLogin(Context context) {
+        try {
+            Application app = currentApplication();
+            if (app != null) {
+                // 1) 清掉极核 App 自己的登录 SP（diag 已证实 is_login / session_id /
+                //    auth02 / token_map / secret_key 等都在这份 file="cfmoto" 里）
+                try {
+                    android.content.SharedPreferences sp =
+                            app.getSharedPreferences("cfmoto", android.content.Context.MODE_PRIVATE);
+                    sp.edit().clear().commit();
+                    HookLog.log(TAG + " app login SP 'cfmoto' cleared (commit)");
+                } catch (Throwable t) {
+                    HookLog.log(TAG + " app login SP clear failed: " + t);
+                }
+                // 2) best-effort：清默认 MMKV（可能有缓存的 userInfo / 登录态）
+                try {
+                    Class<?> mmkv = Class.forName("com.tencent.mmkv.MMKV");
+                    Object def = mmkv.getMethod("defaultMMKV", int.class, String.class)
+                            .invoke(null, 1, (Object) null); // SINGLE_PROCESS = 1
+                    mmkv.getMethod("clearAll").invoke(def);
+                    HookLog.log(TAG + " app login MMKV default cleared");
+                } catch (Throwable t) {
+                    HookLog.log(TAG + " app login MMKV clear skipped: "
+                            + t.getClass().getSimpleName());
+                }
+            } else {
+                HookLog.log(TAG + " app login clear skipped: application null");
+            }
+            // 3) 强制把 account_login=false 落盘，保证重启后引导登录不再顶回已登录
+            Map<String, String> map = new HashMap<>();
+            Map<String, String> src = liveConfig != null ? liveConfig : persisted;
+            if (src != null) map.putAll(src);
+            map.put(Keys.KEY_ACCOUNT_LOGIN, "false");
+            persistConfigToFile(context, map);
+            HookLog.log(TAG + " app login cleared; account_login forced false for next launch");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " clearAppLogin failed: " + t);
+        } finally {
+            // 给广播/落盘一点时间，再杀掉自身让极核 App 干净重启
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
+    }
+
+    /** 把一份配置 Map 序列化成 JSON 写进本进程外部 files 目录（冷启动恢复用）。 */
+    private static void persistConfigToFile(Context context, Map<String, String> config) {
+        try {
+            File dir = context.getExternalFilesDir(null);
+            if (dir == null) return;
+            JSONObject json = new JSONObject();
+            for (Map.Entry<String, String> e : config.entrySet()) {
+                json.put(e.getKey(), e.getValue());
+            }
+            File file = new File(dir, Keys.CONFIG_FILE);
+            FileOutputStream out = new FileOutputStream(file);
+            try {
+                out.write(json.toString().getBytes(StandardCharsets.UTF_8));
+            } finally {
+                out.close();
+            }
+        } catch (Throwable t) {
+            HookLog.log(TAG + " persistConfigToFile failed: " + t);
+        }
     }
 
     /**
@@ -423,29 +631,54 @@ public final class RemoteSettings {
     }
 
     // ==================== 持久化文件（冷启动恢复） ====================
-    private static Map<String, String> loadViaOwnFile() {
+
+    /**
+     * 在 {@code handleLoadPackage} 阶段就把落盘配置读进来 —— 不依赖 {@link Application}。
+     *
+     * <p>★ 为什么必须这么早：官方 App 在启动极早期（Application / 登录检查）就会读
+     * {@code is_login} 这个闸门 boolean；而 {@link #loadViaOwnFile()} 依赖
+     * {@code ActivityThread.currentApplication()}，在 attach 阶段还是 null，
+     * 于是首 4~5 秒 {@link #getBool} 只能拿到默认值 false，引导登录覆盖根本没生效，
+     * App 据此判定「未登录」并把结果缓存，之后再覆盖也救不回来。</p>
+     * <p>本方法用 {@link android.os.Environment#getExternalStorageDirectory()} 直接拼出外部
+     * files 目录（本进程就是 {@code com.cfmoto} 的 UID，有权读自己的外部目录），让
+     * {@link #ready()} 从 App 第一次读 {@code is_login} 起就是 true，覆盖立即生效。</p>
+     */
+    public static void primeConfigAtAttach(String packageName) {
         try {
-            Application app = currentApplication();
-            if (app == null) return null;
-            File dir = app.getExternalFilesDir(null);
-            if (dir == null) {
-                HookLog.log(TAG + " own file: external dir null");
-                return null;
-            }
+            File dir = new File(android.os.Environment.getExternalStorageDirectory(),
+                    "Android/data/" + packageName + "/files");
             File file = new File(dir, Keys.CONFIG_FILE);
-            if (!file.exists()) {
-                HookLog.log(TAG + " own file: not exists " + file.getAbsolutePath());
-                return null;
+            Map<String, String> map = parseConfigFile(file);
+            if (map == null || map.isEmpty()) {
+                HookLog.log(TAG + " prime at attach: empty/parse-fail "
+                        + file.getAbsolutePath());
+                return;
             }
+            synchronized (LOCK) {
+                persisted = map;
+                liveConfig = map;   // getString 优先读 liveConfig，立即生效
+                fetchedAt = SystemClock.elapsedRealtime();
+            }
+            HookLog.log(TAG + " prime at attach: OK size=" + map.size()
+                    + " account_login=" + getBool(Keys.KEY_ACCOUNT_LOGIN, false)
+                    + " tokenLen=" + getString(Keys.KEY_ACCOUNT_TOKEN, "").length()
+                    + " uidLen=" + getString(Keys.KEY_ACCOUNT_USERID, "").length());
+        } catch (Throwable t) {
+            HookLog.log(TAG + " prime at attach failed: " + t);
+        }
+    }
+
+    /** 把一个落盘 JSON 配置解析成 {@code Map<String,String>}；失败返回 null。 */
+    private static Map<String, String> parseConfigFile(File file) {
+        if (file == null || !file.exists()) return null;
+        try {
             FileInputStream in = new FileInputStream(file);
             byte[] bytes;
             try {
                 bytes = new byte[(int) file.length()];
                 int read = in.read(bytes);
-                if (read <= 0) {
-                    HookLog.log(TAG + " own file: empty read " + read);
-                    return null;
-                }
+                if (read <= 0) return null;
             } finally {
                 in.close();
             }
@@ -457,6 +690,22 @@ public final class RemoteSettings {
                 map.put(key, String.valueOf(json.opt(key)));
             }
             return map;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Map<String, String> loadViaOwnFile() {
+        try {
+            Application app = currentApplication();
+            if (app == null) return null;
+            File dir = app.getExternalFilesDir(null);
+            if (dir == null) {
+                HookLog.log(TAG + " own file: external dir null");
+                return null;
+            }
+            File file = new File(dir, Keys.CONFIG_FILE);
+            return parseConfigFile(file);
         } catch (Throwable t) {
             HookLog.log(TAG + " own file read failed: " + t);
             return null;

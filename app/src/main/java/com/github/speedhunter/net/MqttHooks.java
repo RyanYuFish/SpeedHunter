@@ -55,6 +55,7 @@ public final class MqttHooks {
         n += hookServiceSend();        // ★★ 抓 Service 发出的原始 CONNECT 字节（含真 username）
         n += hookPublish();
         n += hookSubscribe();
+        n += hookMessageArrived();     // ★★ 下行报文全量落盘（云端→TBOX 配置下发经此可观测）
         if (n == 0) {
             HookLog.log(TAG + " mqtt: no Paho class found (will retry lazily)");
         } else {
@@ -585,6 +586,87 @@ public final class MqttHooks {
                 } catch (Throwable t) {
                     HookLog.log(TAG + " mqtt hook subscribe fail: " + t);
                 }
+            }
+        }
+        return n;
+    }
+
+    // ==================== messageArrived：下行报文全量落盘 ====================
+
+    /**
+     * 抓所有下行 MQTT 报文（topic + payload）。
+     *
+     * <p><b>为什么要全量</b>：App 已订阅 {@code repub/to/property/change/{pk}/{device}}
+     * （阿里云 IoT 属性变更 repub，★下行指令通道）。车辆上电时 TBOX 从云端拉取的
+     * <b>配置字下发</b>（车型配置 vehicleTypeInfo / 各 setItem provision）若经此
+     * topic 抄送，本 hook 即可拿到云端配置的<b>原始格式</b> —— 这是「以自定义键
+     * 同款路径云端下发氮气配置」的前提证据（docs/70 §5.12）。</p>
+     *
+     * <p>红线不变：只读落盘，不发布、不订阅新 topic、不改任何报文。</p>
+     */
+    private static int hookMessageArrived() {
+        int n = 0;
+        String[][] targets = {
+                {"android.service.MqttConnection", "messageArrived"},
+                {"CommsCallback", "messageArrived"},
+                {"MqttAndroidClient", "messageArrived"},
+        };
+        for (String[] t : targets) {
+            Class<?> c = paho(t[1]);   // CommsCallback / MqttAndroidClient 直接按类名找
+            if (c == null && !t[0].contains(".")) {
+                c = paho(t[0]);
+            }
+            if (c == null) {
+                for (String root : PAHO_ROOTS) {
+                    c = HookKit.findClassIfExists(root + t[0]);
+                    if (c != null) {
+                        break;
+                    }
+                }
+            }
+            if (c == null) {
+                continue;
+            }
+            int hookedHere = 0;
+            for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+                if (!t[1].equals(m.getName())) {
+                    continue;
+                }
+                try {
+                    de.robv.android.xposed.XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            try {
+                                String topic = null;
+                                String payload = null;
+                                for (Object arg : param.args) {
+                                    if (arg instanceof String && topic == null) {
+                                        topic = (String) arg;
+                                    }
+                                    if (payload == null) {
+                                        payload = payloadOf(arg);
+                                    }
+                                }
+                                if (topic == null) {
+                                    topic = "(null)";
+                                }
+                                // 全量落盘：下行报文是云端配置下发的唯一观测窗口
+                                HookLog.log(TAG + " mqtt MSG topic=" + topic
+                                        + " payload=" + (payload == null ? "null"
+                                        : payload.substring(0, Math.min(payload.length(), 2048))));
+                            } catch (Throwable t2) {
+                                HookLog.log(TAG + " mqtt msgArrived log fail: " + t2);
+                            }
+                        }
+                    });
+                    hookedHere++;
+                } catch (Throwable tt) {
+                    HookLog.log(TAG + " mqtt hook " + c.getSimpleName() + "#" + t[1] + " fail: " + tt);
+                }
+            }
+            if (hookedHere > 0) {
+                HookLog.log(TAG + " mqtt MSG hook on " + c.getName() + " (" + hookedHere + ")");
+                n += hookedHere;
             }
         }
         return n;

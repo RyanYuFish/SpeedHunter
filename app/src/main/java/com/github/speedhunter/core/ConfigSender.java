@@ -35,6 +35,14 @@ public final class ConfigSender {
             // 默认 7 = 切换信息组（与 CustomKeyOptions.TARGET 一致；core 不反向依赖 customkey）
             intent.putExtra(Keys.KEY_CUSTOM_KEY_TARGET,
                     prefs.getInt(Keys.KEY_CUSTOM_KEY_TARGET, 7));
+            intent.putExtra(Keys.KEY_NITRO_UI, prefs.getBoolean(Keys.KEY_NITRO_UI, false));
+            intent.putExtra(Keys.KEY_ABS_UI, prefs.getBoolean(Keys.KEY_ABS_UI, false));
+            intent.putExtra(Keys.KEY_ACCOUNT_LOGIN,
+                    prefs.getBoolean(Keys.KEY_ACCOUNT_LOGIN, false));
+            intent.putExtra(Keys.KEY_ACCOUNT_TOKEN,
+                    prefs.getString(Keys.KEY_ACCOUNT_TOKEN, ""));
+            intent.putExtra(Keys.KEY_ACCOUNT_USERID,
+                    prefs.getString(Keys.KEY_ACCOUNT_USERID, ""));
             intent.putExtra(Keys.KEY_RIDE_FULLSCAN, prefs.getBoolean(Keys.KEY_RIDE_FULLSCAN, true));
             intent.setPackage(Keys.TARGET_PKG);
             context.sendBroadcast(intent);

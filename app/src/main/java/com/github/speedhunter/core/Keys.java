@@ -44,6 +44,16 @@ public final class Keys {
             "com.github.speedhunter.CLEAR_DAY_STORE";
 
     /**
+     * UI → hook：退出极核 App 内登录的全部账号（清掉它自己的登录态 SP / MMKV 并自重启）。
+     *
+     * <p>与 {@link #ACTION_CLEAR_DAY_STORE} 同理：登录态写在 {@code com.cfmoto} 自己的
+     * 存储里，Android 11+ 别的 App 读不到也写不进，所以 UI 只能发指令，由 hook 进程
+     * （同 UID）自己清、自己重启，从而得到一个干净的「未登录」环境，便于重新套用引导登录。</p>
+     */
+    public static final String ACTION_CLEAR_LOGIN =
+            "com.github.speedhunter.CLEAR_LOGIN";
+
+    /**
      * UI → hook：查询账本状态（已记几天 / 还差几天没重灌）。
      *
      * <p>为什么需要查询：day store 在 {@code com.cfmoto} 的 external files 下，
@@ -67,6 +77,22 @@ public final class Keys {
     /** hook → UI：{@link #ACTION_HOOK_PING} 的回执，收到即视为已挂载。 */
     public static final String ACTION_HOOK_PONG =
             "com.github.speedhunter.HOOK_PONG";
+
+    // ===== 账号引导登录：hook 侧真实状态回执（附在 ACTION_HOOK_PONG 上） =====
+    /**
+     * <p>为什么要有回执：账号页的「保存成功 / 查询成功」都发生在<b>模块 UI 进程</b>
+     * ——{@code AccountApi} 是模块自己直连云端，跟 hook 有没有收到凭证毫无关系。
+     * 曾出现「页面显示成功、官方 App 却完全没注入」的假成功：根因是配置广播把
+     * 账号键冲成空。所以 PONG 必须带上 hook 进程<b>实际生效</b>的状态，UI 只认这个。</p>
+     */
+    /** hook 侧 {@code account_login && token 非空 && userId 非空}。 */
+    public static final String EXTRA_ACCOUNT_READY = "account_ready";
+    /** hook 侧 token 长度（只回长度，不回明文，避免跨进程广播泄露凭证）。 */
+    public static final String EXTRA_ACCOUNT_TOKEN_LEN = "account_token_len";
+    /** hook 侧账号 ID 长度。 */
+    public static final String EXTRA_ACCOUNT_UID_LEN = "account_uid_len";
+    /** hook 侧请求注入累计命中次数。 */
+    public static final String EXTRA_ACCOUNT_INJECT = "account_inject";
 
     /** hook → UI：账本状态回传（只有 hook 进程能发，UI 用 setPackage 定向接收）。 */
     public static final String ACTION_STORE_STATE =
@@ -200,6 +226,72 @@ public final class Keys {
      * 15/16/17/18/19/20/21/28/31。</p>
      */
     public static final String KEY_CUSTOM_KEY_TARGET = "custom_key_target";
+
+    /**
+     * 氮气加速入口总开关 —— opt-in，默认关。
+     *
+     * <p>依据 AE7 Pro 实采数据（2026-11-07）：氮气行由
+     * {@code vehicleSetInfo.nitro} 状态字段的存在 + {@code vehicleKind(s)=3}
+     * 驱动（AE7=3 / AE5i=1），<b>不走</b> items/itemsV2 设置列表。
+     * 开启后网络层把 {@code vehicleKinds}/{@code vehicleKind} 置 3、并给
+     * vehicleSetInfo.data 补 {@code nitro:0}。</p>
+     *
+     * <p>纯显示实验：AE5 车端无此功能，勿拨动 App 内该开关。证据见
+     * {@code docs/features/nitro-ui.md}。</p>
+     */
+    public static final String KEY_NITRO_UI = "nitro_ui";
+
+    /**
+     * ABS 开关入口总开关 —— opt-in，默认关。AE5i Pro 云端配置表不下发
+     * {@code ANTI_LOCK_BRAKE_SYSTEM} 条目，故 App 无「ABS开关」行。开启后网络层
+     * 克隆注入设置列表 + 骑行偏好分类子项，让 App 自己渲染该行。
+     * <p>纯显示：克隆条目清空 serviceCode，写入生效性未验证。证据见
+     * {@code docs/features/abs-switch.md}。</p>
+     */
+    public static final String KEY_ABS_UI = "abs_ui";
+
+    // ===== 账号引导登录（token + 账号 ID 外置录入） =====
+    /**
+     * 引导登录总开关 —— opt-in，默认关。开启后 hook 侧把官方 App 发出的
+     * {@code zeehoev.com} 请求的 {@code Authorization} 换成录入的 token，
+     * 并把 {@code userId}/{@code userid} 参数换成录入的账号 ID，让官方 App
+     * 以该凭证访问云端（多设备共同登录同一账号）。
+     */
+    public static final String KEY_ACCOUNT_LOGIN = "account_login";
+
+    /** 外部客户端取得的登录 token（Bearer）。 */
+    public static final String KEY_ACCOUNT_TOKEN = "account_token";
+
+    /** 外部客户端取得的账号 ID（URL 里的 userId/userid）。 */
+    public static final String KEY_ACCOUNT_USERID = "account_userid";
+
+    /**
+     * 「我的APP首页」选择值（对应官方 {@code UserInfo.homepage}）。
+     *
+     * <p>为什么需要：引导登录伪造的 {@code UserInfo} 不带真实账号的 homepage 字段，
+     * App 把它当空 → 首页落地回落到未登录默认的「极客」。这里持久化 App 自己保存过
+     * 的值（点设置页「确定」时由 hook 学习写入），主页就能跟随设置项。</p>
+     */
+    public static final String KEY_ACCOUNT_HOMEPAGE = "account_homepage";
+
+    /** 登录态最后校验结果（UI 展示，不参与 hook 决策）。 */
+    public static final String KEY_ACCOUNT_STATUS = "account_status";
+
+    /**
+     * 诊断开关（默认关）：打开后 hook 会记录官方 App 读取登录态相关
+     * SP/MMKV 键时的「调用方类名 + key」，用来反推它到底从哪个存储、
+     * 哪个 key 读取 token / userId / isLogin —— 因为 cfmoto.xml 是加固加密的，
+     * 盲目覆盖 SharedPreferencesImpl 的 getString 根本够不到真实的读取层。
+     */
+    public static final String KEY_ACCOUNT_DIAG = "account_diag";
+
+    /**
+     * 首页模式诊断开关（默认关）：打开后 hook 会记录官方 App 读取 / 写入
+     * 与「首页显示模式 / 极客模式」相关的 SP / MMKV 键，用来反推：
+     * ① 首页Fragment 到底从哪个 key 决定默认进「极客」；
+     * ② 设置页那个滚轮选择器（wheelView）点「确定」时把值写到了哪个 key。
+     * 这样就能让首页跟随用户在设置里选的值，而不是未登录时的默认「极客」。
+     */
 
     public static final String EXTRA_MIRROR_QR_URL = "mirror_qr_url";
     public static final String EXTRA_MIRROR_REQUEST_ID = "mirror_request_id";

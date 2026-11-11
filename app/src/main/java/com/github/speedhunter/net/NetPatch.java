@@ -72,17 +72,31 @@ public final class NetPatch {
 
     // ==================== 核心 ====================
 
+    /** v4.7.11：供 NetDump 反查 Authorization 用；反射失败返回 null。 */
+    static Object readRequest(Object response) {
+        try {
+            return XposedHelpers.callMethod(response, "request");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     private static void tryPatch(String builderName, XC_MethodHook.MethodHookParam param) {
         if (!NetOptions.patchCapability()) return;   // UI 开关实时可关
         Object response = param.getResult();
         if (response == null) return;
 
+        String url = "";     // 提到 try 外：catch 里的 patch failed 日志也要带 URL
         try {
-            String url = readUrl(response);
+            url = readUrl(response);
+            NetDump.maybeCaptureAuth(response);   // v4.7.11：捕获一次 Authorization（车主自己的登录态，仅本地日志）
             if (!isCandidate(url)) return;
 
             Object originalBody = XposedHelpers.callMethod(response, "body");
             if (originalBody == null) return;
+            // Retrofit rebuilds Response with a converted-body sentinel. Its source()
+            // deliberately throws; only inspect the original, readable response.
+            if (originalBody.getClass().getName().contains("NoContentResponseBody")) return;
 
             // ridetrack_v2 被 ride.RideFetch 把 pageSize 放大到 200，响应体会到 MB 级，
             // 所以这个 URL 走单独的上限，否则刚放宽的请求又被这里挡掉（回填永远不生效）。
@@ -104,6 +118,9 @@ public final class NetPatch {
             String body = (String) rawText;
             if (body.isEmpty()) return;
 
+            // 全量取证（常开）：每个接口第一份 JSON 响应完整落盘 speedhunter_netdump.log
+            NetDump.maybeDump(url, body);
+
             // 先做廉价子串判断，避免给每个响应都做一次 JSON 解析
             boolean hasAnalyseKey = body.contains(NetOptions.KEY_ANALYSE_GATE);
             boolean hasEventKey = body.contains(NetOptions.KEY_EVENT_GATE);
@@ -111,6 +128,8 @@ public final class NetPatch {
             JSONObject root = new JSONObject(body);
             Tally tally = new Tally();
             com.github.speedhunter.ride.RideFill.Result fill = null;
+            NitroUnlock.Result nitro = null;
+            AbsUnlock.Result abs = null;
 
             // 骑行回填先跑（ridetrack_v2 / myRideInfo / analyse 三个 handler），
             // 能力位改写后跑 —— 都改同一棵 JSON 树，最后只重建一次响应体。
@@ -129,8 +148,15 @@ public final class NetPatch {
                 walk(root, url, tally);
             }
 
+            // 氮气入口（opt-in）：G1 先把 vehicleKinds 1→2，这里随后覆盖为 3（AE7 档）
+            nitro = NitroUnlock.apply(root, url);
+            // ABS 开关入口（opt-in）：克隆注入 ANTI_LOCK_BRAKE_SYSTEM，与氮气同一条已实车验证的路径
+            abs = AbsUnlock.apply(root, url);
+
             boolean fillChanged = fill != null && fill.changed;
-            if (!tally.changed && !fillChanged) {
+            boolean nitroChanged = nitro != null && nitro.changed();
+            boolean absChanged = abs != null && abs.changed();
+            if (!tally.changed && !fillChanged && !nitroChanged && !absChanged) {
                 if (NetOptions.LOG_SEEN_UNCHANGED) {
                     logOnce("seen " + shortUrl(url) + " -> already on"
                             + " (analyse=" + tally.analyse + " event=" + tally.event + ")");
@@ -162,12 +188,16 @@ public final class NetPatch {
             logOnce("patched " + shortUrl(url)
                     + "  analyse=" + tally.analyse + " event=" + tally.event
                     + (fillChanged ? ("  fill{rides=" + fill.rides + " days=" + fill.days + "}") : "")
+                    + (nitroChanged ? ("  nitro{kinds=" + nitro.kinds
+                            + " state=" + nitro.stateAdded + "}") : "")
+                    + (absChanged ? ("  abs{inject=" + abs.injected
+                            + " sub=" + abs.injectedSub + " state=" + abs.stateAdded + "}") : "")
                     + "  (" + bytes.length + " B)");
         } catch (Throwable t) {
             // 改写失败必须静默 —— 宁可没效果，也不能让 App 请求崩掉
             Throwable cause = t.getCause() != null ? t.getCause() : t;
             logOnce("patch failed (" + cause.getClass().getSimpleName()
-                    + ": " + cause.getMessage() + ")");
+                    + ": " + cause.getMessage() + ") @ " + shortUrl(url));
         }
     }
 

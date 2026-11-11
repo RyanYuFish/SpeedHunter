@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  hook 回执状态区底色：与 colorOnSecondaryContainer 文字配对，
+  深浅色模式下都保持对比度。独立于 bg_log_pane（那是固定浅底 + 固定深字）。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?attr/colorSecondaryContainer" />
+    <corners android:radius="18dp" />
+</shape>
