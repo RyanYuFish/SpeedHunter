@@ -50,7 +50,7 @@
     <style name="SettingRowTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textAppearance">?attr/textAppearanceTitleMedium</item>
+        <item name="android:textAppearance">?attr/textAppearanceTitleSmall</item>
         <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 
@@ -59,6 +59,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">2dp</item>
         <item name="android:textAppearance">?attr/textAppearanceBodySmall</item>
+        <item name="android:textSize">11sp</item>
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
     </style>
 
