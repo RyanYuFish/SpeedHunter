@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- Material Symbols: roundabout_right (outlined 24px) -->
+    <group
+        android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M280-120v-243q-88-14-144-81.5T80-600q0-100 70-170t170-70q88 0 155.5 56T557-640h170l-63-64 56-56 160 160-160 160-57-56 64-64H556q-29 0-51-19t-27-48q-10-58-54.5-95.5T320-760q-66 0-113 47t-47 113q0 59 37.5 103.5T293-442q29 5 48 27t19 51v244h-80Z" />
+    </group>
+</vector>

@@ -224,6 +224,13 @@
             android:label="账号引导登录"
             android:theme="@style/AppTheme" />
 
+        <!-- 自定义按键二级页（从骑行记录页「自定义车控」进入） -->
+        <activity
+            android:name=".ui.CustomKeyActivity"
+            android:exported="false"
+            android:label="自定义按键"
+            android:theme="@style/AppTheme" />
+
         <!-- 开关的跨进程读取通道：hook 进程（com.cfmoto）从这里 query -->
         <provider
             android:name=".core.ConfigProvider"

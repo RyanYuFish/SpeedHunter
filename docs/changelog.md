@@ -1,3 +1,19 @@
+## 4.7.70 (vc123) — 2026-11-12
+- **首页分区改版（OTA 推送页式）**：骑行页 6 张描边卡改为 4 张功能分区卡
+  （bg_card 圆角描边 + 20dp 图标节头 + TitleSmall），分区顺序（车主指定）：
+  网络层改写 → 急刹压弯回填 → 车模替换 → 自定义车控；账号登录与版本说明同款分区。
+- **图标换 Material Symbols**（outlined 24px，viewport 960+translateY 转换）：
+  网络层改写=swap_driving_apps_wheel、急刹压弯回填=roundabout_right、
+  车模替换=transportation、自定义车控=auto_transmission；区内行图标
+  ABS=cardiology、氮气加速=motion_blur、自定义按键=toys。
+- **自定义车控分区合并**：ABS 开关 + 氮气加速入口收进「自定义车控」；
+  自定义按键拆为二级页 ui.CustomKeyActivity（顶栏返回 + 启用改写开关 +
+  功能单选 + 生效说明；业务逻辑自 RideFragment 平移，KEY_CUSTOM_KEY_FORCE
+  改由该页持有写入，RideFragment.persist 不再覆盖该键），本页只留入口行
+  （当前状态 · 功能名 + chevron）。
+- **文案简化**：全部说明文案去掉数据来源/机制细节（如「AE7 实采数据」
+  「hook okhttp 响应」），每条一行短句；版本卡删「数据说明」行。
+- **底栏 caption**：骑行记录 tab 改名「应用」（res/menu/main_nav.xml）。
 ## 4.7.69 (vc122) — 2026-11-12
 - **Material You 弹窗统一**：全部 AlertDialog.Builder（androidx/android.app/裸）替换为
   MaterialAlertDialogBuilder（Ride 5 / Ota 2 / Mirror 2 / Diag 16 / Account 3），

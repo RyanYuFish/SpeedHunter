@@ -39,7 +39,6 @@ import java.util.List;
 import com.github.speedhunter.R;
 import com.github.speedhunter.core.Keys;
 import com.github.speedhunter.customkey.CustomKeyFunction;
-import com.github.speedhunter.customkey.CustomKeyOptions;
 
 /**
  * 骑行记录页（Material You）—— 底栏 5 个 tab 之一，与其余 4 个平级。
@@ -62,10 +61,7 @@ public final class RideFragment extends BaseTabFragment {
     private MaterialSwitch swG2;
     private MaterialSwitch swView;
     private MaterialSwitch swRideFill;
-    private MaterialSwitch swCustomKey;
-    private TextView tvCustomKeyHint;
-    private TextView tvCustomKeyValue;
-    private TextView tvCustomKeyCount;
+    private TextView tvCustomKeySummary;
     private MaterialSwitch swNitro;
     private TextView tvNitroHint;
     private MaterialSwitch swAbs;
@@ -138,10 +134,7 @@ public final class RideFragment extends BaseTabFragment {
         swG2 = view.findViewById(R.id.sw_g2);
         swView = view.findViewById(R.id.sw_view);
         swRideFill = view.findViewById(R.id.sw_ride_fill);
-        swCustomKey = view.findViewById(R.id.sw_custom_key);
-        tvCustomKeyHint = view.findViewById(R.id.tv_custom_key_hint);
-        tvCustomKeyValue = view.findViewById(R.id.tv_custom_key_value);
-        tvCustomKeyCount = view.findViewById(R.id.tv_custom_key_count);
+        tvCustomKeySummary = view.findViewById(R.id.tv_custom_key_summary);
         swNitro = view.findViewById(R.id.sw_nitro);
         tvNitroHint = view.findViewById(R.id.tv_nitro_hint);
         swAbs = view.findViewById(R.id.sw_abs);
@@ -151,12 +144,17 @@ public final class RideFragment extends BaseTabFragment {
         tvVehicleArtModelValue = view.findViewById(R.id.tv_vehicle_art_model_value);
         tvVehicleArtValue = view.findViewById(R.id.tv_vehicle_art_value);
         tvVehicleArtColorValue = view.findViewById(R.id.tv_vehicle_art_color_value);
-        tvCustomKeyCount.setText("共 " + CustomKeyFunction.count() + " 项功能可选");
-        view.findViewById(R.id.row_custom_key_func).setOnClickListener(
+        view.findViewById(R.id.row_custom_key_entry).setOnClickListener(
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        showCustomKeyPicker();
+                        try {
+                            startActivity(new android.content.Intent(
+                                    requireActivity(), CustomKeyActivity.class));
+                        } catch (Throwable t) {
+                            Toast.makeText(requireContext(), "打不开自定义按键页：" + t,
+                                    Toast.LENGTH_LONG).show();
+                        }
                     }
                 });
         tvStatusDetail = view.findViewById(R.id.tv_status_detail);
@@ -193,10 +191,9 @@ public final class RideFragment extends BaseTabFragment {
                         showColorPicker();
                     }
                 });
-        swCustomKey.setChecked(prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
         swNitro.setChecked(prefs.getBoolean(Keys.KEY_NITRO_UI, false));
         swAbs.setChecked(prefs.getBoolean(Keys.KEY_ABS_UI, false));
-        updateCustomKeyHint();
+        updateCustomKeySummary();
         updateNitroHint();
         updateAbsHint();
 
@@ -212,7 +209,6 @@ public final class RideFragment extends BaseTabFragment {
         swG2.setOnCheckedChangeListener(listener);
         swView.setOnCheckedChangeListener(listener);
         swRideFill.setOnCheckedChangeListener(listener);
-        swCustomKey.setOnCheckedChangeListener(listener);
         swNitro.setOnCheckedChangeListener(listener);
         swAbs.setOnCheckedChangeListener(listener);
         swVehicleArt.setOnCheckedChangeListener(listener);
@@ -429,7 +425,7 @@ public final class RideFragment extends BaseTabFragment {
                     .putBoolean(Keys.KEY_GATE_EVENT, swG2.isChecked())
                     .putBoolean(Keys.KEY_VIEW_LAYER, swView.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FILL, swRideFill.isChecked())
-                    .putBoolean(Keys.KEY_CUSTOM_KEY_FORCE, swCustomKey.isChecked())
+                    // KEY_CUSTOM_KEY_FORCE 由 CustomKeyActivity 持有并写入（本页已无该开关）
                     .putBoolean(Keys.KEY_NITRO_UI, swNitro != null && swNitro.isChecked())
                     .putBoolean(Keys.KEY_ABS_UI, swAbs != null && swAbs.isChecked())
                     .putBoolean(Keys.KEY_VEHICLE_ART, swVehicleArt != null && swVehicleArt.isChecked())
@@ -468,7 +464,6 @@ public final class RideFragment extends BaseTabFragment {
             // 关掉网络层时保持 G1/G2 视觉跟随（值保留，重新打开即恢复）
             persist();
             updateStatus();
-            updateCustomKeyHint();
             updateNitroHint();
             updateAbsHint();
             updateVehicleArtHint();
@@ -482,18 +477,19 @@ public final class RideFragment extends BaseTabFragment {
      *   <li>关 → 「关闭：自定义键功能按照 ZEEHO App 的选项为准」</li>
      * </ul>
      */
-    private void updateCustomKeyHint() {
-        if (tvCustomKeyHint == null || swCustomKey == null) {
+    private void updateCustomKeySummary() {
+        if (tvCustomKeySummary == null) {
             return;
         }
-        int target = customKeyTarget();
-        String name = CustomKeyFunction.nameOf(target);
-        if (tvCustomKeyValue != null) {
-            tvCustomKeyValue.setText(name + " · " + target);
-        }
-        tvCustomKeyHint.setText(swCustomKey.isChecked()
-                ? "已开启：保存时改写为「" + name + "」（" + target + "）"
-                : "关闭：自定义键功能按照 ZEEHO App 的选项为准");
+        boolean on = prefs != null && prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false);
+        int target = prefs == null
+                ? com.github.speedhunter.customkey.CustomKeyOptions.TARGET
+                : prefs.getInt(Keys.KEY_CUSTOM_KEY_TARGET,
+                        com.github.speedhunter.customkey.CustomKeyOptions.TARGET);
+        String name = CustomKeyFunction.nameOf(
+                CustomKeyFunction.isKnown(target) ? target
+                        : com.github.speedhunter.customkey.CustomKeyOptions.TARGET);
+        tvCustomKeySummary.setText(on ? "已开启 · " + name : "未开启 · " + name);
     }
 
     /**
@@ -504,7 +500,7 @@ public final class RideFragment extends BaseTabFragment {
             return;
         }
         tvNitroHint.setText(swNitro.isChecked()
-                ? "已开启：vehicleKind(s)→3 + 补 nitro 字段（AE7 实采数据；仅 UI，勿拨 App 内开关）"
+                ? "已开启：骑行偏好中显示氮气加速开关"
                 : "关闭：云端数据保持原样");
     }
 
@@ -514,7 +510,7 @@ public final class RideFragment extends BaseTabFragment {
             return;
         }
         tvAbsHint.setText(swAbs.isChecked()
-                ? "已开启：注入 ANTI_LOCK_BRAKE_SYSTEM（仅显示，写入未验证，勿依赖拨动开关）"
+                ? "已开启：设置中显示 ABS 开关"
                 : "关闭：云端数据保持原样");
     }
 
@@ -1060,57 +1056,5 @@ public final class RideFragment extends BaseTabFragment {
         }
         // 防撞名：带时间戳前缀
         return System.currentTimeMillis() + "_" + sb;
-    }
-
-    /** 当前目标功能码；未知值回落 7（与 hook 侧 CustomKeyOptions 保持一致）。 */
-    private int customKeyTarget() {
-        int value = prefs == null
-                ? CustomKeyOptions.TARGET
-                : prefs.getInt(Keys.KEY_CUSTOM_KEY_TARGET, CustomKeyOptions.TARGET);
-        return CustomKeyFunction.isKnown(value) ? value : CustomKeyOptions.TARGET;
-    }
-
-    /**
-     * 23 项功能码单选列表 —— 对齐官方 App「选择按键功能」页。
-     *
-     * <p>选完只落盘 + 广播给 hook；真正的「写车」仍发生在官方 App 的自定义键页
-     * （{@code CustomKeySelectActivity#handleSave} 前置改写），所以提示用户再保存一次。</p>
-     */
-    private void showCustomKeyPicker() {
-        if (prefs == null) {
-            return;
-        }
-        final CustomKeyFunction.Entry[] all = CustomKeyFunction.all();
-        String[] labels = new String[all.length];
-        int checked = 0;
-        int current = customKeyTarget();
-        for (int i = 0; i < all.length; i++) {
-            labels[i] = all[i].label();
-            if (all[i].code == current) {
-                checked = i;
-            }
-        }
-        final Context ctx = requireContext();
-        new MaterialAlertDialogBuilder(ctx)
-                .setTitle("选择按键功能")
-                .setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        CustomKeyFunction.Entry picked = all[which];
-                        prefs.edit()
-                                .putInt(Keys.KEY_CUSTOM_KEY_TARGET, picked.code)
-                                .commit();
-                        persist();          // 落盘 + 经 ConfigSender 推给 hook
-                        updateCustomKeyHint();
-                        Toast.makeText(ctx,
-                                "已设为「" + picked.name + "」（" + picked.code + "）"
-                                        + " · " + picked.sourceNote()
-                                        + "\n请到官方 App 的自定义键页面再保存一次",
-                                Toast.LENGTH_LONG).show();
-                        dialog.dismiss();
-                    }
-                })
-                .setNegativeButton("取消", null)
-                .show();
     }
 }

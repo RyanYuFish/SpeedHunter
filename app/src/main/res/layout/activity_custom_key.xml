@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自定义按键（二级页，从骑行记录页「自定义车控 · 自定义按键」进入）：
+  顶栏圆形返回 + PageTitle 大标题 + bg_card 功能分区。
+  控件 id 沿用旧版（sw_custom_key / tv_custom_key_hint / row_custom_key_func /
+  tv_custom_key_count / tv_custom_key_value / tv_custom_key_save_hint），
+  业务逻辑从 RideFragment 平移到 CustomKeyActivity。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_custom_key"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="24dp">
+
+        <!-- 顶栏：返回 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="10dp">
+
+            <ImageButton
+                android:id="@+id/btn_back"
+                style="@style/NavCircleButton"
+                android:contentDescription="返回"
+                android:src="@drawable/ic_arrow_back" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/PageTitle"
+            android:layout_marginTop="6dp"
+            android:text="自定义按键" />
+
+        <TextView
+            style="@style/ParamHelp"
+            android:layout_marginTop="2dp"
+            android:text="改写官方 App 保存的按键功能" />
+
+        <!-- 功能分区 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout style="@style/SettingRow">
+                <ImageView
+                    style="@style/SettingRowIcon"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_sym_toys"
+                    app:tint="?attr/colorPrimary" />
+                <LinearLayout style="@style/SettingRowText">
+                    <TextView
+                        style="@style/SettingRowTitle"
+                        android:text="启用改写" />
+                    <TextView
+                        android:id="@+id/tv_custom_key_hint"
+                        style="@style/SettingRowSubtitle"
+                        android:text="关闭：按键功能按官方 App 的选项为准" />
+                </LinearLayout>
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/sw_custom_key"
+                    style="@style/SettingRowSwitch" />
+            </LinearLayout>
+
+            <View style="@style/SettingDivider" />
+
+            <LinearLayout
+                android:id="@+id/row_custom_key_func"
+                style="@style/SettingRow"
+                android:background="?attr/selectableItemBackground">
+                <ImageView
+                    style="@style/SettingRowIcon"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_tune"
+                    app:tint="?attr/colorPrimary" />
+                <LinearLayout style="@style/SettingRowText">
+                    <TextView
+                        android:id="@+id/tv_custom_key_count"
+                        style="@style/SettingRowTitle"
+                        android:text="按键功能" />
+                    <TextView
+                        android:id="@+id/tv_custom_key_value"
+                        style="@style/SettingRowSubtitle"
+                        android:text="—" />
+                </LinearLayout>
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_chevron_right"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 保存说明 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout style="@style/SettingRow">
+                <ImageView
+                    style="@style/SettingRowIcon"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_info"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+                <LinearLayout style="@style/SettingRowText">
+                    <TextView
+                        style="@style/SettingRowTitle"
+                        android:text="如何生效" />
+                    <TextView
+                        android:id="@+id/tv_custom_key_save_hint"
+                        style="@style/SettingRowSubtitle"
+                        android:text="选好功能后，到官方 App 的自定义键页面再保存一次" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>
