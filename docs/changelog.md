@@ -1,3 +1,25 @@
+## 4.7.69 (vc122) — 2026-11-12
+- **Material You 弹窗统一**：全部 AlertDialog.Builder（androidx/android.app/裸）替换为
+  MaterialAlertDialogBuilder（Ride 5 / Ota 2 / Mirror 2 / Diag 16 / Account 3），
+  弹窗自动跟随模块 DynamicColors 动态主题。
+- **原生日志面板**：新增 ui.LogPane（RecyclerView 逐行 append，线程安全；底部跟随
+  仅在用户没向上翻时生效；行数上限截断），OtaFragment（2000 行）与 MirrorFragment
+  （1200 行）的 tv_log TextView 换成 LogPane（id 不变），移除 ScrollingMovementMethod
+  + setText 全量重绘 + 手势抢夺 hack —— 长日志滑动手感回到 Android 原生列表。
+- **官方 2D 车图选单**：新增 net.OfficialArt（实捕 3 条：AE5i Pro 白 / AE5i Pro 深色 /
+  AE7 Pro 白，均 1125×708、主题色 #131415；官方 URL=media/<时间戳>.png，车型/颜色
+  不可由命名推导，只能实捕扩充）。骑行页「2D 车图」改为双行选单：跟随云端 / 官方×3 /
+  本地图片 / 自定义 URL+主题色；选官方条目自动带主题色。
+- **3D 目录选单改双行 M3 列表**：车型名 + 来源·大小副行，选中行主题色 + ✓，
+  入口前置：跟随云端 / 本地 glb / 自定义 URL / 目录车型。
+- **本地车模上传**：新增 net.AssetServer —— 挂在官方 App（com.cfmoto）进程的
+  127.0.0.1:8979-8983 loopback HTTP（GET /ping、POST /upload、GET /f/<name>；文件名
+  白名单、80MB 上限、.part 原子改名；合法性依据=官方 App network_security_config
+  cleartextTrafficPermitted=true）。模块侧选文件→cacheDir 暂存→探测端口→POST→
+  把 http://127.0.0.1:PORT/f/<name> 写进车模配置，VehicleArtUnlock 照常替换
+  vehiclePicUrl/vehiclePic3dUrl，App 加载器回源本机 —— 离线换车模不再依赖外网 CDN。
+  官方 App 未运行时上传提示先打开。
+
 ## 4.7.68 (vc121) — 2026-11-12
 - **车模替换 v2：目录选车 + 车漆配色**。3D 车模不再手填 URL：新增 net.ModelCatalog
   （lswlc33/zeeho-3d-models 目录，index.json 清单；CDN 回退 jsDelivr → raw →

@@ -201,20 +201,18 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:layout_marginTop="8dp" android:text="性能统计：等待视频传输…"
                 android:textAppearance="?attr/textAppearanceBodySmall" />
-            <TextView
+            <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/tv_log"
                 android:layout_width="match_parent"
                 android:layout_height="280dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_log_pane"
+                android:clipToPadding="false"
                 android:fadeScrollbars="false"
-                android:fontFamily="monospace"
+                android:overScrollMode="always"
                 android:padding="12dp"
                 android:scrollbarStyle="insideOverlay"
-                android:scrollbars="vertical"
-                android:text="等待操作…"
-                android:textColor="#1A1111"
-                android:textSize="11sp" />
+                android:scrollbars="vertical" />
 
             <TextView
                 style="@style/ParamHelp"

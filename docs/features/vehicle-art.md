@@ -80,11 +80,37 @@ putAccountInt 继承式写入 —— 压弯标定等局部广播不会把 URL / 
 配色槽数，之后把索引选在 0..N-1 内。`art color observe: app changeCarColor(K)`
 能反向定位服务端配色字段的枚举值。
 
+## 官方 2D 素材目录（v4.7.69）
+
+官方 2D URL 形如 `media/<上传时间戳>.png` —— 车型/颜色无法从命名推导，
+目录只能实捕扩充。当前 3 条（net.OfficialArt）：
+
+| 条目 | URL 末段 | 来源 |
+| --- | --- | --- |
+| AE5i Pro · 白 | media/1758172630857.png | 本机账号 netdump vehiclePicUrl |
+| AE5i Pro · 深色 | media/1758172641684.png | 社区面板库 mock.json「虚拟车辆1」同批 |
+| AE7 Pro · 白 | media/1757672587864.png | 本机账号 netdump vehiclePicUrl |
+
+均 1125×708，appThemeRgb 全 #131415。扩充：抓另一辆车主页响应的 vehiclePicUrl，
+往 ENTRIES 加行即可。
+
+## 本地车模上传（v4.7.69）
+
+AssetServer 跑在官方 App 进程（MainHook 启动时 `AssetServer.start(dataDir)`），
+绑 127.0.0.1:8979-8983。模块 UI 选文件 → cacheDir 暂存 → 依次探测端口 /ping →
+POST /upload?name=X → 落 `files/speedhunter_art/` → 返回
+`http://127.0.0.1:PORT/f/<name>` 写进车模配置。
+
+明文 HTTP 能被官方 App 加载器接受：其 network_security_config 是
+`cleartextTrafficPermitted="true"`（apktool-v3recovery 取证）。
+安全边界：只绑 loopback；文件名白名单 [A-Za-z0-9._-]；80MB 上限；.part 原子改名。
+
 ## URL 从哪来
 
-1. 另一辆车主页抓包的 `vehiclePicUrl`（oss-cfmoto.zeehoev.com media PNG）。
-2. zhoodash `cmdModels` 下载的 .glb（车模库）对应的可访问 URL。
-3. 自己上传到任意可公开访问的图床 / OSS。
+1. 官方素材选单（v4.7.69 起骑行页直接选）。
+2. 另一辆车主页抓包的 `vehiclePicUrl`（oss-cfmoto.zeehoev.com media PNG）。
+3. zhoodash `cmdModels` 下载的 .glb（车模库）对应的可访问 URL。
+4. 本地上传（v4.7.69 起）：不依赖外网，官方 App 进程内自取。
 
 ## 边界
 

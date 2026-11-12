@@ -283,7 +283,7 @@ public final class AccountActivity extends AppCompatActivity {
      * 便于稍后重新开启引导登录直接套用。</p>
      */
     private void clearAppLoginState() {
-        new AlertDialog.Builder(this)
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle("清除 App 登录状态")
                 .setMessage("将退出极核 App 内登录的全部账号，并暂时关闭「启用引导登录」，让 App 回到干净未登录态（本机录入的凭证会保留，可随时重新开启引导登录）。极核 App 会随后自动重启。")
                 .setNegativeButton("取消", null)
@@ -309,7 +309,7 @@ public final class AccountActivity extends AppCompatActivity {
     }
 
     private void clear() {
-        new AlertDialog.Builder(this)
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle("清除凭证")
                 .setMessage("将删除本机保存的 token 与账号 ID，并关闭引导登录。官方 App 恢复原登录态。")
                 .setNegativeButton("取消", null)
@@ -417,7 +417,7 @@ public final class AccountActivity extends AppCompatActivity {
             Toast.makeText(this, "先填入并保存凭证", Toast.LENGTH_SHORT).show();
             return;
         }
-        new AlertDialog.Builder(this)
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle("立即签到")
                 .setMessage("将使用当前账号 " + userId + " 执行签到（写操作）。确认继续？")
                 .setNegativeButton("取消", null)

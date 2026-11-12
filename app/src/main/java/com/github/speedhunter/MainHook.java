@@ -73,6 +73,10 @@ public final class MainHook implements IXposedHookLoadPackage {
         // 车模替换 v2：模型加载后应用用户选的车漆配色（ZeehoModelProcessor#onModelLoaded）
         try { com.github.speedhunter.net.VehicleArtUnlock.installColorHook(); }
         catch (Throwable t) { HookLog.log("art color install failed: " + t); }
+        // 车模本地上传：官方 App 进程内的 loopback 资产服务器（模块 UI POST 上来，App 加载器来拉）
+        if (lpparam.appInfo != null && lpparam.appInfo.dataDir != null) {
+            com.github.speedhunter.net.AssetServer.start(lpparam.appInfo.dataDir);
+        }
         // ★ 在 attach 阶段就把落盘配置读进内存，让 ready() 从 App 第一次读 is_login 起就是 true
         //   （否则引导登录覆盖要等 Application 就绪后约 4~5 秒才生效，App 早已据此判定未登录并缓存）
         com.github.speedhunter.core.RemoteSettings.primeConfigAtAttach(lpparam.packageName);

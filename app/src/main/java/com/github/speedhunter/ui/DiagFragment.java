@@ -267,7 +267,7 @@ public final class DiagFragment extends BaseTabFragment {
                 final boolean ok = wake;
                 ui.post(() -> {
                     if (!isAdded()) { releaseGate(); return; }
-                    new AlertDialog.Builder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
                             .setMessage(ok ? "仪表应已黑屏并自动重启唤醒。\n确认后继续「" + op + "」执行段。"
                                     : "未检测到仪表唤醒广播。\n请观察仪表:若未重启请中止并导出日志;若已重启可继续。")
                             .setNegativeButton("中止", (d, w) -> { log("OP", op + " 用户中止(切换后)"); exitMasterSlaveQuiet(active); releaseGate(); })
@@ -304,7 +304,7 @@ public final class DiagFragment extends BaseTabFragment {
         if (!opGate("删卡")) return;
         // 固件逆向:F4 3A = NVM 清零(删卡),0/1/2 三类型(具体对应未细分;官方抓取值=0)
         final int[] type = {0};
-        new AlertDialog.Builder(requireContext()).setTitle("原厂 NFC 删卡 — 类型")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("原厂 NFC 删卡 — 类型")
                 .setSingleChoiceItems(new String[]{"类型 0(官方抓取值)", "类型 1", "类型 2"}, 0,
                         (d, which) -> type[0] = which)
                 .setMessage("固件逆向:F4 3A 为 NVM 清零(删卡),类型 0/1/2(对应未细分,官方抓取值=0)。\n选定后:主从切换 → EOL 授权 → 再次确认才执行。")
@@ -323,7 +323,7 @@ public final class DiagFragment extends BaseTabFragment {
         log("OP", "EOL 授权完成(FC 81/82 均已应答)");
         ui.post(() -> {
             if (!isAdded()) { releaseGate(); return; }
-            new AlertDialog.Builder(requireContext()).setTitle("授权完成")
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("授权完成")
                     .setMessage("继续将实际删除原厂卡(不可恢复)。执行?")
                     .setNegativeButton("取消", (d, w) -> { exitMasterSlaveQuiet(active); releaseGate(); })
                     .setPositiveButton("执行删卡", (d, w) -> new Thread(() -> executeDelete(active, deleteType), "diag-del-write").start())
@@ -340,7 +340,7 @@ public final class DiagFragment extends BaseTabFragment {
             log("OP", "删卡执行完成(FC BA 00),物理卡状态请刷卡核对");
             ui.post(() -> {
                 if (!isAdded()) { releaseGate(); return; }
-                new AlertDialog.Builder(requireContext()).setTitle("收到删卡响应")
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("收到删卡响应")
                         .setMessage("FC BA 00 已收到。完成后发送官方退出帧。")
                         .setPositiveButton("完成", (d, w) -> new Thread(() -> {
                             exitMasterSlaveQuiet(active);
@@ -360,7 +360,7 @@ public final class DiagFragment extends BaseTabFragment {
     private void nfcStudyOfficialFlow() {
         if (!opGate("学卡")) return;
         // 固件逆向(AE5_全通讯协议总汇 §3.2):F4 39 学习开关 0=系统卡 / 1=用户卡
-        new AlertDialog.Builder(requireContext()).setTitle("原厂 NFC 学卡 — 卡类型")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("原厂 NFC 学卡 — 卡类型")
                 .setMessage("固件逆向:F4 39 学习开关 0=系统卡 / 1=用户卡。\n选择要学习的卡类型(ON/OFF 使用同值);主从切换+授权段为官方会话同构。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setNeutralButton("系统卡(0·抓取值)", (d, w) -> startStudyFlow(link, 0))
@@ -373,7 +373,7 @@ public final class DiagFragment extends BaseTabFragment {
             sendCfTo(active, "学卡·开关ON(39 0" + cardType + ")", ZeehoRs485Ops.nfcLearnSwitch(cardType));
                         ui.post(() -> {
                             if (!isAdded()) { releaseGate(); return; }
-                            new AlertDialog.Builder(requireContext()).setTitle("请刷卡")
+                            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("请刷卡")
                                     .setMessage("仪表应已进入学卡窗口(类型 " + cardType + ")。\n把卡贴到 NFC 感应区,仪表显示成功后点[完成授权]。")
                                     .setPositiveButton("完成授权", (d2, w2) -> new Thread(() -> studyAuth(active, cardType), "diag-study3").start())
                                     .setNegativeButton("取消", (d2, w2) -> { log("OP", "学卡取消(刷卡段)"); exitMasterSlaveQuiet(active); releaseGate(); })
@@ -405,7 +405,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void beginVersionRead() {
         if (!opGate("读版本")) return;
-        new AlertDialog.Builder(requireContext()).setTitle("读版本(官方流程)")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读版本(官方流程)")
                 .setMessage("官方读版本同样先做主从切换(仪表将黑屏重启),再逐节点读 22F193/F195。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
@@ -432,7 +432,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void beginDtcRead() {
         if (!opGate("读DTC")) return;
-        new AlertDialog.Builder(requireContext()).setTitle("读故障码")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读故障码")
                 .setMessage("主从切换(仪表将黑屏重启)→ EOL 授权 → F4 51 00。\n固件逆向:F4 51 = 读 46B 诊断状态(推测 6B 状态头 + DTC_0/1/2 三块,与清码 33/36/38 对应)。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
@@ -463,7 +463,7 @@ public final class DiagFragment extends BaseTabFragment {
                         final List<String> result = payloads;
                         ui.post(() -> {
                             if (!isAdded()) { releaseGate(); return; }
-                            new AlertDialog.Builder(requireContext()).setTitle("读 DTC 完成")
+                            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读 DTC 完成")
                                     .setMessage(result.isEmpty()
                                             ? "未收到 0xFC 应答。已发送主从切换+授权+51 00,请导出日志分析。"
                                             : "收到 " + result.size() + " 条 FC 应答(payload 见日志)。\n确认后发送主从退出帧。")
@@ -526,7 +526,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void beginDtcClear() {
         if (!opGate("清DTC")) return;
-        new AlertDialog.Builder(requireContext()).setTitle("清 DTC")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("清 DTC")
                 .setMessage("主从切换后执行 EOL 授权 + 33/36/38 写零三块。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
@@ -562,7 +562,7 @@ public final class DiagFragment extends BaseTabFragment {
         int tenth = (int) Math.round(km * 10);
         if (eolRoute) {
             if (!opGate("写里程EOL")) return;
-            new AlertDialog.Builder(requireContext()).setTitle("写里程(EOL)")
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL)")
                     .setMessage("主从切换 + 授权 + 0x4F 写入 " + raw + " km(小端)。")
                     .setNegativeButton("取消", (d, w) -> releaseGate())
                     .setPositiveButton("开始", (d, w) -> {
@@ -610,7 +610,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void beginAbsBleed() {
         if (!opGate("ABS排气")) return;
-        new AlertDialog.Builder(requireContext()).setTitle("ABS 前轮排气(官方流程)")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("ABS 前轮排气(官方流程)")
                 .setMessage("按官方流程连接 ABS 模块:双通道配置 → 扩展会话 → 安全访问(key 由 VCI 计算)→ 60 轮泵阀循环(约 66s)→ 清码 + ECU 复位。\n请按官方提示操作刹车油壶/卡钳。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
@@ -637,7 +637,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void absStage2Dialog(VciSppLink active) {
         if (!isAdded()) { releaseGate(); return; }
-        new AlertDialog.Builder(requireContext()).setTitle("进入诊断会话")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("进入诊断会话")
                 .setMessage("配置完成。继续进入 ABS 扩展会话(10 03)?")
                 .setNegativeButton("中止", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
                 .setPositiveButton("继续", (d, w) -> new Thread(() -> {
@@ -659,7 +659,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void absStage3Dialog(VciSppLink active) {
         if (!isAdded()) { releaseGate(); return; }
-        new AlertDialog.Builder(requireContext()).setTitle("开始排气动作")
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("开始排气动作")
                 .setMessage("会话已请求。继续将执行安全访问(27 01/27 02)并开始 60 轮泵阀循环。\n循环期间勿断开蓝牙。")
                 .setNegativeButton("中止", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
                 .setPositiveButton("开始排气", (d, w) -> new Thread(() -> absBleedRun(active), "diag-abs3").start())
@@ -707,7 +707,7 @@ public final class DiagFragment extends BaseTabFragment {
             log("OP", "排气循环完成,已停泵/清码/回默认会话");
             ui.post(() -> {
                 if (!isAdded()) { active.resumeKeepAlive(); releaseGate(); return; }
-                new AlertDialog.Builder(requireContext()).setTitle("排气完成")
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("排气完成")
                         .setMessage("循环与清码已发送。按官方流程最后执行 ABS ECU 复位(11 01)?")
                         .setNegativeButton("跳过", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
                         .setPositiveButton("复位", (d, w) -> new Thread(() -> {
@@ -887,7 +887,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     private void confirm(String message, Runnable action) {
-        new AlertDialog.Builder(requireContext())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                 .setTitle("确认操作")
                 .setMessage(message)
                 .setPositiveButton("执行", (d, w) -> {

@@ -57,9 +57,7 @@ public final class OtaFragment extends BaseTabFragment
         return R.layout.activity_ota;
     }
 
-    private static final int LOG_MAX_CHARS = 60000;
-
-    private TextView tvLog;
+    private LogPane logPane;
     private TextView tvPkg;
     private TextView tvPkgInspect;
     private TextView tvLinkStatus;
@@ -96,7 +94,6 @@ public final class OtaFragment extends BaseTabFragment
     private volatile boolean probingKeyOta;
 
     private Handler main;
-    private final StringBuilder log = new StringBuilder();
     private volatile File picked;
     private volatile OtaSocketPusher.PkgInfo pickedInfo;
     private volatile boolean busy;
@@ -114,7 +111,7 @@ public final class OtaFragment extends BaseTabFragment
         EdgeToEdge.applyTop(root);
         main = new Handler(Looper.getMainLooper());
 
-        tvLog = root.findViewById(R.id.tv_log);
+        logPane = LogPane.attach(root, R.id.tv_log, 2000, "等待操作…");
         tvPkg = root.findViewById(R.id.tv_pkg);
         tvPkgInspect = root.findViewById(R.id.tv_pkg_inspect);
         tvLinkStatus = root.findViewById(R.id.tv_link_status);
@@ -147,7 +144,6 @@ public final class OtaFragment extends BaseTabFragment
             OtaPushService.setProbeSink(this);
         }
 
-        setupLogScrolling(tvLog, root);
         setupLinkTabs();
         renderCarInfo();      // 先渲染占位行，避免"连接了但信息区空白"
 
@@ -705,7 +701,7 @@ public final class OtaFragment extends BaseTabFragment
         }
         final String host = carHost();
         final boolean flash = swAutoflash != null && swAutoflash.isChecked();
-        new android.app.AlertDialog.Builder(requireContext())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                 .setTitle("开始OTA流程 确认")
                 .setMessage("通道：p2pTool\n"
                         + "地址：自动用组主地址（默认 " + host + "）\n"
@@ -1172,7 +1168,7 @@ public final class OtaFragment extends BaseTabFragment
         sb.append("· 仪表 OTA Update 浮窗已打开\n");
         sb.append("· 传输全程不动车机、不关 Wi-Fi、不关本 App\n");
         sb.append("· 车机起不来且疑在刷写中时，不反复上电\n");
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                 .setTitle(watch ? "确认：守候即推" : "确认：推送 OTA")
                 .setMessage(sb.toString())
                 .setNegativeButton("取消", null)
@@ -1241,13 +1237,13 @@ public final class OtaFragment extends BaseTabFragment
     // ==================== 日志 ====================
 
     private void clearLog() {
-        log.setLength(0);
-        tvLog.setText("（日志已清空）");
+        logPane.clear();
     }
 
     /** 把整段日志复制到剪贴板 —— 车边要贴到笔记 / 提工单时省事。 */
     private void copyLog() {
-        if (log.length() == 0) {
+        String text = logPane.text();
+        if (logPane.isEmpty()) {
             append("日志是空的，没什么可复制");
             return;
         }
@@ -1260,64 +1256,24 @@ public final class OtaFragment extends BaseTabFragment
                 return;
             }
             cm.setPrimaryClip(android.content.ClipData.newPlainText(
-                    "SpeedHunter OTA 日志", log.toString()));
-            append("已复制 " + log.length() + " 字日志到剪贴板");
+                    "SpeedHunter OTA 日志", text));
+            append("已复制 " + text.length() + " 字日志到剪贴板");
         } catch (Exception e) {
             append("复制失败：" + e);
         }
     }
 
-    private void setupLogScrolling(final TextView tv, View root) {
-        tv.setMovementMethod(new android.text.method.ScrollingMovementMethod());
-        tv.setVerticalScrollBarEnabled(true);
-        final androidx.core.widget.NestedScrollView parent =
-                root.findViewById(R.id.page_scroll);
-        tv.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, android.view.MotionEvent ev) {
-                // 日志区自己滚动时，别让外层 NestedScrollView 抢走手势
-                int a = ev.getActionMasked();
-                if (a == android.view.MotionEvent.ACTION_DOWN) {
-                    parent.requestDisallowInterceptTouchEvent(true);
-                } else if (a == android.view.MotionEvent.ACTION_UP
-                        || a == android.view.MotionEvent.ACTION_CANCEL) {
-                    parent.requestDisallowInterceptTouchEvent(false);
-                }
-                return false;
-            }
-        });
-    }
-
     private static final java.text.SimpleDateFormat LOG_TS =
             new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
 
-    /** 追加一行日志，<b>带时间戳</b>；按字符数截断（106MB 推送会刷几百行长日志）。 */
+    /** 追加一行日志，<b>带时间戳</b>；行数上限由 LogPane 截断（106MB 推送会刷几百行长日志）。 */
     private void append(final String s) {
         HookLog.log(HookLog.OTA + " UI " + s);
-        main.post(() -> {
-            String ts;
-            synchronized (LOG_TS) {
-                ts = LOG_TS.format(new java.util.Date());
-            }
-            log.append(ts).append("  ").append(s).append('\n');
-            int overflow = log.length() - LOG_MAX_CHARS;
-            if (overflow > 0) {
-                int nl = log.indexOf("\n", overflow);
-                log.delete(0, nl >= 0 ? nl + 1 : overflow);
-            }
-            tvLog.setText(log.toString());
-            tvLog.post(() -> {
-                android.text.Layout l = tvLog.getLayout();
-                if (l == null) {
-                    return;
-                }
-                int bottom = l.getHeight() - tvLog.getHeight();
-                if (bottom < 0) {
-                    bottom = 0;
-                }
-                tvLog.scrollTo(0, bottom);
-            });
-        });
+        String ts;
+        synchronized (LOG_TS) {
+            ts = LOG_TS.format(new java.util.Date());
+        }
+        logPane.append(ts + "  " + s);
     }
 
     // ==================== EcPxc.LineSink / Progress / DoneCallback ====================

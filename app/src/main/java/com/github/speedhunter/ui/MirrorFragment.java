@@ -38,12 +38,12 @@ public final class MirrorFragment extends BaseTabFragment {
         return R.layout.activity_mirror;
     }
 
-    private TextView tvLog, tvStatus, tvConnectionInfo;
+    private LogPane logPane;
+    private TextView tvStatus, tvConnectionInfo;
     private android.view.View scanButton;
     private boolean scanning;
     private EditText etUrl;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final StringBuilder log = new StringBuilder();
     private String requestId;
     private boolean registered;
     private P2pAccess access;
@@ -101,7 +101,7 @@ public final class MirrorFragment extends BaseTabFragment {
                     scanning = false;
                     scanButton.setEnabled(true);
                     tvStatus.setText("相机权限未授予，仍可手动粘贴二维码 URL");
-                    new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                             .setTitle("需要相机权限")
                             .setMessage("请在应用设置中允许相机权限后重试；也可以继续手动粘贴二维码 URL。")
                             .setPositiveButton("应用设置", (dialog, which) -> {
@@ -149,13 +149,12 @@ public final class MirrorFragment extends BaseTabFragment {
         BackGestureCompat.install(requireActivity());
         EdgeToEdge.applyTop(root);
 
-        tvLog = root.findViewById(R.id.tv_log);
+        logPane = LogPane.attach(root, R.id.tv_log, 1200, null);
         tvStatus = root.findViewById(R.id.tv_status);
         etUrl = root.findViewById(R.id.et_mirror_url);
         tvConnectionInfo = root.findViewById(R.id.tv_mirror_info);
         scanButton = root.findViewById(R.id.btn_scan_mirror_qr);
         scanButton.setOnClickListener(v -> scanQr());
-        tvLog.setMovementMethod(new android.text.method.ScrollingMovementMethod());
         requestId = savedInstanceState == null
                 ? null : savedInstanceState.getString("requestId");
         if (requestId == null) {
@@ -178,10 +177,7 @@ public final class MirrorFragment extends BaseTabFragment {
             showConnectionInfo(MirrorRequest.parse(etUrl.getText().toString()));
         } catch (IllegalArgumentException ignored) {
         }
-        root.findViewById(R.id.btn_clear_log).setOnClickListener(v -> {
-            log.setLength(0);
-            tvLog.setText("");
-        });
+        root.findViewById(R.id.btn_clear_log).setOnClickListener(v -> logPane.clear());
         root.findViewById(R.id.btn_parse_url).setOnClickListener(v -> parseUrl());
         root.findViewById(R.id.btn_start_mirror).setOnClickListener(v -> startMirror());
         root.findViewById(R.id.btn_stop_mirror)
@@ -322,7 +318,7 @@ public final class MirrorFragment extends BaseTabFragment {
             return;
         }
         final String[] selectedMacs = macs.clone();
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                 .setTitle("选择自己的仪表")
                 .setItems(names.clone(), (d, n) -> requireContext().startService(
                         new Intent(requireContext(), StandaloneMirrorService.class)
@@ -333,14 +329,6 @@ public final class MirrorFragment extends BaseTabFragment {
 
     private void append(String text) {
         HookLog.log(HookLog.MIRROR + " UI " + text);
-        log.append(text).append('\n');
-        if (log.length() > 40000) log.delete(0, log.indexOf("\n") + 1);
-        tvLog.setText(log.toString());
-        tvLog.post(() -> {
-            android.text.Layout layout = tvLog.getLayout();
-            if (layout != null) {
-                tvLog.scrollTo(0, Math.max(0, layout.getHeight() - tvLog.getHeight()));
-            }
-        });
+        logPane.append(text);
     }
 }

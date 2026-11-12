@@ -623,20 +623,18 @@
                         android:text="复制" />
                 </LinearLayout>
 
-                <TextView
+                <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/tv_log"
                     android:layout_width="match_parent"
                     android:layout_height="260dp"
                     android:layout_marginTop="8dp"
                     android:background="@drawable/bg_log_pane"
+                    android:clipToPadding="false"
                     android:fadeScrollbars="false"
-                    android:fontFamily="monospace"
+                    android:overScrollMode="always"
                     android:padding="12dp"
                     android:scrollbarStyle="insideOverlay"
-                    android:scrollbars="vertical"
-                    android:text="等待操作…"
-                    android:textColor="#1A1111"
-                    android:textSize="11sp" />
+                    android:scrollbars="vertical" />
 
                 <TextView
                     style="@style/ParamHelp"

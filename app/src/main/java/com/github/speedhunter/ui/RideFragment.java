@@ -18,13 +18,23 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AlertDialog;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
+import android.net.Uri;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.github.speedhunter.R;
 import com.github.speedhunter.core.Keys;
@@ -173,7 +183,7 @@ public final class RideFragment extends BaseTabFragment {
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        showVehicleArtEditor();
+                        show2dPicker();
                     }
                 });
         view.findViewById(R.id.row_vehicle_art_color).setOnClickListener(
@@ -577,73 +587,135 @@ public final class RideFragment extends BaseTabFragment {
                         }
                         final boolean hasCatalog = !entries.isEmpty();
                         String head = prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, "");
-                        final String[] labels;
-                        if (hasCatalog) {
-                            labels = new String[entries.size() + 2];
-                            labels[0] = "跟随云端（不替换 3D）";
-                            labels[1] = "自定义 glb URL…";
-                            for (int i = 0; i < entries.size(); i++) {
-                                com.github.speedhunter.net.ModelCatalog.Entry e = entries.get(i);
-                                labels[i + 2] = e.name + "  [" + (e.sizeBytes / (1024 * 1024))
-                                        + "MB]";
-                            }
-                        } else {
-                            labels = new String[]{
-                                    "跟随云端（不替换 3D）", "自定义 glb URL…"};
+                        String savedName = prefs.getString(Keys.KEY_VEHICLE_ART_MODEL_NAME, "");
+                        // 行定义：0 跟随云端 / 1 本地 glb / 2 自定义 URL / 3.. 目录
+                        final List<String[]> rows = new ArrayList<>();
+                        rows.add(new String[]{"跟随云端", "不替换 3D 车模"});
+                        rows.add(new String[]{"本地 glb…", "上传到官方 App 进程，离线可用"});
+                        rows.add(new String[]{"自定义 glb URL…", "直接填写远程地址"});
+                        for (com.github.speedhunter.net.ModelCatalog.Entry e : entries) {
+                            rows.add(new String[]{e.name, e.note + " · "
+                                    + String.format(java.util.Locale.US, "%.1f",
+                                            e.sizeBytes / 1024f / 1024f) + " MB"});
                         }
                         int checked = 0;
                         if (!head.isEmpty()) {
-                            String savedName =
-                                    prefs.getString(Keys.KEY_VEHICLE_ART_MODEL_NAME, "");
-                            checked = savedName.isEmpty() ? 1 : -1;   // 1 = 自定义 URL
+                            checked = savedName.isEmpty() ? 2 : -1;
                             if (checked == -1 && hasCatalog) {
                                 for (int i = 0; i < entries.size(); i++) {
                                     if (entries.get(i).url.equals(head)) {
-                                        checked = i + 2;
+                                        checked = i + 3;
                                         break;
                                     }
                                 }
                             }
+                            if (checked == -1 && head.startsWith("http://127.0.0.1:")) {
+                                checked = 1;   // 本地上传的 URL
+                            }
                         }
-                        new AlertDialog.Builder(ctx)
+                        final int checkedFinal = Math.max(checked, 0);
+                        final int catalogBase = 3;
+                        new MaterialAlertDialogBuilder(ctx)
                                 .setTitle(hasCatalog
-                                        ? "选择 3D 车模（目录 " + entries.size() + " 项）"
-                                        : "选择 3D 车模（目录拉取失败："
+                                        ? "3D 车模（目录 " + entries.size() + " 项）"
+                                        : "3D 车模（目录拉取失败："
                                                 + (error == null ? "空" : error) + "）")
-                                .setSingleChoiceItems(labels, Math.max(checked, 0),
-                                        new DialogInterface.OnClickListener() {
-                                            @Override
-                                            public void onClick(DialogInterface dialog,
-                                                                int which) {
-                                                if (which == 0) {
-                                                    prefs.edit()
-                                                            .remove(Keys.KEY_VEHICLE_ART_PIC3D)
-                                                            .remove(Keys.KEY_VEHICLE_ART_MODEL_NAME)
-                                                            .commit();
-                                                } else if (which == 1) {
-                                                    dialog.dismiss();
-                                                    showCustomModelUrlEditor();
-                                                    return;
-                                                } else if (hasCatalog) {
-                                                    com.github.speedhunter.net.ModelCatalog.Entry e =
-                                                            entries.get(which - 2);
-                                                    prefs.edit()
-                                                            .putString(Keys.KEY_VEHICLE_ART_PIC3D,
-                                                                    e.url)
-                                                            .putString(
-                                                                    Keys.KEY_VEHICLE_ART_MODEL_NAME,
-                                                                    e.name)
-                                                            .commit();
-                                                }
+                                .setAdapter(new TwoLineAdapter(ctx, rows, checkedFinal),
+                                        (dialog, which) -> {
+                                            if (which == 0) {
+                                                prefs.edit()
+                                                        .remove(Keys.KEY_VEHICLE_ART_PIC3D)
+                                                        .remove(Keys.KEY_VEHICLE_ART_MODEL_NAME)
+                                                        .commit();
+                                            } else if (which == 1) {
                                                 dialog.dismiss();
-                                                persist();
-                                                updateVehicleArtHint();
+                                                pickLocalArt(true);
+                                                return;
+                                            } else if (which == 2) {
+                                                dialog.dismiss();
+                                                showCustomModelUrlEditor();
+                                                return;
+                                            } else if (hasCatalog) {
+                                                com.github.speedhunter.net.ModelCatalog.Entry e =
+                                                        entries.get(which - catalogBase);
+                                                prefs.edit()
+                                                        .putString(Keys.KEY_VEHICLE_ART_PIC3D,
+                                                                e.url)
+                                                        .putString(
+                                                                Keys.KEY_VEHICLE_ART_MODEL_NAME,
+                                                                e.name)
+                                                        .commit();
                                             }
+                                            dialog.dismiss();
+                                            persist();
+                                            updateVehicleArtHint();
                                         })
                                 .setNegativeButton("关闭", null)
                                 .show();
                     }
                 });
+    }
+
+    /** M3 双行单选列表 adapter：标题 + 次行说明，选中行标题用主题色。 */
+    private static final class TwoLineAdapter extends android.widget.BaseAdapter {
+        private final Context ctx;
+        private final List<String[]> rows;
+        private final int checked;
+
+        TwoLineAdapter(Context ctx, List<String[]> rows, int checked) {
+            this.ctx = ctx;
+            this.rows = rows;
+            this.checked = checked;
+        }
+
+        @Override
+        public int getCount() {
+            return rows.size();
+        }
+
+        @Override
+        public String[] getItem(int position) {
+            return rows.get(position);
+        }
+
+        @Override
+        public long getItemId(int position) {
+            return position;
+        }
+
+        @Override
+        public View getView(int position, View convertView, android.view.ViewGroup parent) {
+            LinearLayout row = (LinearLayout) convertView;
+            if (row == null) {
+                row = new LinearLayout(ctx);
+                row.setOrientation(LinearLayout.VERTICAL);
+                int padH = (int) (20 * ctx.getResources().getDisplayMetrics().density);
+                int padV = (int) (10 * ctx.getResources().getDisplayMetrics().density);
+                row.setPadding(padH, padV, padH, padV);
+                TextView title = new TextView(ctx);
+                title.setTextAppearance(
+                        com.google.android.material.R.style.TextAppearance_Material3_BodyLarge);
+                TextView sub = new TextView(ctx);
+                sub.setTextAppearance(
+                        com.google.android.material.R.style.TextAppearance_Material3_BodySmall);
+                row.addView(title);
+                row.addView(sub);
+            }
+            TextView title = (TextView) row.getChildAt(0);
+            TextView sub = (TextView) row.getChildAt(1);
+            String[] item = getItem(position);
+            title.setText(position == checked ? item[0] + "  ✓" : item[0]);
+            int color = position == checked
+                    ? com.google.android.material.color.MaterialColors.getColor(
+                            row, com.google.android.material.R.attr.colorPrimary,
+                            android.graphics.Color.BLUE)
+                    : com.google.android.material.color.MaterialColors.getColor(
+                            row, com.google.android.material.R.attr.colorOnSurface,
+                            android.graphics.Color.BLACK);
+            title.setTextColor(color);
+            sub.setText(item[1]);
+            return row;
+        }
     }
 
     /** 自定义 3D glb URL 录入（目录外的模型走这里）。 */
@@ -657,7 +729,7 @@ public final class RideFragment extends BaseTabFragment {
                 prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""),
                 "3D 车模 URL（glb，替换 vehiclePic3dUrl；留空 = 跟随云端）");
         box.addView(etUrl);
-        new AlertDialog.Builder(ctx)
+        new MaterialAlertDialogBuilder(ctx)
                 .setTitle("自定义 3D 车模")
                 .setView(box)
                 .setPositiveButton("保存", new DialogInterface.OnClickListener() {
@@ -695,7 +767,7 @@ public final class RideFragment extends BaseTabFragment {
         for (int i = 0; i < 10; i++) {
             labels[i + 1] = "配色 " + i;
         }
-        new AlertDialog.Builder(ctx)
+        new MaterialAlertDialogBuilder(ctx)
                 .setTitle("车漆配色（索引，超出槽位自动忽略）")
                 .setSingleChoiceItems(labels, current + 1,
                         new DialogInterface.OnClickListener() {
@@ -714,12 +786,81 @@ public final class RideFragment extends BaseTabFragment {
     }
 
     /**
-     * 2D 车图 / 主题色编辑框（v4.7.68 起 3D 车模单独走目录选择器）。
+     * 2D 车图选择器（v4.7.69）：跟随云端 / 官方素材目录 / 本地图片 / 自定义 URL。
      *
-     * <p>2D URL 来源建议：另一辆车主页 netdump 里的 vehiclePicUrl（OSS media PNG）。
-     * vehicleScalePicUrl 会自动跟随（保留原 OSS resize 参数）。</p>
+     * <p>官方目录 = {@link com.github.speedhunter.net.OfficialArt} 里实捕的 3 条；
+     * 选官方素材同时写入配套主题色 #131415。vehicleScalePicUrl 自动跟随
+     * （保留原 OSS resize 参数）。</p>
      */
-    private void showVehicleArtEditor() {
+    private void show2dPicker() {
+        if (prefs == null) {
+            return;
+        }
+        final Context ctx = requireContext();
+        String pic = prefs.getString(Keys.KEY_VEHICLE_ART_PIC, "");
+        final List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"跟随云端", "不替换 2D 车图与主题色"});
+        for (com.github.speedhunter.net.OfficialArt.Entry e :
+                com.github.speedhunter.net.OfficialArt.ENTRIES) {
+            rows.add(new String[]{e.label, e.note + " · " + e.rgb});
+        }
+        final int officialBase = 1;
+        final int localRow = officialBase + com.github.speedhunter.net.OfficialArt.ENTRIES.length;
+        rows.add(new String[]{"本地图片…", "上传到官方 App 进程，离线可用"});
+        rows.add(new String[]{"自定义 URL…", "手动填 2D 图 + 主题色"});
+        final int customRow = localRow + 1;
+        int checked = 0;
+        if (!pic.isEmpty()) {
+            checked = customRow;
+            for (int i = 0; i < com.github.speedhunter.net.OfficialArt.ENTRIES.length; i++) {
+                if (com.github.speedhunter.net.OfficialArt.ENTRIES[i].pic.equals(pic)) {
+                    checked = officialBase + i;
+                    break;
+                }
+            }
+            if (checked == customRow && pic.startsWith("http://127.0.0.1:")) {
+                checked = localRow;
+            }
+        }
+        final int checkedFinal = checked;
+        new MaterialAlertDialogBuilder(ctx)
+                .setTitle("2D 车图")
+                .setAdapter(new TwoLineAdapter(ctx, rows, checkedFinal),
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                prefs.edit()
+                                        .remove(Keys.KEY_VEHICLE_ART_PIC)
+                                        .remove(Keys.KEY_VEHICLE_ART_RGB)
+                                        .commit();
+                            } else if (which >= officialBase && which < localRow) {
+                                com.github.speedhunter.net.OfficialArt.Entry e =
+                                        com.github.speedhunter.net.OfficialArt.ENTRIES[
+                                                which - officialBase];
+                                prefs.edit()
+                                        .putString(Keys.KEY_VEHICLE_ART_PIC, e.pic)
+                                        .putString(Keys.KEY_VEHICLE_ART_RGB, e.rgb)
+                                        .commit();
+                            } else if (which == localRow) {
+                                dialog.dismiss();
+                                pickLocalArt(false);
+                                return;
+                            } else if (which == customRow) {
+                                dialog.dismiss();
+                                show2dCustomEditor();
+                                return;
+                            }
+                            dialog.dismiss();
+                            persist();
+                            updateVehicleArtHint();
+                            Toast.makeText(ctx, "已保存。重启官方 App 后主页生效",
+                                    Toast.LENGTH_SHORT).show();
+                        })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 旧版 2D URL + 主题色编辑框（自定义路径保留）。 */
+    private void show2dCustomEditor() {
         if (prefs == null) {
             return;
         }
@@ -738,7 +879,7 @@ public final class RideFragment extends BaseTabFragment {
         box.addView(etPic);
         box.addView(etRgb);
 
-        new AlertDialog.Builder(ctx)
+        new MaterialAlertDialogBuilder(ctx)
                 .setTitle("2D 车图 / 主题色")
                 .setView(box)
                 .setPositiveButton("保存", new DialogInterface.OnClickListener() {
@@ -763,6 +904,162 @@ public final class RideFragment extends BaseTabFragment {
         et.setHint(hint);
         et.setTextSize(13);
         return et;
+    }
+
+    // ==================== 本地车模上传 ====================
+
+    /** 上传目标：true=3D glb（KEY_VEHICLE_ART_PIC3D），false=2D 图片（KEY_VEHICLE_ART_PIC）。 */
+    private volatile boolean uploadFor3d;
+
+    private final ActivityResultLauncher<String> pickArt = registerForActivityResult(
+            new ActivityResultContracts.GetContent(), uri -> {
+                if (uri != null) {
+                    uploadArt(uri, uploadFor3d);
+                }
+            });
+
+    /**
+     * 选本地文件：glb（image/* 或任意，glb 选好后走文件管理器）。AssetServer 挂在官方
+     * App 进程里 —— 没连上就提示先打开官方 App。
+     */
+    private void pickLocalArt(boolean for3d) {
+        uploadFor3d = for3d;
+        pickArt.launch(for3d ? "*/*" : "image/*");
+    }
+
+    private void uploadArt(Uri uri, boolean for3d) {
+        final Context ctx = requireContext();
+        Toast.makeText(ctx, "开始上传…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String name = sanitizedName(uri);
+            java.io.File staged = null;
+            int port = -1;
+            String uploadedUrl = null;
+            String error = null;
+            try {
+                // ① 先把 content:// 拷到 cacheDir（HTTP 流式上传不能依赖 ContentResolver 生命周期）
+                String ext = name.lastIndexOf('.') >= 0
+                        ? name.substring(name.lastIndexOf('.')) : for3d ? ".glb" : ".png";
+                staged = new java.io.File(ctx.getCacheDir(), "art_upload" + ext);
+                try (InputStream is = ctx.getContentResolver().openInputStream(uri);
+                     OutputStream os = new FileOutputStream(staged)) {
+                    byte[] buf = new byte[64 * 1024];
+                    int r;
+                    while ((r = is.read(buf)) >= 0) {
+                        os.write(buf, 0, r);
+                    }
+                }
+                // ② 依次探测官方 App 进程里的资产服务器
+                for (int p = com.github.speedhunter.net.AssetServer.PORT_FIRST;
+                        p <= com.github.speedhunter.net.AssetServer.PORT_LAST; p++) {
+                    try {
+                        HttpURLConnection ping = (HttpURLConnection)
+                                new URL("http://127.0.0.1:" + p + "/ping").openConnection();
+                        ping.setConnectTimeout(400);
+                        ping.setReadTimeout(800);
+                        if (ping.getResponseCode() == 200) {
+                            port = p;
+                        }
+                        ping.disconnect();
+                        if (port > 0) {
+                            break;
+                        }
+                    } catch (Exception ignore) {
+                        // 未开
+                    }
+                }
+                if (port < 0) {
+                    error = "官方 App 未运行（找不到资产服务器）。请先打开官方 App 再上传";
+                } else {
+                    // ③ POST /upload
+                    HttpURLConnection up = (HttpURLConnection) new URL(
+                            "http://127.0.0.1:" + port + "/upload?name=" + name)
+                            .openConnection();
+                    up.setDoOutput(true);
+                    up.setConnectTimeout(3000);
+                    up.setReadTimeout(30000);
+                    up.setRequestMethod("POST");
+                    up.setRequestProperty("Content-Type", "application/octet-stream");
+                    up.setFixedLengthStreamingMode(staged.length());
+                    try (OutputStream os = up.getOutputStream();
+                         InputStream is = new java.io.FileInputStream(staged)) {
+                        byte[] buf = new byte[64 * 1024];
+                        int r;
+                        while ((r = is.read(buf)) >= 0) {
+                            os.write(buf, 0, r);
+                        }
+                    }
+                    int code = up.getResponseCode();
+                    if (code == 200) {
+                        try (InputStream is = up.getInputStream()) {
+                            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                            byte[] buf = new byte[1024];
+                            int r;
+                            while ((r = is.read(buf)) >= 0) {
+                                bos.write(buf, 0, r);
+                            }
+                            uploadedUrl = bos.toString("UTF-8").trim();
+                        }
+                    } else {
+                        error = "上传失败 HTTP " + code;
+                    }
+                    up.disconnect();
+                }
+            } catch (Exception e) {
+                error = "上传失败：" + e;
+            } finally {
+                if (staged != null && !staged.delete()) {
+                    staged.deleteOnExit();
+                }
+            }
+            final String okUrl = uploadedUrl;
+            final String err = error;
+            final java.io.File stagedF = null;
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (okUrl != null && !okUrl.isEmpty()) {
+                    if (for3d) {
+                        prefs.edit()
+                                .putString(Keys.KEY_VEHICLE_ART_PIC3D, okUrl)
+                                .putString(Keys.KEY_VEHICLE_ART_MODEL_NAME,
+                                        "本地·" + name)
+                                .commit();
+                    } else {
+                        prefs.edit().putString(Keys.KEY_VEHICLE_ART_PIC, okUrl).commit();
+                    }
+                    persist();
+                    updateVehicleArtHint();
+                    Toast.makeText(ctx, "上传成功。重启官方 App 后主页生效",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(ctx, err == null ? "上传失败" : err,
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "speedhunter-art-upload").start();
+    }
+
+    /** 从 Uri 推一个资产服务器可接受的安全文件名（白名单 [A-Za-z0-9._-]）。 */
+    private String sanitizedName(Uri uri) {
+        String raw = uri.getLastPathSegment();
+        if (raw == null) {
+            raw = "art";
+        }
+        int slash = raw.lastIndexOf('/');
+        if (slash >= 0) {
+            raw = raw.substring(slash + 1);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < raw.length() && sb.length() < 60; i++) {
+            char ch = raw.charAt(i);
+            boolean ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+                    || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-';
+            sb.append(ok ? ch : '_');
+        }
+        if (sb.length() == 0) {
+            sb.append("art");
+        }
+        // 防撞名：带时间戳前缀
+        return System.currentTimeMillis() + "_" + sb;
     }
 
     /** 当前目标功能码；未知值回落 7（与 hook 侧 CustomKeyOptions 保持一致）。 */
@@ -794,7 +1091,7 @@ public final class RideFragment extends BaseTabFragment {
             }
         }
         final Context ctx = requireContext();
-        new AlertDialog.Builder(ctx)
+        new MaterialAlertDialogBuilder(ctx)
                 .setTitle("选择按键功能")
                 .setSingleChoiceItems(labels, checked, new DialogInterface.OnClickListener() {
                     @Override
