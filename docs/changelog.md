@@ -1,3 +1,15 @@
+## 4.7.67 (vc120) — 2026-11-12
+- **车模替换（主页车辆图片 / 3D 模型自由切换）**：新增 net.VehicleArtUnlock + 骑行页
+  「车模替换」卡片（开关 + 三项编辑对话框）。DEX 定案（v3.0.5 app_full.dex，
+  dist/nitro-fw/dex_*.py 反查）：主页车辆视觉全部来自 MyCarHomePageRsp 的
+  vehiclePicUrl（2D PNG）/ vehiclePic3dUrl（3D glb，CFFilamentView#loadUrl 按 URL
+  加载）/ vehicleScalePicUrl（同 PNG + OSS resize）；App 内**无 carColor 字段**——
+  颜色随 glb 内嵌材质（服务端按颜色下发不同 glb）；APK assets/3d 只有 Filament 材质、
+  无内置车模 ⇒ 换 URL 即换车。开启后在 vehicleHomePageV2 / vehicle/list 响应全树
+  替换这三个键（scalePic 自动保留原 OSS 参数），可选 appThemeRgb 跟随主题色。
+  配置三键与账号键同法继承式写入（局部广播不冲掉 URL）。
+  iOS 对应 ZeehoVehicleModel.js（脚本顶部两个变量手动填，conf 默认关）。
+  纯显示；不碰 vehicleType 等车辆身份字段。
 ## 4.7.66 (vc119) — 2026-11-12
 - **启动首页跟随「我的APP首页」**：引导登录后冷启动固定落「极客」的根因是落地页读
   `UserInfo#homepage`，而伪造的 `UserInfo` 只能给空值。真实值不在 SP（爱加密）/MMKV/

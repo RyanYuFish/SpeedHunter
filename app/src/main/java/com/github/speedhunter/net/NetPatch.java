@@ -130,6 +130,7 @@ public final class NetPatch {
             com.github.speedhunter.ride.RideFill.Result fill = null;
             NitroUnlock.Result nitro = null;
             AbsUnlock.Result abs = null;
+            VehicleArtUnlock.Result art = null;
 
             // 骑行回填先跑（ridetrack_v2 / myRideInfo / analyse 三个 handler），
             // 能力位改写后跑 —— 都改同一棵 JSON 树，最后只重建一次响应体。
@@ -152,11 +153,14 @@ public final class NetPatch {
             nitro = NitroUnlock.apply(root, url);
             // ABS 开关入口（opt-in）：克隆注入 ANTI_LOCK_BRAKE_SYSTEM，与氮气同一条已实车验证的路径
             abs = AbsUnlock.apply(root, url);
+            // 车模替换（opt-in）：vehiclePicUrl/Pic3dUrl/ScalePicUrl/appThemeRgb 全树换 URL
+            art = VehicleArtUnlock.apply(root, url);
 
             boolean fillChanged = fill != null && fill.changed;
             boolean nitroChanged = nitro != null && nitro.changed();
             boolean absChanged = abs != null && abs.changed();
-            if (!tally.changed && !fillChanged && !nitroChanged && !absChanged) {
+            boolean artChanged = art != null && art.changed();
+            if (!tally.changed && !fillChanged && !nitroChanged && !absChanged && !artChanged) {
                 if (NetOptions.LOG_SEEN_UNCHANGED) {
                     logOnce("seen " + shortUrl(url) + " -> already on"
                             + " (analyse=" + tally.analyse + " event=" + tally.event + ")");
@@ -192,6 +196,8 @@ public final class NetPatch {
                             + " state=" + nitro.stateAdded + "}") : "")
                     + (absChanged ? ("  abs{inject=" + abs.injected
                             + " sub=" + abs.injectedSub + " state=" + abs.stateAdded + "}") : "")
+                    + (artChanged ? ("  art{pic=" + art.pic + " pic3d=" + art.pic3d
+                            + " scale=" + art.scale + " rgb=" + art.rgb + "}") : "")
                     + "  (" + bytes.length + " B)");
         } catch (Throwable t) {
             // 改写失败必须静默 —— 宁可没效果，也不能让 App 请求崩掉

@@ -250,6 +250,37 @@ public final class Keys {
      */
     public static final String KEY_ABS_UI = "abs_ui";
 
+    // ===== 车模替换（主页车辆图片 / 3D 模型自由切换） =====
+    /**
+     * 车模替换总开关 —— opt-in，默认关。
+     *
+     * <p>DEX 定案（v3.0.5 app_full.dex，dist/nitro-fw/dex_*.py 反查）：主页车辆视觉
+     * 全部来自 {@code MyCarHomePageRsp} 的四个 URL 字段 —— {@code vehiclePicUrl}（2D PNG）、
+     * {@code vehiclePic3dUrl}（3D glb，{@code CFFilamentView#loadUrl} 按 URL 加载、
+     * {@code ZeehoModelProcessor} 应用 {@code carColorMaterials[carColorIndex]} 车漆材质）、
+     * {@code vehicleScalePicUrl}（=同 PNG + OSS resize 参数）、{@code vehicleParkingPhoto}。
+     * APK 内 assets/3d 只有 Filament 材质（ibl/skybox/filamat），无内置车模 ——
+     * 模型只能来自网络 URL，所以改 URL 即换车。</p>
+     *
+     * <p>开启后网络层在 {@code vehicleHomePageV2} / {@code vehicle/list} 响应里
+     * 把三个 URL 键递归替换为用户填写的值（{@link #KEY_VEHICLE_ART_PIC} /
+     * {@link #KEY_VEHICLE_ART_PIC3D}）；{@code vehicleScalePicUrl} 自动跟随
+     * {@code vehiclePicUrl}（保留原 OSS resize 参数）。纯显示，不写车辆身份字段。</p>
+     */
+    public static final String KEY_VEHICLE_ART = "vehicle_art";
+
+    /** 替换用的 2D 车图 URL（PNG；空 = 不替换 2D）。 */
+    public static final String KEY_VEHICLE_ART_PIC = "vehicle_art_pic";
+
+    /** 替换用的 3D 车模 URL（glb；空 = 不替换 3D。颜色由 glb 内嵌材质决定）。 */
+    public static final String KEY_VEHICLE_ART_PIC3D = "vehicle_art_pic3d";
+
+    /**
+     * 可选主题色（如 "#131415"）—— 替换 {@code appThemeRgb}（主页氛围色）。
+     * 空 = 不动。
+     */
+    public static final String KEY_VEHICLE_ART_RGB = "vehicle_art_rgb";
+
     // ===== 账号引导登录（token + 账号 ID 外置录入） =====
     /**
      * 引导登录总开关 —— opt-in，默认关。开启后 hook 侧把官方 App 发出的

@@ -37,6 +37,15 @@ public final class ConfigSender {
                     prefs.getInt(Keys.KEY_CUSTOM_KEY_TARGET, 7));
             intent.putExtra(Keys.KEY_NITRO_UI, prefs.getBoolean(Keys.KEY_NITRO_UI, false));
             intent.putExtra(Keys.KEY_ABS_UI, prefs.getBoolean(Keys.KEY_ABS_UI, false));
+            // 车模替换：开关 + 三个用户输入值（2D / 3D / 主题色）
+            intent.putExtra(Keys.KEY_VEHICLE_ART,
+                    prefs.getBoolean(Keys.KEY_VEHICLE_ART, false));
+            putIfPresent(intent, Keys.KEY_VEHICLE_ART_PIC,
+                    prefs.getString(Keys.KEY_VEHICLE_ART_PIC, ""));
+            putIfPresent(intent, Keys.KEY_VEHICLE_ART_PIC3D,
+                    prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""));
+            putIfPresent(intent, Keys.KEY_VEHICLE_ART_RGB,
+                    prefs.getString(Keys.KEY_VEHICLE_ART_RGB, ""));
             intent.putExtra(Keys.KEY_ACCOUNT_LOGIN,
                     prefs.getBoolean(Keys.KEY_ACCOUNT_LOGIN, false));
             intent.putExtra(Keys.KEY_ACCOUNT_TOKEN,
@@ -49,5 +58,10 @@ public final class ConfigSender {
         } catch (Throwable ignored) {
             // 真正的通道是 hook 自己的落盘文件；这里失败不影响主链路
         }
+    }
+
+    /** putExtra(String) 的空值保护：null 会让 bundle 序列化崩，统一转空串。 */
+    private static void putIfPresent(Intent intent, String key, String value) {
+        intent.putExtra(key, value == null ? "" : value);
     }
 }

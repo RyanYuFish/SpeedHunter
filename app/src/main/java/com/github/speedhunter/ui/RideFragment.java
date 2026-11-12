@@ -14,6 +14,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -59,6 +60,9 @@ public final class RideFragment extends BaseTabFragment {
     private TextView tvNitroHint;
     private MaterialSwitch swAbs;
     private TextView tvAbsHint;
+    private MaterialSwitch swVehicleArt;
+    private TextView tvVehicleArtHint;
+    private TextView tvVehicleArtValue;
 
     private TextView tvStatusDetail;
     private TextView tvStatusTitle;
@@ -130,6 +134,9 @@ public final class RideFragment extends BaseTabFragment {
         tvNitroHint = view.findViewById(R.id.tv_nitro_hint);
         swAbs = view.findViewById(R.id.sw_abs);
         tvAbsHint = view.findViewById(R.id.tv_abs_hint);
+        swVehicleArt = view.findViewById(R.id.sw_vehicle_art);
+        tvVehicleArtHint = view.findViewById(R.id.tv_vehicle_art_hint);
+        tvVehicleArtValue = view.findViewById(R.id.tv_vehicle_art_value);
         tvCustomKeyCount.setText("共 " + CustomKeyFunction.count() + " 项功能可选");
         view.findViewById(R.id.row_custom_key_func).setOnClickListener(
                 new View.OnClickListener() {
@@ -149,6 +156,15 @@ public final class RideFragment extends BaseTabFragment {
         swG2.setChecked(prefs.getBoolean(Keys.KEY_GATE_EVENT, true));
         swView.setChecked(prefs.getBoolean(Keys.KEY_VIEW_LAYER, false));
         swRideFill.setChecked(prefs.getBoolean(Keys.KEY_RIDE_FILL, true));
+        swVehicleArt.setChecked(prefs.getBoolean(Keys.KEY_VEHICLE_ART, false));
+        updateVehicleArtHint();
+        view.findViewById(R.id.row_vehicle_art_edit).setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        showVehicleArtEditor();
+                    }
+                });
         swCustomKey.setChecked(prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
         swNitro.setChecked(prefs.getBoolean(Keys.KEY_NITRO_UI, false));
         swAbs.setChecked(prefs.getBoolean(Keys.KEY_ABS_UI, false));
@@ -171,6 +187,7 @@ public final class RideFragment extends BaseTabFragment {
         swCustomKey.setOnCheckedChangeListener(listener);
         swNitro.setOnCheckedChangeListener(listener);
         swAbs.setOnCheckedChangeListener(listener);
+        swVehicleArt.setOnCheckedChangeListener(listener);
 
         // 账号引导登录：token + 账号 ID 外置录入、签到与积分任务
         view.findViewById(R.id.btn_account).setOnClickListener(new View.OnClickListener() {
@@ -387,6 +404,7 @@ public final class RideFragment extends BaseTabFragment {
                     .putBoolean(Keys.KEY_CUSTOM_KEY_FORCE, swCustomKey.isChecked())
                     .putBoolean(Keys.KEY_NITRO_UI, swNitro != null && swNitro.isChecked())
                     .putBoolean(Keys.KEY_ABS_UI, swAbs != null && swAbs.isChecked())
+                    .putBoolean(Keys.KEY_VEHICLE_ART, swVehicleArt != null && swVehicleArt.isChecked())
                     .putBoolean(Keys.KEY_RIDE_FULLSCAN, true)
                     .commit();
         } catch (Throwable ignored) {
@@ -425,6 +443,7 @@ public final class RideFragment extends BaseTabFragment {
             updateCustomKeyHint();
             updateNitroHint();
             updateAbsHint();
+            updateVehicleArtHint();
         }
     }
 
@@ -469,6 +488,87 @@ public final class RideFragment extends BaseTabFragment {
         tvAbsHint.setText(swAbs.isChecked()
                 ? "已开启：注入 ANTI_LOCK_BRAKE_SYSTEM（仅显示，写入未验证，勿依赖拨动开关）"
                 : "关闭：云端数据保持原样");
+    }
+
+    /** 车模替换卡片状态行 + 当前值摘要（2D/3D 已填哪项）。 */
+    private void updateVehicleArtHint() {
+        if (tvVehicleArtHint == null || swVehicleArt == null) {
+            return;
+        }
+        boolean on = swVehicleArt.isChecked();
+        String pic = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_PIC, "");
+        String pic3d = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, "");
+        String rgb = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_RGB, "");
+        tvVehicleArtHint.setText(on
+                ? "已开启：主页车辆按下方 URL 显示（重启官方 App 生效）"
+                : "关闭：主页车辆保持原样");
+        if (tvVehicleArtValue != null) {
+            StringBuilder sb = new StringBuilder();
+            sb.append(pic.isEmpty() ? "2D未设" : "2D√").append(" · ");
+            sb.append(pic3d.isEmpty() ? "3D未设" : "3D√");
+            if (!rgb.isEmpty()) {
+                sb.append(" · 主题色 ").append(rgb);
+            }
+            sb.append(on ? "" : "（开关未开）");
+            tvVehicleArtValue.setText(sb.toString());
+        }
+    }
+
+    /**
+     * 车模替换编辑框：2D PNG URL / 3D glb URL / 主题色 三项。
+     *
+     * <p>URL 来源建议：另一辆车主页 netdump 里的 vehiclePicUrl（OSS media PNG），
+     * 或车模库（zhoodash cmdModels 已下载的 .glb）可访问的 URL。确定后重启官方 App。</p>
+     */
+    private void showVehicleArtEditor() {
+        if (prefs == null) {
+            return;
+        }
+        final Context ctx = requireContext();
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+
+        final android.widget.EditText etPic = artField(ctx,
+                prefs.getString(Keys.KEY_VEHICLE_ART_PIC, ""),
+                "2D 车图 URL（PNG，替换 vehiclePicUrl；留空不替换）");
+        final android.widget.EditText etPic3d = artField(ctx,
+                prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""),
+                "3D 车模 URL（glb，替换 vehiclePic3dUrl；留空不替换）");
+        final android.widget.EditText etRgb = artField(ctx,
+                prefs.getString(Keys.KEY_VEHICLE_ART_RGB, ""),
+                "主题色（可选，如 #131415，替换 appThemeRgb；留空不替换）");
+        box.addView(etPic);
+        box.addView(etPic3d);
+        box.addView(etRgb);
+
+        new AlertDialog.Builder(ctx)
+                .setTitle("车模替换")
+                .setView(box)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        prefs.edit()
+                                .putString(Keys.KEY_VEHICLE_ART_PIC, etPic.getText().toString().trim())
+                                .putString(Keys.KEY_VEHICLE_ART_PIC3D, etPic3d.getText().toString().trim())
+                                .putString(Keys.KEY_VEHICLE_ART_RGB, etRgb.getText().toString().trim())
+                                .commit();
+                        persist();
+                        updateVehicleArtHint();
+                        Toast.makeText(ctx, "已保存。重启官方 App 后主页生效", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private android.widget.EditText artField(Context ctx, String value, String hint) {
+        android.widget.EditText et = new android.widget.EditText(ctx);
+        et.setText(value);
+        et.setHint(hint);
+        et.setTextSize(13);
+        return et;
     }
 
     /** 当前目标功能码；未知值回落 7（与 hook 侧 CustomKeyOptions 保持一致）。 */

@@ -282,6 +282,12 @@ public final class RemoteSettings {
                 putInt(config, intent, Keys.KEY_CUSTOM_KEY_TARGET, 7);
                 put(config, intent, Keys.KEY_NITRO_UI, false);
                 put(config, intent, Keys.KEY_ABS_UI, false);
+                put(config, intent, Keys.KEY_VEHICLE_ART, false);
+                // 车模 URL/主题色：extra 缺失时继承（与账号键同规矩 ——
+                // 局部广播不得把用户填好的 URL 冲掉）
+                putAccountString(config, intent, Keys.KEY_VEHICLE_ART_PIC);
+                putAccountString(config, intent, Keys.KEY_VEHICLE_ART_PIC3D);
+                putAccountString(config, intent, Keys.KEY_VEHICLE_ART_RGB);
                 // ★ 账号三键必须「按 extra 存在与否」决定覆盖 or 继承：
                 //   ConfigReceiver 末尾是 liveConfig = config 的【全量替换】，而
                 //   TuneActivity.apply() / sendDebugSwitch() 发的是只带局部参数的
