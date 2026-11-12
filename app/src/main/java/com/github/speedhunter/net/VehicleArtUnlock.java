@@ -1,8 +1,15 @@
 package com.github.speedhunter.net;
 
+import java.util.List;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
+
+import com.github.speedhunter.core.HookKit;
 import com.github.speedhunter.core.HookLog;
 import com.github.speedhunter.core.Keys;
 import com.github.speedhunter.core.RemoteSettings;
@@ -164,5 +171,100 @@ public final class VehicleArtUnlock {
         int slash = url.lastIndexOf('/');
         return slash >= 0 && url.length() - slash < 60
                 ? url.substring(slash + 1) : url;
+    }
+
+    // ====================================================================
+    // 车漆配色（v4.7.68）：模型加载完成后调用 changeCarColor(idx)。
+    // ====================================================================
+
+    /** Filament 处理器类名（v3.0.5 DEX：com.cfmoto.ui.filament.ZeehoModelProcessor）。 */
+    static final String PROCESSOR_CLASS = "com.cfmoto.ui.filament.ZeehoModelProcessor";
+
+    /**
+     * 安装配色 hook —— MainHook 在网络钩子之后调用。
+     *
+     * <p>锚点 {@code ZeehoModelProcessor#onModelLoaded}（DEX 确认存在；参数表在
+     * 损坏的 proto_ids 区无法静态解码，所以用 {@link XposedBridge#hookAllMethods}
+     * 挂所有重载）。模型材质就绪后：</p>
+     * <ol>
+     *   <li>反射读 {@code carColorMaterials}（ArrayList）—— 记录 size 与元素类型，
+     *       这是「本车型有几个配色槽」的唯一运行时事实来源；</li>
+     *   <li>用户配置的 {@code vehicle_art_color} 在界内则调用
+     *       {@code changeCarColor(idx)}，越界只记日志不调用（防御式）；</li>
+     *   <li>同时观察 App 自己的 {@code changeCarColor} 调用（服务端颜色字段的
+     *       驱动路径），只记日志不改参 —— 为后续定案留证据。</li>
+     * </ol>
+     *
+     * <p>与 CustomKeyForce 同条件（com.cfmoto 应用类 + 爱加密加固下）hook，
+     * 该模式 2026-10-28 已实车验证可行。开关关 = 只观察，不调用。</p>
+     */
+    public static void installColorHook() {
+        Class<?> processor = HookKit.findClassIfExists(PROCESSOR_CLASS);
+        if (processor == null) {
+            HookLog.log(TAG + " art color skip: " + PROCESSOR_CLASS + " not found");
+            return;
+        }
+        try {
+            java.util.Set<XC_MethodHook.Unhook> loaded =
+                    XposedBridge.hookAllMethods(processor, "onModelLoaded", new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            applyColor(param.thisObject);
+                        }
+                    });
+            HookLog.log(TAG + " art color hooked onModelLoaded x" + loaded.size());
+        } catch (Throwable t) {
+            HookLog.log(TAG + " art color onModelLoaded hook failed: " + t);
+        }
+        try {
+            java.util.Set<XC_MethodHook.Unhook> changed =
+                    XposedBridge.hookAllMethods(processor, "changeCarColor", new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            // 只观察 App 自己的调用（服务端颜色驱动路径），不改参
+                            if (param.args.length == 1 && param.args[0] instanceof Integer) {
+                                HookLog.log(TAG + " art color observe: app changeCarColor("
+                                        + param.args[0] + ")");
+                            }
+                        }
+                    });
+            HookLog.log(TAG + " art color hooked changeCarColor x" + changed.size());
+        } catch (Throwable t) {
+            HookLog.log(TAG + " art color changeCarColor hook failed: " + t);
+        }
+    }
+
+    /**
+     * 模型就绪后的配色应用：有界调用 {@code changeCarColor(idx)}。
+     *
+     * <p>changeCarColor(int) 的 idx 语义（纯下标还是颜色枚举）无法静态定案
+     * （proto_ids 区损坏），所以首次运行会记录 materials 的元素类型供后续核对；
+     * 调用本身包在 try/catch 里，任何异常退化为「保持 App 默认色」。</p>
+     */
+    private static void applyColor(Object processorObj) {
+        try {
+            Object materialsObj = XposedHelpers.getObjectField(processorObj, "carColorMaterials");
+            int size = materialsObj instanceof List ? ((List<?>) materialsObj).size() : -1;
+            String elementType = size > 0
+                    ? ((List<?>) materialsObj).get(0).getClass().getSimpleName() : "-";
+            int appIndex = XposedHelpers.getIntField(processorObj, "carColorIndex");
+            int want = RemoteSettings.getInt(Keys.KEY_VEHICLE_ART_COLOR, -1);
+            if (!enabled() || want < 0) {
+                HookLog.log(TAG + " art color: off (materials=" + size
+                        + " " + elementType + " appIndex=" + appIndex + ")");
+                return;
+            }
+            if (size <= 0 || want >= size) {
+                HookLog.log(TAG + " art color: idx " + want + " out of range (materials="
+                        + size + " " + elementType + ") — skipped");
+                return;
+            }
+            XposedHelpers.callMethod(processorObj, "changeCarColor", want);
+            int nowIndex = XposedHelpers.getIntField(processorObj, "carColorIndex");
+            HookLog.log(TAG + " art color: applied idx=" + want + "/" + size
+                    + " " + elementType + " (appIndex " + appIndex + "->" + nowIndex + ")");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " art color apply failed: " + t);
+        }
     }
 }

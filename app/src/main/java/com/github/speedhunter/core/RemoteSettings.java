@@ -288,6 +288,9 @@ public final class RemoteSettings {
                 putAccountString(config, intent, Keys.KEY_VEHICLE_ART_PIC);
                 putAccountString(config, intent, Keys.KEY_VEHICLE_ART_PIC3D);
                 putAccountString(config, intent, Keys.KEY_VEHICLE_ART_RGB);
+                // 配色索引同 URL 键：extra 缺失时继承（压弯标定页等局部广播不得把
+                // 用户选好的车漆配色冲回 -1）
+                putAccountInt(config, intent, Keys.KEY_VEHICLE_ART_COLOR, -1);
                 // ★ 账号三键必须「按 extra 存在与否」决定覆盖 or 继承：
                 //   ConfigReceiver 末尾是 liveConfig = config 的【全量替换】，而
                 //   TuneActivity.apply() / sendDebugSwitch() 发的是只带局部参数的
@@ -394,6 +397,23 @@ public final class RemoteSettings {
             map.put(key, String.valueOf(intent.getBooleanExtra(key, false)));
         } else {
             map.put(key, String.valueOf("true".equals(currentAccountValue(key))));
+        }
+    }
+
+    /** 账号键的 int 版：extra 缺失时继承当前生效值（缺省 def）。 */
+    private static void putAccountInt(Map<String, String> map, Intent intent, String key, int def) {
+        if (intent.hasExtra(key)) {
+            map.put(key, String.valueOf(intent.getIntExtra(key, def)));
+        } else {
+            String current = currentAccountValue(key);
+            int value = def;
+            if (!current.isEmpty()) {
+                try {
+                    value = Integer.parseInt(current.trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            map.put(key, String.valueOf(value));
         }
     }
 

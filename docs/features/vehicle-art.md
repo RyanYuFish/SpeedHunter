@@ -1,11 +1,12 @@
 # 车模替换（vehicle-art）—— 主页车辆图片 / 3D 模型自由切换
 
-> v4.7.67 (vc120) · 2026-11-12 · Android 实现见 `net.VehicleArtUnlock` + 骑行页卡片；iOS 见 `SpeedHunter-iOS/scripts/ZeehoVehicleModel.js`
+> v4.7.68 (vc121) · 2026-11-12 · Android 实现见 `net.VehicleArtUnlock` + `net.ModelCatalog` + 骑行页卡片；iOS 见 `SpeedHunter-iOS/scripts/ZeehoVehicleModel.js`
 
 ## 功能
 
-把 App 主页的车辆视觉换成任意车型/颜色：用户填 2D 车图 URL（PNG）与/或 3D 车模 URL（glb），
-开启后官方 App 主页按新 URL 渲染。可选主题色（`appThemeRgb`）跟随。
+把 App 主页的车辆视觉换成任意车型/颜色。v4.7.68 起 3D 车模从**目录列表直接选车型**
+（lswlc33/zeeho-3d-models，多 CDN 回退），并可在模型加载后应用**车漆配色**
+（`changeCarColor` 索引）；2D 车图 / 主题色仍走 URL 填写。
 
 ## 逆向依据（v3.0.5 DEX 字段级定案）
 
@@ -43,9 +44,41 @@ string_ids/type_ids/field_ids/method_ids/proto_ids 索引表；`app_full.dex` �
 | `vehicle_art_pic` | string | "" | 2D PNG URL（空=不替换 2D） |
 | `vehicle_art_pic3d` | string | "" | 3D glb URL（空=不替换 3D） |
 | `vehicle_art_rgb` | string | "" | 主题色如 #131415（空=不动） |
+| `vehicle_art_color` | int | -1 | 车漆配色索引（-1=关闭；模型加载后 changeCarColor(idx)） |
+| `vehicle_art_model_name` | string | "" | 目录模型显示名（仅模块 UI，hook 不消费） |
 
-配置链路与账号键同法：ConfigSender 显式广播，RemoteSettings 端 putAccountString
-继承式写入 —— 压弯标定等局部广播不会把 URL 冲掉。
+配置链路与账号键同法：ConfigSender 显式广播，RemoteSettings 端 putAccountString /
+putAccountInt 继承式写入 —— 压弯标定等局部广播不会把 URL / 配色冲掉。
+
+## 目录选择器（v4.7.68）
+
+- **目录仓库** `github.com/lswlc33/zeeho-3d-models`（2026-11-12 实测评估可用）：
+  `index.json` 清单 `{ver,updated,models:[{id,name,file,size,ver,note}]}`，
+  models/*.glb = AE4-MAX2plus（官方原版 6.2MB）+ 3 个第三方趣味模型；
+  jsDelivr 实测 HEAD 200、CORS *、content-type model/gltf-binary。
+- **CDN 回退**（借 zeehowebnext 面板实现）：jsDelivr → raw.githubusercontent
+  → ghfast.top → gh-proxy.com；单文件 >20MB（jsDelivr 硬限）自动跳过 jsDelivr
+  走 ghfast 镜像（如 miko-bust 36MB）。
+- **加载器** `net.ModelCatalog`：HttpsURLConnection + 8s 超时，逐级回退，
+  静态缓存 5 分钟，回调回主线程；拉取失败仍弹选择器（保留跟随云端/自定义 URL）。
+
+## 车漆配色 hook（v4.7.68）
+
+| 事实 | 证据 |
+| --- | --- |
+| 锚点 `onModelLoaded` 存在 | app_full.dex method_ids：`onModelLoaded in Lcom/cfmoto/ui/filament/ZeehoModelProcessor;` |
+| `changeCarColor(I)` 存在 | 同上 method_ids（idx 语义静态不可解 —— proto_ids 区在损坏 map_list 内） |
+| 材质表字段 | `carColorIndex:I` + `carColorMaterials:ArrayList`（FIELD 表） |
+| 调用模式 | `XposedBridge.hookAllMethods`（签名无关）；CustomKeyForce 证明 com.cfmoto 类在爱加密下可 hook（2026-10-28 实车） |
+
+机制：`onModelLoaded` after → 反射读 carColorMaterials（记 size + 元素类型，
+这是「本车型配色槽数」的唯一运行时事实）→ 用户 idx 界内才
+`callMethod(processor, "changeCarColor", idx)`，越界只记日志。同时 hook
+`changeCarColor` 本身观察 App 自发调用（服务端颜色驱动路径），只记日志不改参。
+
+**首次使用建议**：开启后看 hook 日志 `art color:` 行 —— `materials=N` 即本车型
+配色槽数，之后把索引选在 0..N-1 内。`art color observe: app changeCarColor(K)`
+能反向定位服务端配色字段的枚举值。
 
 ## URL 从哪来
 

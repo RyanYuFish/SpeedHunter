@@ -70,6 +70,9 @@ public final class MainHook implements IXposedHookLoadPackage {
         MobGuard.install(lpparam);   // 先保命：规避 MobTech SDK 的启动崩溃
         RideFetch.installAll();      // 请求侧：把 ridetrack_v2 的 pageSize 放大到 200
         NetPatch.installAll();       // 主机制：网络层能力位改写 + 急刹/压弯回填
+        // 车模替换 v2：模型加载后应用用户选的车漆配色（ZeehoModelProcessor#onModelLoaded）
+        try { com.github.speedhunter.net.VehicleArtUnlock.installColorHook(); }
+        catch (Throwable t) { HookLog.log("art color install failed: " + t); }
         // ★ 在 attach 阶段就把落盘配置读进内存，让 ready() 从 App 第一次读 is_login 起就是 true
         //   （否则引导登录覆盖要等 Application 就绪后约 4~5 秒才生效，App 早已据此判定未登录并缓存）
         com.github.speedhunter.core.RemoteSettings.primeConfigAtAttach(lpparam.packageName);

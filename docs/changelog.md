@@ -1,3 +1,16 @@
+## 4.7.68 (vc121) — 2026-11-12
+- **车模替换 v2：目录选车 + 车漆配色**。3D 车模不再手填 URL：新增 net.ModelCatalog
+  （lswlc33/zeeho-3d-models 目录，index.json 清单；CDN 回退 jsDelivr → raw →
+  ghfast.top → gh-proxy.com，>20MB 文件自动跳过 jsDelivr，静态缓存 5 分钟），
+  骑行页车模卡片改为三行：3D 车模（点选车型，含跟随云端/自定义 URL 入口）、
+  2D 车图/主题色（URL 填写）、车漆配色（关闭/0..9）。
+- **车漆配色 hook**：DEX 确认 ZeehoModelProcessor 有 onModelLoaded /
+  changeCarColor(I) / carColorIndex:I / carColorMaterials:ArrayList；用
+  XposedBridge.hookAllMethods 挂 onModelLoaded（签名无关），after 反射读材质表
+  （记 size+元素类型=本车型配色槽数），用户索引界内才调用 changeCarColor(idx)，
+  越界只记日志；另 hook changeCarColor 观察 App 自发调用（服务端颜色驱动路径）。
+  配置键 vehicle_art_color（int，-1=关闭，putAccountInt 继承式写入）。
+  依据与运行时观察方法见 docs/features/vehicle-art.md。
 ## 4.7.67 (vc120) — 2026-11-12
 - **车模替换（主页车辆图片 / 3D 模型自由切换）**：新增 net.VehicleArtUnlock + 骑行页
   「车模替换」卡片（开关 + 三项编辑对话框）。DEX 定案（v3.0.5 app_full.dex，

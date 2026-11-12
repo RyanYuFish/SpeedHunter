@@ -46,6 +46,9 @@ public final class ConfigSender {
                     prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""));
             putIfPresent(intent, Keys.KEY_VEHICLE_ART_RGB,
                     prefs.getString(Keys.KEY_VEHICLE_ART_RGB, ""));
+            // 车漆配色索引（-1 = 关闭；hook 侧按 carColorMaterials.size() 有界保护）
+            intent.putExtra(Keys.KEY_VEHICLE_ART_COLOR,
+                    prefs.getInt(Keys.KEY_VEHICLE_ART_COLOR, -1));
             intent.putExtra(Keys.KEY_ACCOUNT_LOGIN,
                     prefs.getBoolean(Keys.KEY_ACCOUNT_LOGIN, false));
             intent.putExtra(Keys.KEY_ACCOUNT_TOKEN,

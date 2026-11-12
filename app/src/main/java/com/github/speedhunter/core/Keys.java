@@ -281,6 +281,22 @@ public final class Keys {
      */
     public static final String KEY_VEHICLE_ART_RGB = "vehicle_art_rgb";
 
+    /**
+     * 车漆配色索引（v4.7.68）。模型加载完成后调用
+     * {@code ZeehoModelProcessor#changeCarColor(int)} 的下标；
+     * {@code -1} = 关闭（App 按 glb 内嵌 {@code carColorMaterials[carColorIndex]} 默认色）。
+     *
+     * <p>DEX 定案（v3.0.5 app_full.dex）：{@code ZeehoModelProcessor} 持有
+     * {@code carColorIndex:I} 与 {@code carColorMaterials:ArrayList}，
+     * {@code onModelLoaded()} 是模型材质就绪后的回调锚点。索引有效范围运行时
+     * 才知道（= carColorMaterials.size()，车型相关），hook 侧有界保护：
+     * 越界编号只记日志不调用。</p>
+     */
+    public static final String KEY_VEHICLE_ART_COLOR = "vehicle_art_color";
+
+    /** 选中目录模型的显示名（仅模块 UI 状态行用，hook 不消费）。 */
+    public static final String KEY_VEHICLE_ART_MODEL_NAME = "vehicle_art_model_name";
+
     // ===== 账号引导登录（token + 账号 ID 外置录入） =====
     /**
      * 引导登录总开关 —— opt-in，默认关。开启后 hook 侧把官方 App 发出的

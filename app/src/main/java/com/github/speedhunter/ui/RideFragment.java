@@ -62,7 +62,9 @@ public final class RideFragment extends BaseTabFragment {
     private TextView tvAbsHint;
     private MaterialSwitch swVehicleArt;
     private TextView tvVehicleArtHint;
+    private TextView tvVehicleArtModelValue;
     private TextView tvVehicleArtValue;
+    private TextView tvVehicleArtColorValue;
 
     private TextView tvStatusDetail;
     private TextView tvStatusTitle;
@@ -136,7 +138,9 @@ public final class RideFragment extends BaseTabFragment {
         tvAbsHint = view.findViewById(R.id.tv_abs_hint);
         swVehicleArt = view.findViewById(R.id.sw_vehicle_art);
         tvVehicleArtHint = view.findViewById(R.id.tv_vehicle_art_hint);
+        tvVehicleArtModelValue = view.findViewById(R.id.tv_vehicle_art_model_value);
         tvVehicleArtValue = view.findViewById(R.id.tv_vehicle_art_value);
+        tvVehicleArtColorValue = view.findViewById(R.id.tv_vehicle_art_color_value);
         tvCustomKeyCount.setText("共 " + CustomKeyFunction.count() + " 项功能可选");
         view.findViewById(R.id.row_custom_key_func).setOnClickListener(
                 new View.OnClickListener() {
@@ -158,11 +162,25 @@ public final class RideFragment extends BaseTabFragment {
         swRideFill.setChecked(prefs.getBoolean(Keys.KEY_RIDE_FILL, true));
         swVehicleArt.setChecked(prefs.getBoolean(Keys.KEY_VEHICLE_ART, false));
         updateVehicleArtHint();
+        view.findViewById(R.id.row_vehicle_art_model).setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        showModelPicker();
+                    }
+                });
         view.findViewById(R.id.row_vehicle_art_edit).setOnClickListener(
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
                         showVehicleArtEditor();
+                    }
+                });
+        view.findViewById(R.id.row_vehicle_art_color).setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        showColorPicker();
                     }
                 });
         swCustomKey.setChecked(prefs.getBoolean(Keys.KEY_CUSTOM_KEY_FORCE, false));
@@ -490,7 +508,7 @@ public final class RideFragment extends BaseTabFragment {
                 : "关闭：云端数据保持原样");
     }
 
-    /** 车模替换卡片状态行 + 当前值摘要（2D/3D 已填哪项）。 */
+    /** 车模替换卡片状态行 + 三行当前值摘要（3D / 2D / 配色）。 */
     private void updateVehicleArtHint() {
         if (tvVehicleArtHint == null || swVehicleArt == null) {
             return;
@@ -499,26 +517,207 @@ public final class RideFragment extends BaseTabFragment {
         String pic = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_PIC, "");
         String pic3d = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, "");
         String rgb = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_RGB, "");
+        String modelName = prefs == null ? "" : prefs.getString(Keys.KEY_VEHICLE_ART_MODEL_NAME, "");
+        int color = prefs == null ? -1 : prefs.getInt(Keys.KEY_VEHICLE_ART_COLOR, -1);
         tvVehicleArtHint.setText(on
-                ? "已开启：主页车辆按下方 URL 显示（重启官方 App 生效）"
+                ? "已开启：主页车辆按下方选择显示（重启官方 App 生效）"
                 : "关闭：主页车辆保持原样");
+        if (tvVehicleArtModelValue != null) {
+            if (pic3d.isEmpty()) {
+                tvVehicleArtModelValue.setText("未设置（跟随云端，点此选择）");
+            } else if (!modelName.isEmpty()) {
+                tvVehicleArtModelValue.setText(modelName + "（目录模型，点此重选）");
+            } else {
+                tvVehicleArtModelValue.setText("自定义：" + tail(pic3d) + "（点此重选）");
+            }
+        }
         if (tvVehicleArtValue != null) {
             StringBuilder sb = new StringBuilder();
-            sb.append(pic.isEmpty() ? "2D未设" : "2D√").append(" · ");
-            sb.append(pic3d.isEmpty() ? "3D未设" : "3D√");
+            sb.append(pic.isEmpty() ? "2D未设" : "2D√ " + tail(pic));
             if (!rgb.isEmpty()) {
                 sb.append(" · 主题色 ").append(rgb);
             }
-            sb.append(on ? "" : "（开关未开）");
             tvVehicleArtValue.setText(sb.toString());
+        }
+        if (tvVehicleArtColorValue != null) {
+            tvVehicleArtColorValue.setText(color < 0
+                    ? "关闭（按模型默认色）"
+                    : "配色 " + color + "（模型加载后应用，越界自动忽略）");
         }
     }
 
+    private static String tail(String url) {
+        if (url == null) return "";
+        int slash = url.lastIndexOf('/');
+        String t = slash >= 0 ? url.substring(slash + 1) : url;
+        return t.length() > 34 ? t.substring(0, 34) + "…" : t;
+    }
+
     /**
-     * 车模替换编辑框：2D PNG URL / 3D glb URL / 主题色 三项。
+     * 3D 车模选择器：目录列表（lswlc33/zeeho-3d-models，多 CDN 回退）+
+     * 跟随云端 + 自定义 URL 三个入口。
      *
-     * <p>URL 来源建议：另一辆车主页 netdump 里的 vehiclePicUrl（OSS media PNG），
-     * 或车模库（zhoodash cmdModels 已下载的 .glb）可访问的 URL。确定后重启官方 App。</p>
+     * <p>目录拉取在后台线程；失败时仍弹出（只有跟随云端 / 自定义 URL 两项），
+     * 不阻塞其他卡片功能。选中目录模型 = URL+名称落盘，经 ConfigSender 广播
+     * 给 hook（hook 侧只认 URL —— vehiclePic3dUrl 全树替换）。</p>
+     */
+    private void showModelPicker() {
+        if (prefs == null) {
+            return;
+        }
+        final Context ctx = requireContext();
+        com.github.speedhunter.net.ModelCatalog.load(
+                new com.github.speedhunter.net.ModelCatalog.Callback() {
+                    @Override
+                    public void onCatalog(
+                            final java.util.List<com.github.speedhunter.net.ModelCatalog.Entry> entries,
+                            String error) {
+                        if (!isAdded()) {
+                            return;
+                        }
+                        final boolean hasCatalog = !entries.isEmpty();
+                        String head = prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, "");
+                        final String[] labels;
+                        if (hasCatalog) {
+                            labels = new String[entries.size() + 2];
+                            labels[0] = "跟随云端（不替换 3D）";
+                            labels[1] = "自定义 glb URL…";
+                            for (int i = 0; i < entries.size(); i++) {
+                                com.github.speedhunter.net.ModelCatalog.Entry e = entries.get(i);
+                                labels[i + 2] = e.name + "  [" + (e.sizeBytes / (1024 * 1024))
+                                        + "MB]";
+                            }
+                        } else {
+                            labels = new String[]{
+                                    "跟随云端（不替换 3D）", "自定义 glb URL…"};
+                        }
+                        int checked = 0;
+                        if (!head.isEmpty()) {
+                            String savedName =
+                                    prefs.getString(Keys.KEY_VEHICLE_ART_MODEL_NAME, "");
+                            checked = savedName.isEmpty() ? 1 : -1;   // 1 = 自定义 URL
+                            if (checked == -1 && hasCatalog) {
+                                for (int i = 0; i < entries.size(); i++) {
+                                    if (entries.get(i).url.equals(head)) {
+                                        checked = i + 2;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        new AlertDialog.Builder(ctx)
+                                .setTitle(hasCatalog
+                                        ? "选择 3D 车模（目录 " + entries.size() + " 项）"
+                                        : "选择 3D 车模（目录拉取失败："
+                                                + (error == null ? "空" : error) + "）")
+                                .setSingleChoiceItems(labels, Math.max(checked, 0),
+                                        new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface dialog,
+                                                                int which) {
+                                                if (which == 0) {
+                                                    prefs.edit()
+                                                            .remove(Keys.KEY_VEHICLE_ART_PIC3D)
+                                                            .remove(Keys.KEY_VEHICLE_ART_MODEL_NAME)
+                                                            .commit();
+                                                } else if (which == 1) {
+                                                    dialog.dismiss();
+                                                    showCustomModelUrlEditor();
+                                                    return;
+                                                } else if (hasCatalog) {
+                                                    com.github.speedhunter.net.ModelCatalog.Entry e =
+                                                            entries.get(which - 2);
+                                                    prefs.edit()
+                                                            .putString(Keys.KEY_VEHICLE_ART_PIC3D,
+                                                                    e.url)
+                                                            .putString(
+                                                                    Keys.KEY_VEHICLE_ART_MODEL_NAME,
+                                                                    e.name)
+                                                            .commit();
+                                                }
+                                                dialog.dismiss();
+                                                persist();
+                                                updateVehicleArtHint();
+                                            }
+                                        })
+                                .setNegativeButton("关闭", null)
+                                .show();
+                    }
+                });
+    }
+
+    /** 自定义 3D glb URL 录入（目录外的模型走这里）。 */
+    private void showCustomModelUrlEditor() {
+        final Context ctx = requireContext();
+        LinearLayout box = new LinearLayout(ctx);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+        final android.widget.EditText etUrl = artField(ctx,
+                prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""),
+                "3D 车模 URL（glb，替换 vehiclePic3dUrl；留空 = 跟随云端）");
+        box.addView(etUrl);
+        new AlertDialog.Builder(ctx)
+                .setTitle("自定义 3D 车模")
+                .setView(box)
+                .setPositiveButton("保存", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String url = etUrl.getText().toString().trim();
+                        prefs.edit()
+                                .putString(Keys.KEY_VEHICLE_ART_PIC3D, url)
+                                .putString(Keys.KEY_VEHICLE_ART_MODEL_NAME, "")
+                                .commit();
+                        persist();
+                        updateVehicleArtHint();
+                        Toast.makeText(ctx, "已保存。重启官方 App 后主页生效",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /**
+     * 车漆配色选择器：关闭 + 0..9。
+     *
+     * <p>有效范围 = 运行时 carColorMaterials.size()（车型相关，静态不可知）；
+     * hook 侧有界保护越界只记日志。首次开启建议看 hook 日志确认槽位数。</p>
+     */
+    private void showColorPicker() {
+        if (prefs == null) {
+            return;
+        }
+        final Context ctx = requireContext();
+        final int current = prefs.getInt(Keys.KEY_VEHICLE_ART_COLOR, -1);
+        String[] labels = new String[11];
+        labels[0] = "关闭（模型默认色）";
+        for (int i = 0; i < 10; i++) {
+            labels[i + 1] = "配色 " + i;
+        }
+        new AlertDialog.Builder(ctx)
+                .setTitle("车漆配色（索引，超出槽位自动忽略）")
+                .setSingleChoiceItems(labels, current + 1,
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                prefs.edit()
+                                        .putInt(Keys.KEY_VEHICLE_ART_COLOR, which - 1)
+                                        .commit();
+                                dialog.dismiss();
+                                persist();
+                                updateVehicleArtHint();
+                            }
+                        })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /**
+     * 2D 车图 / 主题色编辑框（v4.7.68 起 3D 车模单独走目录选择器）。
+     *
+     * <p>2D URL 来源建议：另一辆车主页 netdump 里的 vehiclePicUrl（OSS media PNG）。
+     * vehicleScalePicUrl 会自动跟随（保留原 OSS resize 参数）。</p>
      */
     private void showVehicleArtEditor() {
         if (prefs == null) {
@@ -533,25 +732,20 @@ public final class RideFragment extends BaseTabFragment {
         final android.widget.EditText etPic = artField(ctx,
                 prefs.getString(Keys.KEY_VEHICLE_ART_PIC, ""),
                 "2D 车图 URL（PNG，替换 vehiclePicUrl；留空不替换）");
-        final android.widget.EditText etPic3d = artField(ctx,
-                prefs.getString(Keys.KEY_VEHICLE_ART_PIC3D, ""),
-                "3D 车模 URL（glb，替换 vehiclePic3dUrl；留空不替换）");
         final android.widget.EditText etRgb = artField(ctx,
                 prefs.getString(Keys.KEY_VEHICLE_ART_RGB, ""),
                 "主题色（可选，如 #131415，替换 appThemeRgb；留空不替换）");
         box.addView(etPic);
-        box.addView(etPic3d);
         box.addView(etRgb);
 
         new AlertDialog.Builder(ctx)
-                .setTitle("车模替换")
+                .setTitle("2D 车图 / 主题色")
                 .setView(box)
                 .setPositiveButton("保存", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         prefs.edit()
                                 .putString(Keys.KEY_VEHICLE_ART_PIC, etPic.getText().toString().trim())
-                                .putString(Keys.KEY_VEHICLE_ART_PIC3D, etPic3d.getText().toString().trim())
                                 .putString(Keys.KEY_VEHICLE_ART_RGB, etRgb.getText().toString().trim())
                                 .commit();
                         persist();
