@@ -38,6 +38,8 @@ public final class CustomKeyActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_custom_key);
+        // 状态栏反色修复：与其他二级页同款 edge-to-edge（透明栏 + 图标明暗 + inset 补偿）
+        EdgeToEdge.setup(this, findViewById(R.id.root_custom_key));
 
         prefs = android.preference.PreferenceManager.getDefaultSharedPreferences(this);
 

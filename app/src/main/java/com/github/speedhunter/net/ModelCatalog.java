@@ -94,15 +94,46 @@ public final class ModelCatalog {
     private ModelCatalog() {
     }
 
-    /** 缓存命中直接回调；否则后台拉取（同一时刻只发一轮请求）。 */
+    /** 磁盘缓存有效期：过期后台静默刷新（不阻塞回调）。 */
+    static final long DISK_CACHE_MS = 12L * 60 * 60 * 1000;
+
+    /** 兼容旧入口：无磁盘缓存。 */
     public static void load(final Callback callback) {
+        load(null, callback);
+    }
+
+    /**
+     * 带磁盘缓存的加载（v4.8.1 修「点开要等好几秒」）：内存 → 磁盘（立即回调）→ 网络。
+     * 目录命中内存/磁盘时点开即达；磁盘过期只触发后台静默刷新，不再让 UI 干等。
+     */
+    public static void load(final android.content.Context ctx, final Callback callback) {
         List<Entry> cached = cache;
         if (cached != null && System.currentTimeMillis() - cacheAt < CACHE_MS) {
             callback.onCatalog(cached, null);
             return;
         }
+        final java.io.File body = diskFile(ctx, "model_catalog.json");
+        final java.io.File tsFile = diskFile(ctx, "model_catalog.ts");
+        if (body != null && tsFile != null) {
+            List<Entry> fromDisk = readDisk(body, tsFile);
+            if (fromDisk != null && !fromDisk.isEmpty()) {
+                cache = fromDisk;
+                cacheAt = readTs(tsFile);
+                callback.onCatalog(fromDisk, null);
+                if (System.currentTimeMillis() - cacheAt >= DISK_CACHE_MS) {
+                    startFetch(ctx, null);   // 静默刷新，无回调
+                }
+                return;
+            }
+        }
+        startFetch(ctx, callback);
+    }
+
+    private static void startFetch(final android.content.Context ctx, final Callback callback) {
         if (fetching) {
-            callback.onCatalog(Collections.emptyList(), "正在拉取目录，稍后再试");
+            if (callback != null) {
+                callback.onCatalog(Collections.emptyList(), "正在拉取目录，稍后再试");
+            }
             return;
         }
         fetching = true;
@@ -111,12 +142,14 @@ public final class ModelCatalog {
             public void run() {
                 List<Entry> entries = null;
                 String error = null;
+                String winBody = null;
                 for (String indexUrl : INDEX_URLS) {
                     try {
-                        String body = httpGet(indexUrl, 8000);
-                        List<Entry> parsed = parse(body);
+                        String resp = httpGet(indexUrl, 8000);
+                        List<Entry> parsed = parse(resp);
                         if (!parsed.isEmpty()) {
                             entries = parsed;
+                            winBody = resp;
                             break;
                         }
                     } catch (Throwable t) {
@@ -124,17 +157,22 @@ public final class ModelCatalog {
                     }
                 }
                 fetching = false;
-                if (entries == null) {
-                    entries = Collections.emptyList();
-                    if (error == null) {
-                        error = "目录为空";
-                    }
-                } else {
+                if (entries != null) {
                     cache = entries;
                     cacheAt = System.currentTimeMillis();
+                    writeDisk(diskFile(ctx, "model_catalog.json"), winBody);
+                    java.io.File ts = diskFile(ctx, "model_catalog.ts");
+                    if (ts != null) {
+                        writeDisk(ts, String.valueOf(cacheAt));
+                    }
                 }
-                final List<Entry> result = entries;
-                final String err = error;
+                if (callback == null) {
+                    return;
+                }
+                final List<Entry> result = entries == null
+                        ? Collections.<Entry>emptyList() : entries;
+                final String err = result.isEmpty()
+                        ? (error == null ? "目录为空" : error) : null;
                 new Handler(Looper.getMainLooper()).post(new Runnable() {
                     @Override
                     public void run() {
@@ -143,6 +181,70 @@ public final class ModelCatalog {
                 });
             }
         }, "model-catalog").start();
+    }
+
+    private static java.io.File diskFile(android.content.Context ctx, String name) {
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return new java.io.File(ctx.getFilesDir(), name);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void writeDisk(java.io.File f, String content) {
+        if (f == null || content == null) {
+            return;
+        }
+        try {
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            try {
+                out.write(content.getBytes(StandardCharsets.UTF_8));
+            } finally {
+                out.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static long readTs(java.io.File f) {
+        try {
+            return Long.parseLong(readAll(f).trim());
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    private static List<Entry> readDisk(java.io.File bodyFile, java.io.File tsFile) {
+        try {
+            long ts = readTs(tsFile);
+            if (ts <= 0) {
+                return null;
+            }
+            return parse(readAll(bodyFile));
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static String readAll(java.io.File f) throws Exception {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        java.io.FileInputStream in = new java.io.FileInputStream(f);
+        try {
+            byte[] chunk = new byte[4096];
+            int n;
+            while ((n = in.read(chunk)) > 0) {
+                buf.write(chunk, 0, n);
+                if (buf.size() > 1024 * 1024) {
+                    throw new IllegalStateException("磁盘缓存超过 1MB，异常");
+                }
+            }
+        } finally {
+            in.close();
+        }
+        return new String(buf.toByteArray(), StandardCharsets.UTF_8);
     }
 
     /** 按文件大小选 CDN：&le;20MB 走 jsDelivr，否则 raw 的 ghfast 镜像。 */
@@ -178,7 +280,7 @@ public final class ModelCatalog {
 
     private static String httpGet(String url, int timeoutMs) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(timeoutMs);
+        conn.setConnectTimeout(5000);
         conn.setReadTimeout(timeoutMs);
         conn.setInstanceFollowRedirects(true);
         try {
