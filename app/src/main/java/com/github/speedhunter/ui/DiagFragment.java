@@ -47,6 +47,9 @@ public final class DiagFragment extends BaseTabFragment {
     private TextView logView;
     private TextView linkState;
     private android.widget.ScrollView logScroll;
+    /** 诊断结果区(读版本/读 DTC/写里程读数,对齐官方 zscan 诊断界面结果展示)。 */
+    private TextView resultView;
+    private android.widget.ScrollView resultScroll;
     /** 用户是否处于日志底部(true 时新日志自动滚到底;用户上翻则暂停,回底自动恢复)。 */
     private volatile boolean logAtBottom = true;
     private final Object responseLock = new Object();
@@ -94,6 +97,17 @@ public final class DiagFragment extends BaseTabFragment {
                     logAtBottom = child == null
                             || scrollY + v.getHeight() >= child.getHeight() - v.getPaddingBottom() - 8;
                 });
+        resultView = root.findViewById(R.id.tv_diag_result);
+        resultScroll = root.findViewById(R.id.sv_diag_result);
+        resultScroll.setOnTouchListener((v, event) -> {
+            if (event.getAction() == android.view.MotionEvent.ACTION_DOWN
+                    || event.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+                if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(true);
+            }
+            return false;
+        });
+        root.findViewById(R.id.btn_diag_result_clear).setOnClickListener(v ->
+                resultView.setText("暂无结果(读版本/读 DTC/写里程后显示)"));
         root.findViewById(R.id.btn_diag_connect).setOnClickListener(v -> connectVci());
         root.findViewById(R.id.btn_diag_disconnect).setOnClickListener(v -> closeLink());
         root.findViewById(R.id.btn_diag_nfc_on).setOnClickListener(v -> nfcStudyOfficialFlow());
@@ -103,6 +117,7 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_version).setOnClickListener(v -> beginVersionRead());
         root.findViewById(R.id.btn_diag_dtc_read).setOnClickListener(v -> beginDtcRead());
         root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> beginDtcClear());
+        root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> beginExtendedRead());
         root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> beginAbsBleed());
         root.findViewById(R.id.btn_diag_odo_did).setOnClickListener(v -> writeMileage(false));
         root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> writeMileage(true));
@@ -184,8 +199,12 @@ public final class DiagFragment extends BaseTabFragment {
         new Thread(() -> {
             try {
                 link.connectAndHandshake(requireContext(), mac, true);
-                log("OP", link.isDataReady() ? "L3 通道已验证(前导有应答)"
-                        : "仅蓝牙/L2 有连接,L3 前导无应答;重新连接或检查 VCI");
+                if (link.isDataReady()) {
+                    link.startPolling(); // 持续 69 轮询保活 VCI L3 转发(2026-11-15 修复)
+                    log("OP", "L3 通道已验证(前导有应答),已启动持续轮询");
+                } else {
+                    log("OP", "仅蓝牙/L2 有连接,L3 前导无应答;重新连接或检查 VCI");
+                }
             } catch (Exception e) {
                 String m = e.getMessage();
                 ui.post(() -> { setState("连接失败: " + m); log("ERR", "connect: " + m); });
@@ -218,15 +237,20 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     // =====================================================================
-    // 官方主从切换(2026-11-10 00:20 删卡会话逐字节对齐)
-    // FFA×2 → 60×3+69×3 → [poll+0x89]×5(158/112/1105/1107ms) → 0x71(0x20)
-    // → 等 0x79 应答或节点 0x17 广播(仪表唤醒标志) → 用户确认
+    // 官方主从切换(2026-11-10 00:20 删卡会话逐字节对齐;2026-11-15 失败复盘修正)
+    // 根因:心跳 FFA 复用握手 seq=0000 → VCI 回 00F000C0 blob 后停止 L3 转发
+    // (11-15 02:33/35/37 与 11-09 03:53 会话实证;官方会话 FFA 序号递增 56/54s)。
+    // 修正:阶段开道 FFA×2(递增 seq)→ 前导 → 挂起心跳+停背景轮询 →
+    // [poll+0x89]×5 → 0x71(20) → 边轮询边等 0x79/0x17(车辆数据只随 69 应答下发)
+    // → 恢复心跳/轮询 → 用户确认。
     // =====================================================================
 
     private boolean opGate(String op) {
         if (!requireLink()) return false;
         if (!link.isDataReady()) { toast("L3 通道未验证,先重新连接 VCI"); return false; }
         if (flowBusy) { toast("有流程进行中"); return false; }
+        long age = link.lastDataRxAgeMs();
+        if (age > 5000) log("WARN", "L3 通道疑似失活(最后数据 " + (age / 1000) + "s 前);若操作无应答请断开重连 VCI");
         flowBusy = true;
         log("OP", op + ":阶段1 主从切换(官方对齐)");
         return true;
@@ -241,14 +265,10 @@ public final class DiagFragment extends BaseTabFragment {
     private void officialMasterSlave(VciSppLink active, String op, DiagStep onSwitched) {
         new Thread(() -> {
             try {
+                stageOpen(active, op + " 切换开道");
                 active.suspendKeepAlive();
-                active.sendDeleteEntryQueries();
-                sleepMs(45);
-                for (byte[] cmd : ZeehoRs485Ops.sessionSetupCommands()) {
-                    active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
-                    sleepMs(15);
-                }
-                log("OP", "前导完成(60×3+69×3),开始 0x89×5(官方节奏 158/112/1105/1107ms)");
+                active.stopPolling(); // 0x89 突发窗口复刻官方节奏(仅 poll+write 对)
+                log("OP", "开始 0x89×5(官方节奏 158/112/1105/1107ms)");
                 for (int i = 0; i < 5; i++) {
                     if (link != active || !active.isConnected()) throw new java.io.IOException("连接已断开");
                     active.send(VciLink.CMD_POLL, new byte[]{1, 1});
@@ -260,42 +280,269 @@ public final class DiagFragment extends BaseTabFragment {
                 active.send(VciLink.CMD_POLL, new byte[]{1, 1});
                 int seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE, ZeehoRs485Ops.wrapRs485ForVci(ZeehoRs485Ops.MASTER_SLAVE_CONFIRM_71));
                 log("TX", op + " 主从确认 0x71(byte6=0x20) seq=" + seq);
-                boolean got79 = awaitNode(active, seq, 0x79, 4000);
-                boolean wake = got79 || awaitNodeAny(active, 0x17, 12000);
+                String confirm79 = pollAwaitNode(active, 0x79, null, 4000);
+                boolean got79 = confirm79 != null;
+                String wake17 = pollAwaitNode(active, 0x17, null, got79 ? 8000 : 12000);
+                active.resumeKeepAlive();
+                active.startPolling();
+                boolean wake = wake17 != null;
                 log("OP", (got79 ? "0x79 已应答(官方同款)" : "0x79 未应答")
-                        + (wake ? ";检测到 0x17 广播,仪表已唤醒" : ";未检测到 0x17 广播"));
-                final boolean ok = wake;
+                        + (wake ? ";检测到 0x17 广播,仪表已唤醒重启" : ";未检测到 0x17 广播"));
+                final boolean ok = got79 || wake;
                 ui.post(() -> {
                     if (!isAdded()) { releaseGate(); return; }
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
                             .setMessage(ok ? "仪表应已黑屏并自动重启唤醒。\n确认后继续「" + op + "」执行段。"
-                                    : "未检测到仪表唤醒广播。\n请观察仪表:若未重启请中止并导出日志;若已重启可继续。")
+                                    : "未检测到 0x79/0x17 应答。\n请观察仪表:若未重启请中止并导出日志;若已重启可继续。")
                             .setNegativeButton("中止", (d, w) -> { log("OP", op + " 用户中止(切换后)"); exitMasterSlaveQuiet(active); releaseGate(); })
                             .setPositiveButton("继续", (d, w) -> new Thread(() -> {
                                 try { onSwitched.run(); }
-                                catch (Exception e) { log("ERR", op + " 执行段失败: " + e.getMessage()); releaseGate(); }
+                                catch (Exception e) { log("ERR", op + " 执行段失败: " + e.getMessage()); exitMasterSlaveQuiet(active); releaseGate(); }
                             }, "diag-op-stage2").start())
                             .setCancelable(false).show();
                 });
             } catch (Exception e) {
                 log("ERR", op + " 主从切换失败: " + e.getMessage());
                 active.resumeKeepAlive();
+                active.startPolling();
                 releaseGate();
             }
         }, "diag-master").start();
     }
 
-    /** 发送官方退出帧 0x71(byte6=0x04)并恢复心跳(失败不打断流程)。 */
+    /** 发送官方退出帧 0x71(byte6=0x40,删卡会话 16:20:13.918 实证)并恢复心跳/轮询(失败不打断流程)。 */
     private void exitMasterSlaveQuiet(VciSppLink active) {
         try {
             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
             active.sendRs485(ZeehoRs485Ops.MASTER_SLAVE_EXIT_71);
-            log("TX", "主从退出 0x71(byte6=0x04)");
+            log("TX", "主从退出 0x71(byte6=0x40)");
         } catch (Exception e) {
             log("ERR", "主从退出失败: " + e.getMessage());
         } finally {
             active.resumeKeepAlive();
+            active.startPolling();
         }
+    }
+
+    /** 发送 L3 会话前导(60×3 + 69×3,帧间隔 15ms)。 */
+    private void sendPreamble(VciSppLink active) throws java.io.IOException {
+        for (byte[] cmd : ZeehoRs485Ops.sessionSetupCommands()) {
+            active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
+            sleepMs(15);
+        }
+    }
+
+    /** 官方阶段开道:FFA×2(递增 L2 seq)→ 45ms → 前导 60×3+69×3。
+     *  官方在 0x89 突发、0x71、0x80、每节点版本/DID 查询、退出前都重复整套开道。 */
+    private void stageOpen(VciSppLink active, String label) throws java.io.IOException {
+        active.sendFfaPair();
+        sleepMs(45);
+        sendPreamble(active);
+        log("OP", label + ":阶段开道完成(FFA×2+前导 60×3+69×3)");
+    }
+
+    /** 轮询等待指定节点 CF 应答(官方:车辆数据只随 69 轮询应答下发;150ms 轮询拉取)。
+     *  应答节点 = 查询节点|0x80(如 0x14→0x94)。prefix 可选 payload 前缀;命中返回 payload hex,超时 null。 */
+    private String pollAwaitNode(VciSppLink active, int node, int[] payloadPrefix, long timeoutMs) {
+        int mark;
+        synchronized (responseLock) { mark = pendingResponses.size(); }
+        long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
+        while (active.isConnected()) {
+            String hit = scanNodeSince(mark, node, payloadPrefix);
+            if (hit != null) return hit;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) return null;
+            try { active.send(VciLink.CMD_POLL, new byte[]{1, 1}); } catch (Exception e) { return null; }
+            sleepMs(150);
+        }
+        return null;
+    }
+
+    /** 扫描 mark 之后来自指定节点(可选 payload 前缀)的 CF payload hex;无命中返回 null。 */
+    private String scanNodeSince(int mark, int node, int[] payloadPrefix) {
+        synchronized (responseLock) {
+            for (int i = mark; i < pendingResponses.size(); i++) {
+                VciLink.DataFrame f = pendingResponses.get(i);
+                if (!f.fromVehicle) continue;
+                for (byte[] raw : VciLink.extractCfFrames(f)) {
+                    try {
+                        Rs485.Frame fr = Rs485.decode(raw);
+                        if (fr.node != node) continue;
+                        if (payloadPrefix != null && !hasPrefix(fr.payload, payloadPrefix)) continue;
+                        return Hex.format(fr.payload).replace(" ", "");
+                    } catch (IllegalArgumentException ignored) { }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasPrefix(byte[] payload, int[] prefix) {
+        if (payload.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if ((payload[i] & 0xFF) != (prefix[i] & 0xFF)) return false;
+        }
+        return true;
+    }
+
+    /** 从 payload hex 的第 skipBytes 字节起提取可打印 ASCII(版本串等);空则原样返回。 */
+    private static String asciiAfter(String hex, int skipBytes) {
+        if (hex == null) return "无应答";
+        StringBuilder sb = new StringBuilder();
+        for (int i = skipBytes * 2; i + 1 < hex.length(); i += 2) {
+            int c = Integer.parseInt(hex.substring(i, i + 2), 16);
+            if (c >= 0x20 && c < 0x7F) sb.append((char) c);
+        }
+        return sb.length() > 0 ? sb.toString() : hex;
+    }
+
+    /** "A1B2C3D4E5F6" → "A1:B2:C3:D4:E5:F6"(不足 12 位原样返回)。 */
+    private static String formatMac(String hex) {
+        if (hex == null || hex.length() < 12) return hex == null ? "无应答" : hex;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i + 2 <= 12; i += 2) {
+            if (i > 0) sb.append(':');
+            sb.append(hex.substring(i, i + 2).toUpperCase(java.util.Locale.US));
+        }
+        return sb.toString();
+    }
+
+    // ===== EOL 动态两步认证(协议总汇 §3.2.1;静态官方对仅作回退) =====
+
+    /**
+     * 帧①(challenge=1,proof=0x7E7)→ 等 FC 81 00 <车辆挑战4B> → 帧②(回传挑战+challenge×2023)→ 等 FC 82。
+     * 2.5s 内无 FC 81 挑战则回退官方静态对(E33A…/AFC0…,删卡会话逐字节,两步挑战互不联动)。
+     */
+    private void authorizeEol(VciSppLink active) throws Exception {
+        int mark;
+        int seq;
+        synchronized (responseLock) {
+            mark = pendingResponses.size();
+            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+            seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE,
+                    ZeehoRs485Ops.wrapRs485ForVci(ZeehoRs485Ops.eolAuth1Dynamic()));
+        }
+        log("TX", "EOL auth1(动态,seq=" + seq + ") " + Hex.format(ZeehoRs485Ops.eolAuth1Dynamic()).replace(" ", ""));
+        byte[] challenge = null;
+        long deadline = android.os.SystemClock.elapsedRealtime() + 2500;
+        while (active.isConnected() && challenge == null) {
+            challenge = scanFcChallengeSince(mark);
+            if (challenge != null) break;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) break;
+            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+            sleepMs(150);
+        }
+        if (challenge != null) {
+            log("OP", "EOL 动态认证: 车辆挑战 " + Hex.format(challenge).replace(" ", ""));
+            requestResponse(active, ZeehoRs485Ops.eolAuth2For(challenge), 0x82);
+        } else {
+            log("OP", "EOL 动态认证无 FC 81 挑战,回退官方静态对");
+            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
+            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+        }
+        log("OP", "EOL 授权完成(动态优先,FC 82 应答)");
+    }
+
+    /** 扫描 mark 后 FC 81 00 <challenge×4> 应答;返回 4B 挑战或 null。 */
+    private byte[] scanFcChallengeSince(int mark) {
+        synchronized (responseLock) {
+            for (int i = mark; i < pendingResponses.size(); i++) {
+                VciLink.DataFrame f = pendingResponses.get(i);
+                if (!f.fromVehicle) continue;
+                for (byte[] raw : VciLink.extractCfFrames(f)) {
+                    try {
+                        Rs485.Frame fr = Rs485.decode(raw);
+                        if (fr.node == 0xFC && fr.payload.length >= 6
+                                && (fr.payload[0] & 0xFF) == 0x81 && (fr.payload[1] & 0xFF) == 0x00) {
+                            return java.util.Arrays.copyOfRange(fr.payload, 2, 6);
+                        }
+                    } catch (IllegalArgumentException ignored) { }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 先标记后发送再等待(消除 pollAndSend→pollAwaitNode 两步间的应答竞态)。超时返回 null。 */
+    private String pollSendAwait(VciSppLink active, String title, byte[] cf, int node, int[] payloadPrefix, long timeoutMs) {
+        int mark;
+        synchronized (responseLock) { mark = pendingResponses.size(); }
+        pollAndSend(active, title, cf);
+        long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
+        while (active.isConnected()) {
+            String hit = scanNodeSince(mark, node, payloadPrefix);
+            if (hit != null) return hit;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) return null;
+            try { active.send(VciLink.CMD_POLL, new byte[]{1, 1}); } catch (Exception e) { return null; }
+            sleepMs(150);
+        }
+        return null;
+    }
+
+    // ===== 扩展读取(协议总汇 §3.4 DID 全表 + §3.2 EOL 读族) =====
+
+    private void beginExtendedRead() {
+        if (!opGate("扩展读取")) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("扩展读取(协议总汇)")
+                .setMessage("主从切换(仪表将黑屏重启)→ EOL 动态授权 → 节点 0x14 DID 全表(F187/F18A/F197/F193/F195/0203/0309/0312)→ F4 50 电池电压 / F4 3D 保养里程 / F4 6F 状态位图 0-2 页。\n全部只读;帧式按文档【汇】,子码后 00 填充为【推】。")
+                .setNegativeButton("取消", (d, w) -> releaseGate())
+                .setPositiveButton("开始", (d, w) -> {
+                    final VciSppLink active = link;
+                    officialMasterSlave(active, "扩展读取", () -> extendedReadRun(active));
+                }).show();
+    }
+
+    private void extendedReadRun(VciSppLink active) {
+        try {
+            authorizeEol(active);
+            byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
+            active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
+            sleepMs(50);
+            StringBuilder sb = new StringBuilder();
+            // ① DID 全表(节点 0x14 → 应答 0x94;正向应答前缀 62 + DID)
+            for (Object[] d : ZeehoRs485Ops.DID_TABLE) {
+                int did = (Integer) d[0];
+                String name = (String) d[1];
+                String title = "DID " + name;
+                stageOpen(active, title);
+                int[] prefix = {0x62, (did >> 8) & 0xFF, did & 0xFF};
+                String resp = pollSendAwait(active, title, ZeehoRs485Ops.udsReadDid(0x14, did), 0x94, prefix, 2500);
+                String line;
+                if (resp == null) {
+                    line = name + ": 无应答";
+                } else if (did == 0x0309 && resp.length() >= 12) {
+                    int v = Integer.parseInt(resp.substring(6, 12), 16);
+                    line = name + ": " + String.format(java.util.Locale.US, "%.1f km", v / 10.0) + "  [" + resp + "]";
+                } else if (did == 0xF197) {
+                    line = name + ": " + (resp.length() >= 18
+                            ? formatMac(resp.substring(6, 18)) : asciiAfter(resp, 3)) + "  [" + resp + "]";
+                } else {
+                    line = name + ": " + asciiAfter(resp, 3) + "  [" + resp + "]";
+                }
+                sb.append(line).append('\n');
+                log("OP", "扩展读取 " + line);
+                sleepMs(150);
+            }
+            // ② EOL 读族(F4 子命令,应答节点 0xFC)
+            sb.append(readEolLine(active, "F4 50 电池电压", ZeehoRs485Ops.eolBatteryVoltage())).append('\n');
+            sb.append(readEolLine(active, "F4 3D 保养里程", ZeehoRs485Ops.eolMaintMileage())).append('\n');
+            for (int page = 0; page <= 2; page++) {
+                sb.append(readEolLine(active, "F4 6F 状态位图 页" + page, ZeehoRs485Ops.eolStatusBitmap(page))).append('\n');
+            }
+            exitMasterSlaveQuiet(active);
+            releaseGate();
+            showResult("扩展读取(协议总汇)", sb.toString());
+        } catch (Exception e) {
+            log("ERR", "扩展读取失败: " + e.getMessage());
+            exitMasterSlaveQuiet(active);
+            releaseGate();
+            showResult("扩展读取(协议总汇)", "失败: " + e.getMessage());
+        }
+    }
+
+    /** EOL 单条只读:F4 子命令 → 等 0xFC 应答,返回展示行(原始 hex,格式未在文档定义)。 */
+    private String readEolLine(VciSppLink active, String title, byte[] cf) {
+        String resp = pollSendAwait(active, title, cf, 0xFC, null, 2500);
+        return title + ": " + (resp != null ? resp : "无应答");
     }
 
     // ===== 删卡(官方 2026-11-10 00:20 会话) =====
@@ -318,9 +565,8 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     private void authorizeDelete(VciSppLink active, int deleteType) throws Exception {
-        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
-        log("OP", "EOL 授权完成(FC 81/82 均已应答)");
+        authorizeEol(active);
+        log("OP", "删卡授权完成");
         ui.post(() -> {
             if (!isAdded()) { releaseGate(); return; }
             new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("授权完成")
@@ -384,8 +630,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void studyAuth(VciSppLink active, int studyCardType) {
         try {
-            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+            authorizeEol(active);
             byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
             active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
             sleepMs(50);
@@ -406,24 +651,34 @@ public final class DiagFragment extends BaseTabFragment {
     private void beginVersionRead() {
         if (!opGate("读版本")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读版本(官方流程)")
-                .setMessage("官方读版本同样先做主从切换(仪表将黑屏重启),再逐节点读 22F193/F195。")
+                .setMessage("官方读版本同样先做主从切换(仪表将黑屏重启),再逐节点读 22F193/F195。\n结果显示在本页「诊断结果」区。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
                     officialMasterSlave(active, "读版本", () -> {
-                        active.send(VciLink.CMD_POLL, new byte[]{1, 1});
-                        active.sendRs485(ZeehoRs485Ops.VERSION_QUERY_80);
-                        log("TX", "版本 0x80(VIN 查询,观察 0x88 应答)");
-                        sleepMs(300);
+                        // 官方 2026-11-15 02:39 会话:每个阶段前重复 FFA×2+前导;应答节点=查询节点|0x80
+                        stageOpen(active, "读版本");
+                        pollAndSend(active, "版本 0x80(VIN 查询)", ZeehoRs485Ops.VERSION_QUERY_80);
+                        String vin = pollAwaitNode(active, 0x88, null, 2500);
+                        log("OP", "0x80 应答(节点 0x88): " + (vin != null ? vin : "无"));
+                        StringBuilder sb = new StringBuilder();
+                        if (vin != null) sb.append("0x88: ").append(vin).append('\n');
                         for (int node : ZeehoRs485Ops.VERSION_NODES) {
-                            pollAndSend(active, "版本 node=" + Integer.toHexString(node), ZeehoRs485Ops.udsReadDid(node, 0xF193));
+                            stageOpen(active, "读版本 node " + Integer.toHexString(node));
+                            pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F193", ZeehoRs485Ops.udsReadDid(node, 0xF193));
+                            String hw = pollAwaitNode(active, node | 0x80, new int[]{0x62, 0xF1, 0x93}, 2500);
                             sleepMs(200);
-                            pollAndSend(active, "版本 node=" + Integer.toHexString(node), ZeehoRs485Ops.udsReadDid(node, 0xF195));
-                            sleepMs(200);
+                            pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F195", ZeehoRs485Ops.udsReadDid(node, 0xF195));
+                            String sw = pollAwaitNode(active, node | 0x80, new int[]{0x62, 0xF1, 0x95}, 2500);
+                            String line = "node " + Integer.toHexString(node) + ": HW=" + asciiAfter(hw, 3) + "  SW=" + asciiAfter(sw, 3);
+                            log("OP", "版本 " + line);
+                            sb.append(line).append('\n');
                         }
-                        log("OP", "读版本发送完毕(日志核对 62 F1 93/95 应答)");
+                        log("OP", "读版本完成");
                         exitMasterSlaveQuiet(active);
                         releaseGate();
+                        // 结果固定显示在页面"诊断结果"区(对齐官方 zscan 诊断界面),不再弹窗
+                        showResult("版本读取", sb.toString());
                     });
                 }).show();
     }
@@ -433,68 +688,32 @@ public final class DiagFragment extends BaseTabFragment {
     private void beginDtcRead() {
         if (!opGate("读DTC")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读故障码")
-                .setMessage("主从切换(仪表将黑屏重启)→ EOL 授权 → F4 51 00。\n固件逆向:F4 51 = 读 46B 诊断状态(推测 6B 状态头 + DTC_0/1/2 三块,与清码 33/36/38 对应)。")
+                .setMessage("主从切换(仪表将黑屏重启)→ EOL 动态授权 → F4 51 00。\n协议总汇:F4 51 = 读 46B 诊断状态;33/36/38 = 写 NVM18/19/20(DTC_0/1/2,20/10/10B),故 46B 推断为 6B 状态头 + 20+10+10 三块。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
                     officialMasterSlave(active, "读DTC", () -> {
-                        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-                        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+                        authorizeEol(active);
+                        log("OP", "读DTC: EOL 授权完成");
                         byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
                         active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
                         sleepMs(50);
-                        int mark;
-                        synchronized (responseLock) {
-                            mark = pendingResponses.size();
-                            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
-                            active.sendRs485(ZeehoRs485Ops.dtcReadEol());
-                        }
-                        log("TX", "读DTC F4 51 00 已发,收集应答…");
-                        sleepMs(3000);
-                        List<String> payloads = collectFcPayloadsSince(mark);
-                        if (payloads.isEmpty()) {
-                            log("OP", "读DTC: 3s 内未收到节点 0xFC 应答(导出日志核查)");
+                        pollAndSend(active, "读DTC F4 51 00", ZeehoRs485Ops.dtcReadEol());
+                        String payload = pollAwaitNode(active, 0xFC, null, 3000);
+                        String result;
+                        if (payload != null) {
+                            log("OP", "读DTC 应答 FC payload=" + payload);
+                            result = describeDtcPayload(payload);
+                            log("OP", "读DTC 解读: " + result);
                         } else {
-                            for (String pl : payloads) {
-                                log("OP", "读DTC 应答 FC payload=" + pl);
-                                log("OP", "读DTC 解读: " + describeDtcPayload(pl));
-                            }
+                            result = "未收到 0xFC 应答(已发送主从切换+授权+51 00,导出日志核查)";
+                            log("OP", "读DTC: 3s 内未收到节点 0xFC 应答(导出日志核查)");
                         }
-                        final List<String> result = payloads;
-                        ui.post(() -> {
-                            if (!isAdded()) { releaseGate(); return; }
-                            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读 DTC 完成")
-                                    .setMessage(result.isEmpty()
-                                            ? "未收到 0xFC 应答。已发送主从切换+授权+51 00,请导出日志分析。"
-                                            : "收到 " + result.size() + " 条 FC 应答(payload 见日志)。\n确认后发送主从退出帧。")
-                                    .setPositiveButton("完成", (d2, w2) -> new Thread(() -> {
-                                        exitMasterSlaveQuiet(active);
-                                        releaseGate();
-                                    }, "diag-dtc-exit").start())
-                                    .setCancelable(false).show();
-                        });
+                        exitMasterSlaveQuiet(active);
+                        releaseGate();
+                        showResult("读 DTC", result + "\n原始: " + (payload != null ? payload : "无"));
                     });
                 }).show();
-    }
-
-    /** 收集 mark 之后所有来自节点 0xFC 的 CF payload(hex)。 */
-    private List<String> collectFcPayloadsSince(int mark) {
-        List<String> out = new ArrayList<>();
-        synchronized (responseLock) {
-            for (int i = mark; i < pendingResponses.size(); i++) {
-                VciLink.DataFrame f = pendingResponses.get(i);
-                if (!f.fromVehicle) continue;
-                for (byte[] raw : VciLink.extractCfFrames(f)) {
-                    try {
-                        Rs485.Frame fr = Rs485.decode(raw);
-                        if (fr.node == 0xFC && fr.payload.length > 0) {
-                            out.add(Hex.format(fr.payload).replace(" ", ""));
-                        }
-                    } catch (IllegalArgumentException ignored) { }
-                }
-            }
-        }
-        return out;
     }
 
     /**
@@ -532,8 +751,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
                     officialMasterSlave(active, "清DTC", () -> {
-                        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-                        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+                        authorizeEol(active);
                         byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
                         active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
                         sleepMs(50);
@@ -560,49 +778,73 @@ public final class DiagFragment extends BaseTabFragment {
         try { km = Double.parseDouble(raw); } catch (NumberFormatException e) { toast("里程格式不对"); return; }
         if (km < 0 || km > 999999) { toast("里程 0–999999 km"); return; }
         int tenth = (int) Math.round(km * 10);
+        // 外部权威确认(m00796):写里程必须先 EOL 授权,再写入 —— 两条路线都走
+        // 主从切换 → EOL 授权×2(F4 09 01/02 → FC 81/82)→ 07D0 提时 → 写入 → 回读 → 退出。
+        // EOL 路线写 F4 4F(产线专用),DID 路线写 CF→14 2E 03 09(保留作对照实验)。
         if (eolRoute) {
             if (!opGate("写里程EOL")) return;
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL)")
-                    .setMessage("主从切换 + 授权 + 0x4F 写入 " + raw + " km(小端)。")
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL 0x4F)")
+                    .setMessage("主从切换(仪表将黑屏重启)→ EOL 授权 → 0x4F 写入 " + raw + " km(小端)→ DID 回读核对。\n外部权威确认:写里程需先 EOL 授权,再写入。")
                     .setNegativeButton("取消", (d, w) -> releaseGate())
                     .setPositiveButton("开始", (d, w) -> {
                         final VciSppLink active = link;
                         officialMasterSlave(active, "写里程EOL", () -> {
-                            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-                            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+                            authorizeEol(active);
+                            log("OP", "写里程EOL: 授权完成");
                             byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
                             active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
                             sleepMs(50);
-                            pollAndSend(active, "写里程EOL", ZeehoRs485Ops.mileageWriteEol(tenth));
-                            sleepMs(800);
+                            String before = readOdoViaDid(active);
+                            log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
+                            pollAndSend(active, "写里程EOL 0x4F", ZeehoRs485Ops.mileageWriteEol(tenth));
+                            String ack = pollAwaitNode(active, 0xFC, null, 3000);
+                            log("OP", "0x4F 应答: " + (ack != null ? ack : "无(观察仪表/回读核实)"));
+                            sleepMs(500);
                             String after = readOdoViaDid(active);
                             log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
-                            log("OP", "写里程EOL 发送完毕");
+                            log("OP", "写里程EOL 完成");
                             exitMasterSlaveQuiet(active);
                             releaseGate();
+                            showResult("写里程 EOL 0x4F", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
+                                    + "\n0x4F 应答 " + (ack != null ? ack : "无")
+                                    + "\n写后 " + (after != null ? after : "无应答"));
                         });
                     }).show();
         } else {
-            confirm("写里程 " + raw + " km(DID 0x0309 直写,无主从切换),确认?", () -> {
-                new Thread(() -> {
-                    VciSppLink active = link;
-                    if (active == null) return;
-                    for (byte[] l3 : ZeehoRs485Ops.sessionSetupCommands()) {
-                        try {
-                            active.send(l3[1] & 0xFF, java.util.Arrays.copyOfRange(l3, 2, l3.length));
-                        } catch (Exception e) { log("ERR", "preamble: " + e.getMessage()); return; }
-                        sleepMs(15);
-                    }
-                    sleepMs(200);
-                    String before = readOdoViaDid(active);
-                    log("OP", "写前里程读取: " + (before != null ? before : "无应答(继续写入)"));
-                    sleepMs(300);
-                    sendCfTo(active, "写里程DID", ZeehoRs485Ops.mileageWriteDid(tenth));
-                    sleepMs(800);
-                    String after = readOdoViaDid(active);
-                    log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
-                }, "diag-odo").start();
-            });
+            if (!opGate("写里程DID")) return;
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(DID 0309)")
+                    .setMessage("与 EOL 路线同样先主从切换 + EOL 授权(外部权威确认:写里程需先 EOL,再写入),再以 DID 0x0309 写 " + raw + " km(大端 3B)并回读。\n此路线仅作对照实验,持久化未验证。")
+                    .setNegativeButton("取消", (d, w) -> releaseGate())
+                    .setPositiveButton("开始", (d, w) -> {
+                        final VciSppLink active = link;
+                        officialMasterSlave(active, "写里程DID", () -> {
+                            authorizeEol(active);
+                            log("OP", "写里程DID: 授权完成");
+                            byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
+                            active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
+                            sleepMs(50);
+                            String before = readOdoViaDid(active);
+                            log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
+                            pollAndSend(active, "写里程DID 2E 03 09", ZeehoRs485Ops.mileageWriteDid(tenth));
+                            String ack = pollAwaitNode(active, 0x94, null, 3000);
+                            if (ack == null) log("OP", "写里程DID: 未收到 0x94 写应答(观察仪表/回读核实)");
+                            else if (ack.regionMatches(true, 0, "6E0309", 0, 6)) log("OP", "写里程DID: 正向应答 6E 03 09");
+                            else if (ack.regionMatches(true, 0, "7F", 0, 2)) log("OP", "写里程DID: 负向应答 NRC " + ack);
+                            else log("OP", "写里程DID: 0x94 应答 " + ack);
+                            stageOpen(active, "写里程DID 回读");
+                            String after = readOdoViaDid(active);
+                            log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
+                            log("OP", "写里程DID 完成");
+                            exitMasterSlaveQuiet(active);
+                            releaseGate();
+                            String ackText = ack == null ? "未收到 0x94 写应答"
+                                    : (ack.regionMatches(true, 0, "6E0309", 0, 6) ? "正向 6E 03 09"
+                                    : (ack.regionMatches(true, 0, "7F", 0, 2) ? "NRC " + ack : ack));
+                            showResult("写里程 DID 0309", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
+                                    + "\n写应答 " + ackText
+                                    + "\n写后 " + (after != null ? after : "无应答"));
+                        });
+                    }).show();
         }
     }
 
@@ -617,8 +859,7 @@ public final class DiagFragment extends BaseTabFragment {
                     final VciSppLink active = link;
                     new Thread(() -> {
                         try {
-                            active.suspendKeepAlive();
-                            active.sendDeleteEntryQueries();
+                            active.sendFfaPair(); // 阶段开道;心跳保持(官方 ABS 期间 FFA ~1/s 连续)
                             sleepMs(45);
                             for (byte[] cmd : ZeehoRs485Ops.absBleedSetupCommands()) {
                                 active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
@@ -628,7 +869,6 @@ public final class DiagFragment extends BaseTabFragment {
                             ui.post(() -> absStage2Dialog(active));
                         } catch (Exception e) {
                             log("ERR", "ABS 配置失败: " + e.getMessage());
-                            active.resumeKeepAlive();
                             releaseGate();
                         }
                     }, "diag-abs1").start();
@@ -639,7 +879,7 @@ public final class DiagFragment extends BaseTabFragment {
         if (!isAdded()) { releaseGate(); return; }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("进入诊断会话")
                 .setMessage("配置完成。继续进入 ABS 扩展会话(10 03)?")
-                .setNegativeButton("中止", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
+                .setNegativeButton("中止", (d, w) -> { releaseGate(); })
                 .setPositiveButton("继续", (d, w) -> new Thread(() -> {
                     try {
                         active.sendBus(Hex.parse("1001"));
@@ -650,7 +890,6 @@ public final class DiagFragment extends BaseTabFragment {
                         ui.post(() -> absStage3Dialog(active));
                     } catch (Exception e) {
                         log("ERR", "ABS 会话失败: " + e.getMessage());
-                        active.resumeKeepAlive();
                         releaseGate();
                     }
                 }, "diag-abs2").start())
@@ -661,7 +900,7 @@ public final class DiagFragment extends BaseTabFragment {
         if (!isAdded()) { releaseGate(); return; }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("开始排气动作")
                 .setMessage("会话已请求。继续将执行安全访问(27 01/27 02)并开始 60 轮泵阀循环。\n循环期间勿断开蓝牙。")
-                .setNegativeButton("中止", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
+                .setNegativeButton("中止", (d, w) -> { releaseGate(); })
                 .setPositiveButton("开始排气", (d, w) -> new Thread(() -> absBleedRun(active), "diag-abs3").start())
                 .setCancelable(false).show();
     }
@@ -669,7 +908,7 @@ public final class DiagFragment extends BaseTabFragment {
     private void absBleedRun(VciSppLink active) {
         try {
             active.sendBus(ZeehoRs485Ops.absSeedRequest());
-            byte[] seed = awaitAbsSeed(3000);
+            byte[] seed = awaitAbsSeed(active, 3000);
             if (seed == null) throw new java.io.IOException("未收到 27 01 种子(07e9 08 06 67 01)");
             log("OP", "ABS seed=" + Hex.format(seed));
             lastFff7Key = null;
@@ -706,10 +945,10 @@ public final class DiagFragment extends BaseTabFragment {
             active.sendBus(ZeehoRs485Ops.absDefaultSession());
             log("OP", "排气循环完成,已停泵/清码/回默认会话");
             ui.post(() -> {
-                if (!isAdded()) { active.resumeKeepAlive(); releaseGate(); return; }
+                if (!isAdded()) { releaseGate(); return; }
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("排气完成")
                         .setMessage("循环与清码已发送。按官方流程最后执行 ABS ECU 复位(11 01)?")
-                        .setNegativeButton("跳过", (d, w) -> { active.resumeKeepAlive(); releaseGate(); })
+                        .setNegativeButton("跳过", (d, w) -> { releaseGate(); })
                         .setPositiveButton("复位", (d, w) -> new Thread(() -> {
                             try {
                                 active.sendBus(ZeehoRs485Ops.absEcuReset());
@@ -717,7 +956,6 @@ public final class DiagFragment extends BaseTabFragment {
                             } catch (Exception e) {
                                 log("ERR", "ECU 复位失败: " + e.getMessage());
                             } finally {
-                                active.resumeKeepAlive();
                                 releaseGate();
                             }
                         }, "diag-abs-reset").start())
@@ -725,30 +963,38 @@ public final class DiagFragment extends BaseTabFragment {
             });
         } catch (Exception e) {
             log("ERR", "ABS 排气中止: " + e.getMessage());
-            active.resumeKeepAlive();
             releaseGate();
         }
     }
 
-    /** 等待 ABS 27 01 种子(任意 L3 帧数据中含 07E9 08 06 67 01 <seed4B>)。 */
-    private byte[] awaitAbsSeed(long timeoutMs) throws InterruptedException {
+    /** 轮询等待 ABS 27 01 种子(数据帧含 07E9 08 06 67 01 <seed4B>;150ms 轮询拉取)。 */
+    private byte[] awaitAbsSeed(VciSppLink active, long timeoutMs) {
+        int mark;
+        synchronized (responseLock) { mark = pendingResponses.size(); }
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
+        while (active.isConnected()) {
+            byte[] seed = scanAbsSeedSince(mark);
+            if (seed != null) return seed;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) return null;
+            try { active.send(VciLink.CMD_POLL, new byte[]{1, 1}); } catch (Exception e) { return null; }
+            sleepMs(150);
+        }
+        return null;
+    }
+
+    private byte[] scanAbsSeedSince(int mark) {
         synchronized (responseLock) {
-            while (true) {
-                for (VciLink.DataFrame f : pendingResponses) {
-                    byte[] d = f.data;
-                    for (int i = 0; i + 9 <= d.length; i++) {
-                        if ((d[i] & 0xFF) == 0x07 && (d[i + 1] & 0xFF) == 0xE9 && (d[i + 2] & 0xFF) == 0x08
-                                && (d[i + 3] & 0xFF) == 0x06 && (d[i + 4] & 0xFF) == 0x67 && (d[i + 5] & 0xFF) == 0x01) {
-                            return java.util.Arrays.copyOfRange(d, i + 6, i + 10);
-                        }
+            for (int i = mark; i < pendingResponses.size(); i++) {
+                byte[] d = pendingResponses.get(i).data;
+                for (int j = 0; j + 9 <= d.length; j++) {
+                    if ((d[j] & 0xFF) == 0x07 && (d[j + 1] & 0xFF) == 0xE9 && (d[j + 2] & 0xFF) == 0x08
+                            && (d[j + 3] & 0xFF) == 0x06 && (d[j + 4] & 0xFF) == 0x67 && (d[j + 5] & 0xFF) == 0x01) {
+                        return java.util.Arrays.copyOfRange(d, j + 6, j + 10);
                     }
                 }
-                long left = deadline - android.os.SystemClock.elapsedRealtime();
-                if (left <= 0) return null;
-                responseLock.wait(left);
             }
         }
+        return null;
     }
 
     private byte[] awaitFff7Key(long timeoutMs) throws InterruptedException {
@@ -784,55 +1030,34 @@ public final class DiagFragment extends BaseTabFragment {
         sendCfTo(active, title, cf);
     }
 
+    /** 官方请求-应答:poll+CF 写入,然后边轮询边等节点 0xFC 指定应答码
+     *  (应答骑在后续 poll 响应上,不依赖 TX seq 回显)。超时抛异常。 */
     private void requestResponse(VciSppLink active, byte[] cf, int response) throws Exception {
-        active.send(VciLink.CMD_POLL, new byte[]{1, 1});
-        long deadline = android.os.SystemClock.elapsedRealtime() + 3000;
+        int mark;
+        int seq;
         synchronized (responseLock) {
-            pendingResponses.clear();
-            int seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE, ZeehoRs485Ops.wrapRs485ForVci(cf));
-            log("TX", "CF(seq=" + seq + ") " + Hex.format(cf).replace(" ", ""));
-            while (active.isConnected()) {
-                for (VciLink.DataFrame frame : pendingResponses) {
-                    if (DeleteCardResponses.matches(frame, seq, response)) return;
+            mark = pendingResponses.size();
+            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+            seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE, ZeehoRs485Ops.wrapRs485ForVci(cf));
+        }
+        log("TX", "CF(seq=" + seq + ") " + Hex.format(cf).replace(" ", ""));
+        long deadline = android.os.SystemClock.elapsedRealtime() + 3000;
+        while (active.isConnected()) {
+            boolean hit = false;
+            synchronized (responseLock) {
+                for (int i = mark; i < pendingResponses.size(); i++) {
+                    if (DeleteCardResponses.matchesAnySeq(pendingResponses.get(i), response)) { hit = true; break; }
                 }
-                long left = deadline - android.os.SystemClock.elapsedRealtime();
-                if (left <= 0) break;
-                responseLock.wait(left);
             }
+            if (hit) return;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) break;
+            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+            sleepMs(150);
         }
         throw new java.io.IOException("等待 FC " + Integer.toHexString(response) + " 超时或连接断开");
     }
 
-    private boolean awaitNode(VciSppLink active, int seq, int node, long timeout) throws InterruptedException {
-        return awaitNodeInternal(active, seq, node, timeout, true);
-    }
-
-    private boolean awaitNodeAny(VciSppLink active, int node, long timeout) throws InterruptedException {
-        return awaitNodeInternal(active, -1, node, timeout, false);
-    }
-
-    private boolean awaitNodeInternal(VciSppLink active, int seq, int node, long timeout, boolean seqEcho) throws InterruptedException {
-        long deadline = android.os.SystemClock.elapsedRealtime() + timeout;
-        synchronized (responseLock) {
-            while (active.isConnected()) {
-                for (VciLink.DataFrame frame : pendingResponses) {
-                    if (!frame.fromVehicle) continue;
-                    if (seqEcho && frame.seq != (seq & 0xff)) continue;
-                    for (byte[] raw : VciLink.extractCfFrames(frame)) {
-                        try {
-                            if (Rs485.decode(raw).node == node) return true;
-                        } catch (IllegalArgumentException ignored) { }
-                    }
-                }
-                long left = deadline - android.os.SystemClock.elapsedRealtime();
-                if (left <= 0) break;
-                responseLock.wait(left);
-            }
-        }
-        return false;
-    }
-
-    /** DID 0309 读里程(22 03 09 → 62 03 09 + 3B 大端 0.1km)。超时返回 null。 */
+    /** DID 0309 读里程(22 03 09 → 节点 0x94 应答 62 03 09 + 3B 大端 0.1km;150ms 轮询拉取)。超时返回 null。 */
     private String readOdoViaDid(VciSppLink active) {
         int mark;
         synchronized (responseLock) {
@@ -846,32 +1071,33 @@ public final class DiagFragment extends BaseTabFragment {
             }
         }
         long deadline = android.os.SystemClock.elapsedRealtime() + 2500;
-        synchronized (responseLock) {
-            while (active.isConnected()) {
-                String r = scanOdoSince(mark);
-                if (r != null) return r;
-                long left = deadline - android.os.SystemClock.elapsedRealtime();
-                if (left <= 0) break;
-                try { responseLock.wait(left); } catch (InterruptedException ignored) { return null; }
-            }
+        while (active.isConnected()) {
+            String r = scanOdoSince(mark);
+            if (r != null) return r;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) return null;
+            try { active.send(VciLink.CMD_POLL, new byte[]{1, 1}); } catch (Exception e) { return null; }
+            sleepMs(150);
         }
         return null;
     }
 
     private String scanOdoSince(int mark) {
-        for (int i = mark; i < pendingResponses.size(); i++) {
-            VciLink.DataFrame f = pendingResponses.get(i);
-            if (!f.fromVehicle) continue;
-            for (byte[] raw : VciLink.extractCfFrames(f)) {
-                try {
-                    Rs485.Frame fr = Rs485.decode(raw);
-                    if (fr.node == 0x14 && fr.payload.length >= 6
-                            && (fr.payload[0] & 0xFF) == 0x62
-                            && (fr.payload[1] & 0xFF) == 0x03 && (fr.payload[2] & 0xFF) == 0x09) {
-                        int v = ((fr.payload[3] & 0xFF) << 16) | ((fr.payload[4] & 0xFF) << 8) | (fr.payload[5] & 0xFF);
-                        return String.format(java.util.Locale.US, "%.1f", v / 10.0) + " km";
-                    }
-                } catch (IllegalArgumentException ignored) { }
+        synchronized (responseLock) {
+            for (int i = mark; i < pendingResponses.size(); i++) {
+                VciLink.DataFrame f = pendingResponses.get(i);
+                if (!f.fromVehicle) continue;
+                for (byte[] raw : VciLink.extractCfFrames(f)) {
+                    try {
+                        Rs485.Frame fr = Rs485.decode(raw);
+                        // 应答节点 = 查询节点|0x80(0x14→0x94,z_1115 会话实证)
+                        if (fr.node == 0x94 && fr.payload.length >= 6
+                                && (fr.payload[0] & 0xFF) == 0x62
+                                && (fr.payload[1] & 0xFF) == 0x03 && (fr.payload[2] & 0xFF) == 0x09) {
+                            int v = ((fr.payload[3] & 0xFF) << 16) | ((fr.payload[4] & 0xFF) << 8) | (fr.payload[5] & 0xFF);
+                            return String.format(java.util.Locale.US, "%.1f", v / 10.0) + " km";
+                        }
+                    } catch (IllegalArgumentException ignored) { }
+                }
             }
         }
         return null;
@@ -906,6 +1132,23 @@ public final class DiagFragment extends BaseTabFragment {
         send.putExtra(android.content.Intent.EXTRA_TEXT, dump);
         startActivity(android.content.Intent.createChooser(send, "诊断日志"));
         toast("日志已保存:\n" + path);
+    }
+
+    /** 诊断结果区追加一条结果(线程安全,自动滚底,8KB 截断)——对齐官方 zscan 诊断界面的结果展示。 */
+    private void showResult(String title, String body) {
+        ui.post(() -> {
+            if (!isAdded() || resultView == null) return;
+            String stamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                    .format(new java.util.Date());
+            String entry = "【" + title + "】" + stamp + "\n" + body + "\n----\n";
+            String cur = resultView.getText().toString();
+            if (cur.startsWith("暂无结果")) cur = "";
+            String next = cur + entry;
+            if (next.length() > 8000) next = next.substring(next.length() - 8000);
+            resultView.setText(next);
+            final android.widget.ScrollView sv = resultScroll;
+            if (sv != null) sv.post(() -> sv.fullScroll(android.view.View.FOCUS_DOWN));
+        });
     }
 
     private void log(String tag, String message) {

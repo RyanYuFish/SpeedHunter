@@ -14,7 +14,7 @@ import java.util.List;
  * - 官方从不发送 cmd 6A 触发器;L3 前导 = 60×3 + 69(0101) + 69(02002C00190019) + 69(0101)
  * - 主从切换 = CF→0x89(15 00…20,64B)×5 + CF→0x71(byte6=0x20) — 删卡会话实证,
  *   仪表黑屏后自动重启(节点 0x17 广播 WiFi AP 信息 = 唤醒标志)
- * - 主从退出 = CF→0x71(byte6=0x04);读取版本官方流程还有 CF→0x80(全零,VIN 查询)
+ * - 主从退出 = CF→0x71(byte6=0x40,删卡会话 16:20:13.918 实证);版本流程还有 CF→0x80(全零,VIN 查询)
  * - 0x89 写帧官方节奏: #1→#2 158ms, #2→#3 112ms, #3→#4 1105ms, #4→#5 1107ms,
  *   #5→0x71 1108ms;每帧写前 2~3ms 先发 69 0101 轮询
  * - 操作执行前(删卡 3A 之前)官方会把 60 配置 #3 的超时从 0226 提到 07D0
@@ -35,6 +35,53 @@ public final class ZeehoRs485Ops {
     public static int eolProof(int challenge) {
         return challenge * 2023;
     }
+
+    // ===== EOL 认证·动态两步(协议总汇 §3.2.1;官方静态对仅作回退) =====
+
+    /**
+     * 帧①(文档逐字节): 43 46 F4 09 01 01 00 00 00 E7 07 00 00 ED 45 44。
+     * data = step01 + challenge 0x00000001 + proof 0x000007E7(=1×2023);
+     * 车辆以 FC 06 81 00 <challenge×4LE> 应答,challenge 再用于帧②。
+     */
+    public static byte[] eolAuth1Dynamic() {
+        return Rs485.encode(0xF4, new byte[]{0x01, 0x01, 0x00, 0x00, 0x00, (byte) 0xE7, 0x07, 0x00, 0x00});
+    }
+
+    /** 帧②: step02 + 车辆挑战(4B 原样回传) + proof=challenge×2023(u32 LE 自然回绕)。 */
+    public static byte[] eolAuth2For(byte[] challengeLe4) {
+        if (challengeLe4 == null || challengeLe4.length != 4) throw new IllegalArgumentException("challenge 4B");
+        int c = (challengeLe4[0] & 0xFF) | ((challengeLe4[1] & 0xFF) << 8)
+                | ((challengeLe4[2] & 0xFF) << 16) | ((challengeLe4[3] & 0xFF) << 24);
+        int p = eolProof(c);
+        return Rs485.encode(0xF4, new byte[]{0x02, challengeLe4[0], challengeLe4[1], challengeLe4[2], challengeLe4[3],
+                (byte) p, (byte) (p >> 8), (byte) (p >> 16), (byte) (p >> 24)});
+    }
+
+    // ===== EOL 读族(协议总汇 §3.2;帧式为【汇】子码+【推】00 填充,只读低风险) =====
+
+    /** F4 50: 读电池电压(ADC0 ch2)。 */
+    public static byte[] eolBatteryVoltage() { return Rs485.encode(0xF4, new byte[]{0x50, 0x00}); }
+
+    /** F4 3D: 读保养里程。 */
+    public static byte[] eolMaintMileage() { return Rs485.encode(0xF4, new byte[]{0x3D, 0x00}); }
+
+    /** F4 6F pp: 状态位图打包读(子页 0x00-0x06,文档 §3.2)。 */
+    public static byte[] eolStatusBitmap(int page) {
+        if (page < 0 || page > 6) throw new IllegalArgumentException("page 0-6");
+        return Rs485.encode(0xF4, new byte[]{0x6F, (byte) page});
+    }
+
+    /** 协议总汇 §3.4 DID 全表(节点 0x14,应答节点 0x94): {did, 名称, 期望字节数}。 */
+    public static final Object[][] DID_TABLE = {
+            {0xF187, "F187 PARTS_NUM 部件号", 20},
+            {0xF18A, "F18A SUPPLIER_NUM 供应商", 10},
+            {0xF197, "F197 BT_MAC 蓝牙MAC", 6},
+            {0xF193, "F193 HW_VER 硬件版本", 10},
+            {0xF195, "F195 版本2", 10},
+            {0x0203, "0203 SK 密钥(只读显示)", 16},
+            {0x0309, "0309 里程", 3},
+            {0x0312, "0312 百公里电耗/累计能耗", 4},
+    };
 
     // ===== NFC(EOL 子命令 0x39/0x3A) =====
     public static byte[] nfcLearnSwitch(int mode) {
@@ -103,9 +150,9 @@ public final class ZeehoRs485Ops {
     /** CF→0x71 byte6=0x20: 切换确认(官方在 0x89×5 后 1.1s 发,节点 0x79 应答)。 */
     public static final byte[] MASTER_SLAVE_CONFIRM_71 = Rs485.encode(0x71,
             hex("00000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
-    /** CF→0x71 byte6=0x04: 主从退出(操作完成后发)。 */
+    /** CF→0x71 byte6=0x40: 主从退出(删卡会话 16:20:13.918 实证;旧版 0x04 为误读)。 */
     public static final byte[] MASTER_SLAVE_EXIT_71 = Rs485.encode(0x71,
-            hex("00000000000004000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+            hex("00000000000040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
     /** CF→0x80 全零: 官方读版本流程在 0x71(04) 后发,触发节点 0x88 回 "000F01"+VIN。 */
     public static final byte[] VERSION_QUERY_80 = Rs485.encode(0x80, zeros(64));
     /** 旧 btsnoop 解出的 0x89 变体(读版本会话用,含疑似时间戳,默认不使用)。 */

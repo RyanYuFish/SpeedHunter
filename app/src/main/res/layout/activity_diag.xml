@@ -192,6 +192,14 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_diag_ext"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="扩展读取(DID 全表+EOL 电压/保养/状态,协议总汇)"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_diag_abs"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -229,7 +237,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:text="直写\n里程"
+                android:text="DID 写\n里程"
                 android:textSize="13sp" />
 
             <com.google.android.material.button.MaterialButton
@@ -250,6 +258,69 @@
             android:text="未连接"
             android:textAppearance="?attr/textAppearanceBodySmall"
             android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <!-- ===== 诊断结果(对齐官方 zscan 诊断界面:读版本/读码结果显示区) ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_analytics"
+                    app:tint="?attr/colorPrimary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="诊断结果"
+                    android:textAppearance="?attr/textAppearanceTitleSmall"
+                    android:textColor="?attr/colorOnSurface" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_diag_result_clear"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="清空" />
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/sv_diag_result"
+                android:layout_width="match_parent"
+                android:layout_height="150dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_log_pane">
+
+                <TextView
+                    android:id="@+id/tv_diag_result"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:padding="12dp"
+                    android:text="暂无结果(读版本/读 DTC/写里程后显示)"
+                    android:textColor="#1A1111"
+                    android:textIsSelectable="true"
+                    android:textSize="11sp" />
+            </ScrollView>
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"

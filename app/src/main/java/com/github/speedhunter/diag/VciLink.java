@@ -105,6 +105,27 @@ public final class VciLink {
         return out;
     }
 
+    /**
+     * 组 L2 会话期 FFA 状态查询帧(2026-11-15 定标)。
+     * 结构: 55 aa + seq(u16 BE) + len(u16 BE=0005) + cmd FFFA + data(01 00 02 60 <last>) + tail(1B)。
+     * tail = 0xFF ^ XOR(seq_hi..data_end)。向量: seq8/last=FF → 55aa00080005fffa01000260ff6b,
+     * seq9/last=C7 → 55aa00090005fffa01000260c752(均与官方删卡会话逐字节一致)。
+     * ★ 会话期 FFA 必须用递增 seq:重放握手用的 seq-0000 会让 VCI 重发 intro blob 并停止 L3 转发。
+     */
+    public static byte[] buildL2Ffa(int seq, int lastDataByte) {
+        byte[] f = new byte[14];
+        f[0] = 0x55; f[1] = (byte) 0xAA;
+        f[2] = (byte) (seq >> 8); f[3] = (byte) seq;
+        f[4] = 0; f[5] = 5;                    // len BE
+        f[6] = (byte) 0xFF; f[7] = (byte) 0xFA;
+        f[8] = 0x01; f[9] = 0x00; f[10] = 0x02; f[11] = 0x60;
+        f[12] = (byte) lastDataByte;
+        int x = 0;
+        for (int i = 2; i <= 12; i++) x ^= f[i] & 0xFF;
+        f[13] = (byte) (0xFF ^ x);
+        return f;
+    }
+
     /** 组 L3 发送帧：56 00 + len(u16 LE=seq+cmd+data+1) + seq + cmd + data + XOR(全帧)。2026-11-08 定标。 */
     public static byte[] buildFrame(int seq, int cmd, byte[] data) {
         int payload = 2 + data.length + 1; // seq+cmd+data+crc

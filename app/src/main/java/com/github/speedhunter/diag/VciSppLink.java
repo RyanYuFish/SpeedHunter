@@ -59,15 +59,50 @@ public final class VciSppLink {
 
     private volatile boolean sawL2Reply = false;
     private volatile boolean sawDataReply = false;
+    private volatile long lastDataRxAt = 0L;
 
     public boolean isDataReady() { return running && sawDataReply; }
 
-    public void sendDeleteEntryQueries() throws IOException {
-        sendRaw(hex("55aa00080005fffa01000260ff6b"));
-        sleepQuiet(40);
-        sendRaw(hex("55aa00090005fffa01000260c752"));
+    /** 最近一次收到 L3 数据帧距今毫秒;从未收到返回 -1。诊断:L3 失活检测。 */
+    public long lastDataRxAgeMs() {
+        long t = lastDataRxAt;
+        return t <= 0 ? -1L : System.currentTimeMillis() - t;
     }
-    private android.os.Handler keepAlive; // FFA 心跳(官方 App 每 ~10s 一发,无心跳 ~22s 被 VCI 掐线)
+
+    public boolean isDataFresh(long windowMs) {
+        long age = lastDataRxAgeMs();
+        return age >= 0 && age <= windowMs;
+    }
+
+    // ===== 会话期 FFA(2026-11-15 根因修复) =====
+    // 旧版心跳重放握手用的 seq-0000 FFA:VCI 视为会话初始化,回 49B 00F000C0 blob 后
+    // 停止 L3 转发(所有失败会话的公共根因,日志 11-13/11-15 全量复盘)。
+    // 官方会话中 FFA 全程递增 L2 seq(~1/1.1s),阶段开道用 FFA×2(FF/C7 尾字节变体)。
+    private int l2Seq = 8; // 握手静态占用 0000-0007,会话期从 0008 起递增
+
+    private int nextL2Seq() {
+        int s = l2Seq;
+        l2Seq = (l2Seq >= 0xFFFF) ? 8 : l2Seq + 1; // 回绕避开 0000(杀手值)
+        return s;
+    }
+
+    /** 发送 FFA×2 阶段开道对(FF + C7 变体,官方节奏 40ms 间隔;官方每个操作阶段前都发)。 */
+    public synchronized void sendFfaPair() throws IOException {
+        sendRaw(VciLink.buildL2Ffa(nextL2Seq(), 0xFF));
+        sleepQuiet(40);
+        sendRaw(VciLink.buildL2Ffa(nextL2Seq(), 0xC7));
+    }
+
+    /** 发送单条 FFA(心跳;官方会话期约 1/1.1s,此处 3s)。 */
+    public synchronized void sendFfaSingle() throws IOException {
+        sendRaw(VciLink.buildL2Ffa(nextL2Seq(), 0xFF));
+    }
+
+    /** 兼容旧名:删卡/各操作阶段开道的 FFA×2。 */
+    public void sendDeleteEntryQueries() throws IOException {
+        sendFfaPair();
+    }
+    private android.os.Handler keepAlive; // FFA 心跳(递增 seq;无 L2 心跳 ~22s 被 VCI 掐线)
 
     private static byte[] hex(String x) {
         int n = x.length() / 2;
@@ -129,6 +164,8 @@ public final class VciSppLink {
     private void connectOnce(Context context, String mac, boolean withSessionSetup) throws IOException {
         sawL2Reply = false;
         sawDataReply = false;
+        lastDataRxAt = 0L;
+        l2Seq = 8; // 握手静态 0000-0007 后,会话期从 0008 递增
         connect(context, mac);
         // ★ 官方时序(2026-11-08 12:38 实测):FFA→应答后 +2ms 发 FEF2;慢于 ~400ms 会被 VCI 掐线
         sendRaw(L2_FFFA_A);
@@ -252,6 +289,7 @@ public final class VciSppLink {
                     }
                     @Override public void onData(VciLink.DataFrame frame) {
                         sawDataReply = true;
+                        lastDataRxAt = System.currentTimeMillis();
                         List<byte[]> cfs = (frame.cmd == VciLink.CMD_RS485_WRITE || frame.fromVehicle)
                                 ? VciLink.extractCfFrames(frame) : new ArrayList<byte[]>();
                         listener.onFrame(frame, cfs);
@@ -299,18 +337,25 @@ public final class VciSppLink {
     /** RS485 轮询保持(官方行为:操作期间持续 69 0101 激活 VCI 转发)。 */
     private android.os.Handler pollHandler;
     private volatile boolean polling = false;
+    private int pollFails = 0;
 
     public void startPolling() {
         stopPolling();
         polling = true;
+        pollFails = 0;
         pollHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         Runnable tick = new Runnable() {
             @Override public void run() {
                 if (!polling || !running || pollHandler == null) return;
                 try {
                     send(VciLink.CMD_POLL, new byte[]{0x01, 0x01});
+                    pollFails = 0;
                 } catch (Exception e) {
-                    return;
+                    // 2026-11-15:旧版单次异常即静默死亡;现连续 5 次失败才停并上报
+                    if (++pollFails >= 5) {
+                        listener.onError("轮询连续失败×5,已停止: " + e.getMessage());
+                        return;
+                    }
                 }
                 pollHandler.postDelayed(this, 200);
             }
@@ -326,30 +371,34 @@ public final class VciSppLink {
         }
     }
 
-    /** 官方在操作序列期间不发 FFA 心跳(2026-11-10 抓取:主从切换 11s 窗口内零 L2);
-     *  操作期间挂起心跳,避免 L2 打断关键时序。 */
+    /** 官方在主从切换 0x89 突发窗口内不发 FFA(2026-11-10 抓取:11s 窗口内零 L2);
+     *  仅在该窗口挂起;对话框等待期间官方仍以 ~1/s 持续 FFA,故全程保持。 */
     public void suspendKeepAlive() { keepAliveSuspended = true; }
     public void resumeKeepAlive() { keepAliveSuspended = false; }
     private volatile boolean keepAliveSuspended;
+    private boolean keepAliveErrLogged;
 
     private void startKeepAlive() {
         stopKeepAlive();
+        keepAliveErrLogged = false;
         keepAlive = new android.os.Handler(android.os.Looper.getMainLooper());
         Runnable tick = new Runnable() {
             @Override public void run() {
                 if (!running || keepAlive == null) return;
                 if (!keepAliveSuspended) {
-                try {
-                    sendRaw(L2_FFFA_A);
-                } catch (Exception e) {
-                    listener.onError("keepalive: " + e.getMessage());
-                    return;
+                    try {
+                        sendFfaSingle(); // ★ 递增 seq;绝不再重放 seq-0000(会杀死 L3 通道)
+                    } catch (Exception e) {
+                        if (!keepAliveErrLogged) {
+                            keepAliveErrLogged = true;
+                            listener.onError("keepalive: " + e.getMessage());
+                        }
+                    }
                 }
-                }
-                keepAlive.postDelayed(this, 10000);
+                keepAlive.postDelayed(this, 3000);
             }
         };
-        keepAlive.postDelayed(tick, 10000);
+        keepAlive.postDelayed(tick, 3000);
     }
 
     private void stopKeepAlive() {

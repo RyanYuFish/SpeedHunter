@@ -219,16 +219,47 @@ public final class DiagSelfTest {
             boolean ok71 = Hex.format(ZeehoRs485Ops.MASTER_SLAVE_CONFIRM_71).replace(" ", "")
                     .equalsIgnoreCase("4346714000000000000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000D14544")
                     && Hex.format(ZeehoRs485Ops.MASTER_SLAVE_EXIT_71).replace(" ", "")
-                    .equalsIgnoreCase("4346714000000000000004000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000B54544");
+                    .equalsIgnoreCase("4346714000000000000040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F14544");
             byte[] fff7 = Hex.parse("AA55000B0008FFF701000430A9D7932C");
             boolean okKey = java.util.Arrays.equals(ZeehoRs485Ops.parseFff7Key(fff7), Hex.parse("30A9D793"))
                     && ZeehoRs485Ops.parseFff7Key(Hex.parse("AA55000B0005FFFA0000020000F3")) == null;
             if (ok89 && ok71 && okKey) {
-                sb.append("[PASS] 主从切换帧 0x89(15…20)/0x71(20/04) + fff7 key 解析 = 官方抓取向量\n");
+                sb.append("[PASS] 主从切换帧 0x89(15…20)/0x71(20/40) + fff7 key 解析 = 官方抓取向量\n");
                 pass++;
             } else { sb.append("[FAIL] 主从切换/fff7 向量\n"); fail++; }
         } catch (Throwable t) {
             sb.append("[FAIL] 主从切换向量: ").append(t.getMessage()).append('\n'); fail++;
+        }
+
+        // 14) EOL 动态两步认证(协议总汇 §3.2.1 逐字节) + UDS L1 全向量
+        try {
+            String a1 = Hex.format(ZeehoRs485Ops.eolAuth1Dynamic()).replace(" ", "");
+            boolean okA1 = a1.equalsIgnoreCase("4346F4090101000000E7070000ED4544");
+            byte[] ch = Hex.parse("E3 3A 2D 47");
+            byte[] a2 = ZeehoRs485Ops.eolAuth2For(ch);
+            String a2Hex = Hex.format(a2).replace(" ", "");
+            boolean okA2 = a2Hex.equalsIgnoreCase("4346F40902E33A2D47D5576C769E4544");
+            boolean okProof = ZeehoRs485Ops.eolProof(1) == 0x7E7
+                    && ZeehoRs485Ops.eolProof(0x472D3AE3) == 0x766C57D5
+                    && ZeehoRs485Ops.eolProof(0x0F4BC0AF) == (int) 0xDF9FA6E9L;
+            boolean okUds = Uds.keyLevel1(0x00000000) == 0x8036194E
+                    && Uds.keyLevel1(0x12345678) == 0xF0961468
+                    && Uds.keyLevel1(0xFFFFFFFF) == (int) 0x7089E6B1L;
+            boolean okEol = Hex.format(ZeehoRs485Ops.eolBatteryVoltage()).replace(" ", "").equalsIgnoreCase("4346F4025000 464544".replace(" ", ""))
+                    && Hex.format(ZeehoRs485Ops.eolMaintMileage()).replace(" ", "").equalsIgnoreCase("4346F4023D00 334544".replace(" ", ""))
+                    && Hex.format(ZeehoRs485Ops.eolStatusBitmap(0)).replace(" ", "").equalsIgnoreCase("4346F4026F00 654544".replace(" ", ""))
+                    && Hex.format(ZeehoRs485Ops.eolStatusBitmap(2)).replace(" ", "").equalsIgnoreCase("4346F4026F02 674544".replace(" ", ""))
+                    && ZeehoRs485Ops.DID_TABLE.length == 8;
+            if (okA1 && okA2 && okProof && okUds && okEol) {
+                sb.append("[PASS] EOL 动态认证(§3.2.1 帧①/帧②+×2023 向量) + UDS L1 三向量 + EOL 读族/DID 表\n");
+                pass++;
+            } else {
+                sb.append("[FAIL] 动态认证 a1=").append(okA1).append(" a2=").append(okA2)
+                        .append(" proof=").append(okProof).append(" uds=").append(okUds).append(" eol=").append(okEol).append('\n');
+                fail++;
+            }
+        } catch (Throwable t) {
+            sb.append("[FAIL] 动态认证: ").append(t.getMessage()).append('\n'); fail++;
         }
 
         sb.append("----------------------------------------\n");
