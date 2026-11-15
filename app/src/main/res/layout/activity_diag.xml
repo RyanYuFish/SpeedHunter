@@ -224,21 +224,12 @@
                 android:textAppearance="?attr/textAppearanceBodySmall" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_diag_odo_did"
-                android:maxLines="2"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="DID 写\n里程"
-                android:textSize="13sp" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_diag_odo_eol"
                 android:maxLines="2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="4dp"
-                android:text="认证写\n里程"
+                android:text="写里程"
                 android:textSize="13sp" />
         </LinearLayout>
 

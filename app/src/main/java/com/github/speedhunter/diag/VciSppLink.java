@@ -214,9 +214,11 @@ public final class VciSppLink {
         try {
             connectOnce(context, mac, withSessionSetup);
         } catch (IOException first) {
-            // 僵尸连接(VCI 端被占)兜底:root 重启蓝牙撕断 ACL,再试一次
-            listener.onHandshake("reset", "首次连接失败(" + first.getMessage() + "),蓝牙重置后重试…");
-            btReset();
+            // 僵尸连接(VCI 端被占)兜底:有 root 时重启蓝牙撕断 ACL 再试;无 root 直接重连一次
+            boolean reset = btReset();
+            listener.onHandshake("reset", reset
+                    ? "首次连接失败(" + first.getMessage() + "),蓝牙重置后重试…"
+                    : "首次连接失败(" + first.getMessage() + "),直接重试(无 root,无法重启蓝牙;若官方 ZSCAN App 在后台请手动关闭)");
             connectOnce(context, mac, withSessionSetup);
         }
         startKeepAlive(); // 握手完成后再起会话期 FFA 心跳(握手期插 seq 递增 FFA 不对齐官方)
@@ -278,12 +280,13 @@ public final class VciSppLink {
         }
     }
 
-    /** root 重启蓝牙(撕断两端所有 ACL,清掉 VCI 端僵尸占用)。 */
-    public void btReset() {
-        runSu("svc bluetooth disable");
+    /** root 重启蓝牙(撕断两端所有 ACL,清掉 VCI 端僵尸占用)。无 root 返回 false(调用方降级直接重连)。 */
+    public boolean btReset() {
+        if (!runSu("svc bluetooth disable")) return false;
         sleepQuiet(2500);
         runSu("svc bluetooth enable");
         sleepQuiet(5000);
+        return true;
     }
 
     private static boolean runSu(String cmd) {
@@ -301,33 +304,23 @@ public final class VciSppLink {
      * ForegroundServiceStartNotAllowedException(VciService 起不来 ⇒ 报「没有获取到sn」,
      * 04:36/04:55 两次实证;第二次启动才恢复)。
      */
-    /** 最近一次 stopOfficialApp 的 su 是否失败(诊断页失败弹窗引用;无 root+官方 App 在跑=必超时)。 */
+    /** 最近一次 stopOfficialApp 是否因无 root 而跳过(仅记录用,不再作为失败弹窗条件)。 */
     public volatile boolean suUnavailable;
 
+    /**
+     * 2026-11-16 起 root 为可选:应用本身不再依赖 su。有 root 时照旧 am kill/force-stop 官方 App
+     * (它独占 VCI);无 root 时仅提示一句,由用户手动关闭官方 App。
+     */
     public void stopOfficialApp() {
         suUnavailable = !runSu("am kill com.obdstar.x300dp");
         if (suUnavailable) {
-            // 2026-11-16:此前 su 失败被静默吞掉 → 官方 App 占住 VCI → 用户只见"连接一直超时"却不知因
-            listener.onHandshake("warn", "su 不可用,无法停官方 App;若 VCI 被其占用将连接失败(请在 root 授权管理中允许本应用)");
+            listener.onHandshake("info", "无 root(可选,不影响使用):若官方 ZSCAN App 正在后台占用 VCI,请手动关闭后再连接");
         }
         sleepQuiet(300);
-        if (stillAlive()) {
-            listener.onHandshake("warn", "原厂 App 仍在(前台?),force-stop 兜底;其下次冷启或需开两次");
+        if (runSu("pidof com.obdstar.x300dp")) {
+            listener.onHandshake("info", "原厂 App 仍在,force-stop 兜底;其下次冷启或需开两次");
             runSu("am force-stop com.obdstar.x300dp");
             sleepQuiet(300);
-        }
-    }
-
-    private static boolean stillAlive() {
-        try {
-            Process p = new ProcessBuilder("su", "-c", "pidof com.obdstar.x300dp").start();
-            p.waitFor();
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[64];
-            int n = p.getInputStream().read(buf);
-            return n > 0 && buf[0] != '\n';
-        } catch (Throwable t) {
-            return false;
         }
     }
 

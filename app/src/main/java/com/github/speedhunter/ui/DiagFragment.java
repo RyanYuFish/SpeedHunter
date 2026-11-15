@@ -119,8 +119,7 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> runWithLink("清DTC", this::beginDtcClear));
         root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> runWithLink("扩展读取", this::beginExtendedRead));
         root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> runWithLink("ABS排气", this::beginAbsBleed));
-        root.findViewById(R.id.btn_diag_odo_did).setOnClickListener(v -> runWithLink("直写里程", () -> writeMileage(false)));
-        root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("认证写里程", () -> writeMileage(true)));
+        root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("写里程", () -> writeMileage()));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
         root.findViewById(R.id.btn_diag_clear).setOnClickListener(v -> {
             logger.clearUi();
@@ -227,14 +226,11 @@ public final class DiagFragment extends BaseTabFragment {
                 }
                 setState("连接失败: " + err);
                 log("ERR", "connect: " + err);
-                boolean noRoot = link != null && link.suUnavailable;
                 pendingOpAfterConnect = null;
                 if (!isAdded()) return;
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                         .setTitle("连接失败")
-                        .setMessage(err + "\n\n常见原因:官方 App 正占用 VCI / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。"
-                                + (noRoot ? "\n\n★ 本应用当前无 root(su 失败):若官方 ZSCAN App 正在后台,它占住 VCI 谁也连不上 —— 请在 root 授权管理(如 KernelSU)允许 SpeedHunter,或手动彻底关闭官方 App 后重试。" : "")
-                                + "\n本次已自动做过一次蓝牙重置重试。")
+                        .setMessage(err + "\n\n常见原因:官方 ZSCAN App 正占用 VCI(请先手动彻底关闭它) / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。\n本次已自动重试一次。")
                         .setPositiveButton("重试", (d, w) -> connectWithDialog(opName, onReady))
                         .setNegativeButton("取消", null)
                         .show();
@@ -856,9 +852,9 @@ public final class DiagFragment extends BaseTabFragment {
                 }).show();
     }
 
-    // ===== 写里程 =====
+    // ===== 写里程(协议总汇 §3.2.2 唯一路线:EOL 0x4F mode0;DID 直写已按车主要求取消) =====
 
-    private void writeMileage(boolean eolRoute) {
+    private void writeMileage() {
         if (!requireLink()) return;
         EditText kmEdit = requireView().findViewById(R.id.et_diag_km);
         String raw = kmEdit.getText().toString().trim();
@@ -867,74 +863,37 @@ public final class DiagFragment extends BaseTabFragment {
         try { km = Double.parseDouble(raw); } catch (NumberFormatException e) { toast("里程格式不对"); return; }
         if (km < 0 || km > 999999) { toast("里程 0–999999 km"); return; }
         int tenth = (int) Math.round(km * 10);
-        // 外部权威确认(m00796):写里程必须先 EOL 授权,再写入 —— 两条路线都走
-        // 主从切换 → EOL 授权×2(F4 09 01/02 → FC 81/82)→ 07D0 提时 → 写入 → 回读 → 退出。
-        // EOL 路线写 F4 4F(产线专用),DID 路线写 CF→14 2E 03 09(保留作对照实验)。
-        if (eolRoute) {
-            if (!opGate("写里程EOL")) return;
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL 0x4F)")
-                    .setMessage("主从切换(仪表将黑屏重启)→ EOL 授权 → 0x4F 写入 " + raw + " km(小端)→ DID 回读核对。\n外部权威确认:写里程需先 EOL 授权,再写入。")
-                    .setNegativeButton("取消", (d, w) -> releaseGate())
-                    .setPositiveButton("开始", (d, w) -> {
-                        final VciSppLink active = link;
-                        officialMasterSlave(active, "写里程EOL", () -> {
-                            authorizeEol(active);
-                            log("OP", "写里程EOL: 授权完成");
-                            byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
-                            active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
-                            sleepMs(50);
-                            String before = readOdoViaDid(active);
-                            log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
-                            pollAndSend(active, "写里程EOL 0x4F", ZeehoRs485Ops.mileageWriteEol(tenth));
-                            String ack = pollAwaitNode(active, 0xFC, null, 3000);
-                            log("OP", "0x4F 应答: " + (ack != null ? ack : "无(观察仪表/回读核实)"));
-                            sleepMs(500);
-                            String after = readOdoViaDid(active);
-                            log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
-                            log("OP", "写里程EOL 完成");
-                            exitMasterSlaveQuiet(active);
-                            releaseGate();
-                            showResult("写里程 EOL 0x4F", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
-                                    + "\n0x4F 应答 " + (ack != null ? ack : "无")
-                                    + "\n写后 " + (after != null ? after : "无应答"));
-                        });
-                    }).show();
-        } else {
-            if (!opGate("写里程DID")) return;
-            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(DID 0309)")
-                    .setMessage("与 EOL 路线同样先主从切换 + EOL 授权(外部权威确认:写里程需先 EOL,再写入),再以 DID 0x0309 写 " + raw + " km(大端 3B)并回读。\n此路线仅作对照实验,持久化未验证。")
-                    .setNegativeButton("取消", (d, w) -> releaseGate())
-                    .setPositiveButton("开始", (d, w) -> {
-                        final VciSppLink active = link;
-                        officialMasterSlave(active, "写里程DID", () -> {
-                            authorizeEol(active);
-                            log("OP", "写里程DID: 授权完成");
-                            byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
-                            active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
-                            sleepMs(50);
-                            String before = readOdoViaDid(active);
-                            log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
-                            pollAndSend(active, "写里程DID 2E 03 09", ZeehoRs485Ops.mileageWriteDid(tenth));
-                            String ack = pollAwaitNode(active, 0x94, null, 3000);
-                            if (ack == null) log("OP", "写里程DID: 未收到 0x94 写应答(观察仪表/回读核实)");
-                            else if (ack.regionMatches(true, 0, "6E0309", 0, 6)) log("OP", "写里程DID: 正向应答 6E 03 09");
-                            else if (ack.regionMatches(true, 0, "7F", 0, 2)) log("OP", "写里程DID: 负向应答 NRC " + ack);
-                            else log("OP", "写里程DID: 0x94 应答 " + ack);
-                            stageOpen(active, "写里程DID 回读");
-                            String after = readOdoViaDid(active);
-                            log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
-                            log("OP", "写里程DID 完成");
-                            exitMasterSlaveQuiet(active);
-                            releaseGate();
-                            String ackText = ack == null ? "未收到 0x94 写应答"
-                                    : (ack.regionMatches(true, 0, "6E0309", 0, 6) ? "正向 6E 03 09"
-                                    : (ack.regionMatches(true, 0, "7F", 0, 2) ? "NRC " + ack : ack));
-                            showResult("写里程 DID 0309", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
-                                    + "\n写应答 " + ackText
-                                    + "\n写后 " + (after != null ? after : "无应答"));
-                        });
-                    }).show();
-        }
+        // 协议总汇 §3.2.2:EOL 0x4F mode0 = 43 46 F4 06 4F 00 [4B LE] SUM 45 44,raw=km×10,
+        // 上限 999999.0(clamp),必须先过 §3.2.1 EOL 认证。流程:
+        // 主从切换 → EOL 动态授权(F4 09 01/02 → FC 81/82)→ 07D0 提时 → 0x4F 写入 → DID 0309 回读核对 → 退出。
+        if (!opGate("写里程")) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL 0x4F)")
+                .setMessage("协议总汇 §3.2.2 流程:\n主从切换(仪表将黑屏重启)→ EOL 动态授权 → 0x4F mode0 写入 " + raw + " km(小端,km×10)→ DID 0309 回读核对 → 退出。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
+                .setNegativeButton("取消", (d, w) -> releaseGate())
+                .setPositiveButton("开始", (d, w) -> {
+                    final VciSppLink active = link;
+                    officialMasterSlave(active, "写里程", () -> {
+                        authorizeEol(active);
+                        log("OP", "写里程: EOL 授权完成");
+                        byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
+                        active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
+                        sleepMs(50);
+                        String before = readOdoViaDid(active);
+                        log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
+                        pollAndSend(active, "写里程 0x4F mode0", ZeehoRs485Ops.mileageWriteEol(tenth));
+                        String ack = pollAwaitNode(active, 0xFC, null, 3000);
+                        log("OP", "0x4F 应答: " + (ack != null ? ack : "无(观察仪表/回读核实)"));
+                        sleepMs(500);
+                        String after = readOdoViaDid(active);
+                        log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
+                        log("OP", "写里程 完成");
+                        exitMasterSlaveQuiet(active);
+                        releaseGate();
+                        showResult("写里程 EOL 0x4F", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
+                                + "\n0x4F 应答 " + (ack != null ? ack : "无")
+                                + "\n写后 " + (after != null ? after : "无应答"));
+                    });
+                }).show();
     }
 
     // ===== ABS 前轮排气(官方 2026-11-10 00:22 会话逐字节) =====
