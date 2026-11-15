@@ -227,11 +227,14 @@ public final class DiagFragment extends BaseTabFragment {
                 }
                 setState("连接失败: " + err);
                 log("ERR", "connect: " + err);
+                boolean noRoot = link != null && link.suUnavailable;
                 pendingOpAfterConnect = null;
                 if (!isAdded()) return;
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                         .setTitle("连接失败")
-                        .setMessage(err + "\n\n常见原因:官方 App 正占用 VCI / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。\n本次已自动做过一次蓝牙重置重试。")
+                        .setMessage(err + "\n\n常见原因:官方 App 正占用 VCI / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。"
+                                + (noRoot ? "\n\n★ 本应用当前无 root(su 失败):若官方 ZSCAN App 正在后台,它占住 VCI 谁也连不上 —— 请在 root 授权管理(如 KernelSU)允许 SpeedHunter,或手动彻底关闭官方 App 后重试。" : "")
+                                + "\n本次已自动做过一次蓝牙重置重试。")
                         .setPositiveButton("重试", (d, w) -> connectWithDialog(opName, onReady))
                         .setNegativeButton("取消", null)
                         .show();

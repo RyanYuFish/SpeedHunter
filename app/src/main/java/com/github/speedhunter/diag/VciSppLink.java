@@ -132,7 +132,15 @@ public final class VciSppLink {
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) throw new IOException("蓝牙未开启");
-        adapter.cancelDiscovery();
+        // 4.8.6:cancelDiscovery 需要 BLUETOOTH_SCAN 权限,本应用只有 BLUETOOTH_CONNECT —— 4.8.5 无条件调用
+        // 在 Android 17 上直接抛 SecurityException("Need android.permission.BLUETOOTH_SCAN"),连接根本没发起。
+        // SPP 连已知 MAC 不依赖扫描;仅在系统恰好已授予 SCAN 时才做清理调用。
+        try {
+            if (context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                adapter.cancelDiscovery();
+            }
+        } catch (Throwable ignored) { }
         BluetoothDevice device = adapter.getRemoteDevice(mac == null ? DEFAULT_VCI_MAC : mac);
         // 2026-11-16 修复"连接一直超时":① RFCOMM connect() 无内置超时可挂 20s+,加看门狗快败;
         // ② UUID(SDP) 通道失败时改试反射通道1(SDP 记录残留/占用时的经典兜底),再交给外层蓝牙重置重试。
@@ -293,8 +301,12 @@ public final class VciSppLink {
      * ForegroundServiceStartNotAllowedException(VciService 起不来 ⇒ 报「没有获取到sn」,
      * 04:36/04:55 两次实证;第二次启动才恢复)。
      */
+    /** 最近一次 stopOfficialApp 的 su 是否失败(诊断页失败弹窗引用;无 root+官方 App 在跑=必超时)。 */
+    public volatile boolean suUnavailable;
+
     public void stopOfficialApp() {
-        if (!runSu("am kill com.obdstar.x300dp")) {
+        suUnavailable = !runSu("am kill com.obdstar.x300dp");
+        if (suUnavailable) {
             // 2026-11-16:此前 su 失败被静默吞掉 → 官方 App 占住 VCI → 用户只见"连接一直超时"却不知因
             listener.onHandshake("warn", "su 不可用,无法停官方 App;若 VCI 被其占用将连接失败(请在 root 授权管理中允许本应用)");
         }

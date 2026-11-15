@@ -1,3 +1,13 @@
+## 4.8.6
+
+- **修复 4.8.5 连接秒失败(本版引入的回归)**:4.8.5 在 connect() 无条件调用
+  `BluetoothAdapter.cancelDiscovery()`,而本应用只有 BLUETOOTH_CONNECT 没有 BLUETOOTH_SCAN,
+  Android 17 直接抛 `SecurityException: Need android.permission.BLUETOOTH_SCAN … cancelDiscovery()`,
+  SPP socket 根本没发起(日志 02:49-02:50 四次同样报错)。现仅当系统恰好已授予 SCAN 时才清理调用,
+  并 try-catch 兜底;SPP 连已知 MAC 不依赖扫描。
+- **失败弹窗动态提示无 root**:VciSppLink 暴露 `suUnavailable` 标志;连接失败且 su 失败时,弹窗
+  明确指出「本应用当前无 root,若官方 ZSCAN App 在后台占用 VCI 谁也连不上」,引导授予 KernelSU
+  授权或手动关官方 App。无 root+官方 App 在跑正是 4.8.4「一直超时」的最可能真因。
 ## 4.8.5
 
 - **修复「蓝牙连接一直超时」**:① RFCOMM `connect()` 原本无内置超时(可挂 20s+),现加 8s 看门狗
