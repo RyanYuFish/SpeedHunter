@@ -110,17 +110,17 @@ public final class DiagFragment extends BaseTabFragment {
                 resultView.setText("暂无结果(读版本/读 DTC/写里程后显示)"));
         root.findViewById(R.id.btn_diag_connect).setOnClickListener(v -> connectVci());
         root.findViewById(R.id.btn_diag_disconnect).setOnClickListener(v -> closeLink());
-        root.findViewById(R.id.btn_diag_nfc_on).setOnClickListener(v -> nfcStudyOfficialFlow());
+        root.findViewById(R.id.btn_diag_nfc_on).setOnClickListener(v -> runWithLink("学卡", this::nfcStudyOfficialFlow));
         root.findViewById(R.id.btn_diag_nfc_done).setOnClickListener(v ->
                 toast("学卡退出包含在各流程末段(39 00 OFF + 0x71 退出),无单独退出按钮"));
-        root.findViewById(R.id.btn_diag_nfc_del).setOnClickListener(v -> beginDeleteCard());
-        root.findViewById(R.id.btn_diag_version).setOnClickListener(v -> beginVersionRead());
-        root.findViewById(R.id.btn_diag_dtc_read).setOnClickListener(v -> beginDtcRead());
-        root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> beginDtcClear());
-        root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> beginExtendedRead());
-        root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> beginAbsBleed());
-        root.findViewById(R.id.btn_diag_odo_did).setOnClickListener(v -> writeMileage(false));
-        root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> writeMileage(true));
+        root.findViewById(R.id.btn_diag_nfc_del).setOnClickListener(v -> runWithLink("删卡", this::beginDeleteCard));
+        root.findViewById(R.id.btn_diag_version).setOnClickListener(v -> runWithLink("读版本", this::beginVersionRead));
+        root.findViewById(R.id.btn_diag_dtc_read).setOnClickListener(v -> runWithLink("读DTC", this::beginDtcRead));
+        root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> runWithLink("清DTC", this::beginDtcClear));
+        root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> runWithLink("扩展读取", this::beginExtendedRead));
+        root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> runWithLink("ABS排气", this::beginAbsBleed));
+        root.findViewById(R.id.btn_diag_odo_did).setOnClickListener(v -> runWithLink("直写里程", () -> writeMileage(false)));
+        root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("认证写里程", () -> writeMileage(true)));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
         root.findViewById(R.id.btn_diag_clear).setOnClickListener(v -> {
             logger.clearUi();
@@ -146,20 +146,122 @@ public final class DiagFragment extends BaseTabFragment {
         return true;
     }
 
+    // ===== 连接获取已合并进各操作按钮(4.8.5):未连接时自动连接并顺延执行操作;
+    // "保持连接"不再是开关——流程进行中(flowBusy)/连接进行中(connecting)不自动释放,其余照旧释放。 =====
+    private volatile boolean connecting;
+    private volatile boolean connectAborted;
+    private volatile android.widget.TextView connectStageView;
+    private Runnable pendingOpAfterConnect;
+
     private void connectVci() {
+        connectWithDialog(null, null);
+    }
+
+    /** 需要已验证 L3 通道的操作入口:未连接/未就绪时自动连接,成功后自动执行该操作。 */
+    private void runWithLink(String opName, Runnable op) {
+        if (link != null && link.isConnected() && link.isDataReady()) { op.run(); return; }
+        if (connecting) { toast("正在连接 VCI…"); return; }
+        if (flowBusy) { toast("有流程进行中"); return; }
+        if (link != null) {
+            log("LINK", "连接未就绪(" + (link.isConnected() ? "L3 数据通道未验证" : "链路已断") + "),自动重连");
+            closeLink();
+        }
+        connectWithDialog(opName, op);
+    }
+
+    private void connectWithDialog(String opName, Runnable onReady) {
         if (!btReady()) return;
-        if (link != null) { closeLink(); }
         EditText macEdit = requireView().findViewById(R.id.et_diag_mac);
         String mac = macEdit.getText().toString().trim().toUpperCase();
-        if (!mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) {
-            toast("MAC 格式不对"); return;
-        }
+        if (!mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) { toast("MAC 格式不对"); return; }
+        if (connecting) { toast("正在连接 VCI,请稍候"); return; }
+        if (link != null) closeLink();
+        pendingOpAfterConnect = onReady;
+        connectAborted = false;
+        android.widget.TextView stage = new android.widget.TextView(requireContext());
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        stage.setPadding(pad, pad, pad, pad);
+        stage.setText("① 停官方 App / 建立 SPP 连接…(每通道 8s 超时)");
+        connectStageView = stage;
+        final android.app.Dialog[] dlg = new android.app.Dialog[1];
+        dlg[0] = new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle(opName == null ? "连接 VCI" : "连接 VCI(完成后自动「" + opName + "」)")
+                .setView(stage)
+                .setCancelable(false)
+                .setNegativeButton("取消", (d, w) -> abortConnect())
+                .show();
+        connecting = true;
+        logger.startSession("SpeedHunter diag | VCI " + mac + (opName != null ? " | auto:" + opName : ""));
+        setState("连接中 " + mac);
+        new Thread(() -> {
+            String fail = null;
+            try {
+                createLink();
+                link.connectAndHandshake(requireContext(), mac, true);
+                if (!link.isDataReady()) fail = "L3 数据通道无应答(VCI 已连接,但车辆数据未建立;可重试)";
+            } catch (Exception e) {
+                fail = e.getMessage();
+            }
+            final String err = fail;
+            ui.post(() -> {
+                connecting = false;
+                connectStageView = null;
+                try { dlg[0].dismiss(); } catch (Throwable ignored) { }
+                if (connectAborted) {
+                    pendingOpAfterConnect = null;
+                    setState("已取消连接");
+                    log("LINK", "连接已取消(用户)");
+                    return;
+                }
+                if (err == null) {
+                    link.startPolling(); // 持续 69 轮询保活 VCI L3 转发(2026-11-15 修复)
+                    log("OP", "L3 通道已验证(前导有应答),已启动持续轮询");
+                    setState("已连接 " + mac);
+                    Runnable op = pendingOpAfterConnect;
+                    pendingOpAfterConnect = null;
+                    if (op != null) {
+                        if (flowBusy) toast("有流程进行中,自动操作未执行");
+                        else op.run();
+                    }
+                    return;
+                }
+                setState("连接失败: " + err);
+                log("ERR", "connect: " + err);
+                pendingOpAfterConnect = null;
+                if (!isAdded()) return;
+                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                        .setTitle("连接失败")
+                        .setMessage(err + "\n\n常见原因:官方 App 正占用 VCI / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。\n本次已自动做过一次蓝牙重置重试。")
+                        .setPositiveButton("重试", (d, w) -> connectWithDialog(opName, onReady))
+                        .setNegativeButton("取消", null)
+                        .show();
+            });
+        }, "vci-connect").start();
+    }
+
+    private void abortConnect() {
+        connectAborted = true;
+        pendingOpAfterConnect = null;
+        if (link != null) { link.close(); link = null; }
+        setState("未连接");
+        log("LINK", "连接已取消");
+    }
+
+    private void createLink() {
         link = new VciSppLink(new VciSppLink.Listener() {
             @Override public void onConnected(String device) {
-                ui.post(() -> { setState("已连接 " + device + ",握手中"); log("LINK", "connected " + device); });
+                ui.post(() -> {
+                    setState("已连接 " + device + ",握手中");
+                    log("LINK", "connected " + device);
+                    if (connectStageView != null) connectStageView.setText("① SPP 已连接 " + device + ",开始 L2/L3 握手…");
+                });
             }
             @Override public void onHandshake(String mode, String detail) {
-                ui.post(() -> { log("HS", "[" + mode + "] " + detail); setState("已连接(" + mode + " 握手)"); });
+                ui.post(() -> {
+                    log("HS", "[" + mode + "] " + detail);
+                    setState("已连接(" + mode + " 握手)");
+                    if (connectStageView != null) connectStageView.setText("② 官方握手: [" + mode + "] " + detail);
+                });
             }
             @Override public void onL2(byte[] frame) {
                 byte[] key = ZeehoRs485Ops.parseFff7Key(frame);
@@ -194,22 +296,6 @@ public final class DiagFragment extends BaseTabFragment {
                 ui.post(() -> { setState("已断开"); log("LINK", "disconnected"); });
             }
         });
-        logger.startSession("SpeedHunter diag | VCI " + mac);
-        setState("连接中 " + mac);
-        new Thread(() -> {
-            try {
-                link.connectAndHandshake(requireContext(), mac, true);
-                if (link.isDataReady()) {
-                    link.startPolling(); // 持续 69 轮询保活 VCI L3 转发(2026-11-15 修复)
-                    log("OP", "L3 通道已验证(前导有应答),已启动持续轮询");
-                } else {
-                    log("OP", "仅蓝牙/L2 有连接,L3 前导无应答;重新连接或检查 VCI");
-                }
-            } catch (Exception e) {
-                String m = e.getMessage();
-                ui.post(() -> { setState("连接失败: " + m); log("ERR", "connect: " + m); });
-            }
-        }, "vci-connect").start();
     }
 
     private void closeLink() {
@@ -1190,9 +1276,9 @@ public final class DiagFragment extends BaseTabFragment {
 
     private void releaseIfAllowed(String reason) {
         if (link == null || !link.isConnected()) return;
-        android.widget.CheckBox keep = getView() != null ? getView().findViewById(R.id.cb_diag_keep) : null;
-        if (keep != null && keep.isChecked()) {
-            log("LINK", reason + ",保持连接(开关开启)");
+        if (flowBusy || connecting) {
+            // 4.8.5:保持连接不再是开关——操作/连接进行中自动保持,结束后恢复"离开即释放"
+            log("LINK", reason + ",操作进行中,保持连接(操作结束后离开页面即释放)");
             return;
         }
         log("LINK", reason + ",释放 VCI");

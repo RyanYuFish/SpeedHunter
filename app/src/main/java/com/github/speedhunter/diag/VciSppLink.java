@@ -132,15 +132,67 @@ public final class VciSppLink {
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
         if (adapter == null || !adapter.isEnabled()) throw new IOException("蓝牙未开启");
+        adapter.cancelDiscovery();
         BluetoothDevice device = adapter.getRemoteDevice(mac == null ? DEFAULT_VCI_MAC : mac);
-        socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
-        socket.connect();
+        // 2026-11-16 修复"连接一直超时":① RFCOMM connect() 无内置超时可挂 20s+,加看门狗快败;
+        // ② UUID(SDP) 通道失败时改试反射通道1(SDP 记录残留/占用时的经典兜底),再交给外层蓝牙重置重试。
+        try {
+            socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            connectWithWatchdog(socket, 8000);
+        } catch (IOException uuidFail) {
+            listener.onHandshake("warn", "SPP UUID 通道失败(" + uuidFail.getMessage() + "),改试反射通道1…");
+            try {
+                socket = reflectChannel(device, 1);
+                connectWithWatchdog(socket, 8000);
+            } catch (IOException reflectFail) {
+                throw new IOException("SPP 连接失败: " + uuidFail.getMessage()
+                        + ";通道1兜底也失败: " + reflectFail.getMessage()
+                        + "(常见:官方 App 占用 VCI / VCI 休眠 / 距离远)");
+            }
+        }
         out = socket.getOutputStream();
         running = true;
         listener.onConnected(device.getAddress());
         rxThread = new Thread(this::rxLoop, "vci-rx");
         rxThread.start();
-        startKeepAlive();
+        // 注意:3s FFA 心跳不在握手期启动(对齐官方——官方握手期只重放静态 seq,不插会话期 FFA)。
+    }
+
+    /** 阻塞 connect() 看门狗:超时强关 socket 迫使 connect() 立刻抛错(Android RFCOMM 无内置超时)。 */
+    private void connectWithWatchdog(BluetoothSocket s, long timeoutMs) throws IOException {
+        final java.util.concurrent.atomic.AtomicBoolean settled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.concurrent.atomic.AtomicBoolean timedOut =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        Thread wd = new Thread(() -> {
+            sleepQuiet(timeoutMs);
+            if (!settled.get()) {
+                timedOut.set(true);
+                try { s.close(); } catch (IOException ignored) { }
+            }
+        }, "vci-connect-watchdog");
+        wd.setDaemon(true);
+        wd.start();
+        try {
+            s.connect();
+            settled.set(true);
+        } catch (IOException e) {
+            settled.set(true);
+            try { s.close(); } catch (IOException ignored) { }
+            throw new IOException(timedOut.get()
+                    ? "SPP 连接超时(" + timeoutMs / 1000 + "s,VCI 未应答)"
+                    : e.getMessage());
+        }
+    }
+
+    /** 反射 createRfcommSocket(1):UUID/SDP 路径失败时的兜底通道。 */
+    private static BluetoothSocket reflectChannel(BluetoothDevice device, int channel) throws IOException {
+        try {
+            java.lang.reflect.Method m = device.getClass().getMethod("createRfcommSocket", int.class);
+            return (BluetoothSocket) m.invoke(device, channel);
+        } catch (Exception e) {
+            throw new IOException("反射通道" + channel + "失败: " + e.getMessage());
+        }
     }
 
     /**
@@ -159,6 +211,7 @@ public final class VciSppLink {
             btReset();
             connectOnce(context, mac, withSessionSetup);
         }
+        startKeepAlive(); // 握手完成后再起会话期 FFA 心跳(握手期插 seq 递增 FFA 不对齐官方)
     }
 
     private void connectOnce(Context context, String mac, boolean withSessionSetup) throws IOException {
@@ -225,11 +278,12 @@ public final class VciSppLink {
         sleepQuiet(5000);
     }
 
-    private static void runSu(String cmd) {
+    private static boolean runSu(String cmd) {
         try {
             Process su = new ProcessBuilder("su", "-c", cmd).start();
-            su.waitFor();
-        } catch (Throwable ignored) {
+            return su.waitFor() == 0;
+        } catch (Throwable t) {
+            return false;
         }
     }
 
@@ -240,7 +294,10 @@ public final class VciSppLink {
      * 04:36/04:55 两次实证;第二次启动才恢复)。
      */
     public void stopOfficialApp() {
-        runSu("am kill com.obdstar.x300dp");
+        if (!runSu("am kill com.obdstar.x300dp")) {
+            // 2026-11-16:此前 su 失败被静默吞掉 → 官方 App 占住 VCI → 用户只见"连接一直超时"却不知因
+            listener.onHandshake("warn", "su 不可用,无法停官方 App;若 VCI 被其占用将连接失败(请在 root 授权管理中允许本应用)");
+        }
         sleepQuiet(300);
         if (stillAlive()) {
             listener.onHandshake("warn", "原厂 App 仍在(前台?),force-stop 兜底;其下次冷启或需开两次");
