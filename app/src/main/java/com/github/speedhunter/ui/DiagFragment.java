@@ -57,6 +57,10 @@ public final class DiagFragment extends BaseTabFragment {
     /** L2 fff7(VCI 计算 ABS 安全 key)最近一次结果。 */
     private volatile byte[] lastFff7Key;
     private boolean flowBusy;
+    // 写里程等长流程的进度框(m01165:主从切换后无任何进度反馈,车主无法确认成败)
+    private android.app.Dialog flowProgress;
+    private android.widget.TextView flowStageView;
+    private long flowStartMs;
 
     @Override
     protected int getLayoutId() {
@@ -353,6 +357,7 @@ public final class DiagFragment extends BaseTabFragment {
                 stageOpen(active, op + " 切换开道");
                 active.suspendKeepAlive();
                 active.stopPolling(); // 0x89 突发窗口复刻官方节奏(仅 poll+write 对)
+                flowStage(op + " ①/③ 主从切换:0x89×5 发送中(官方节奏 158/112/1105/1107ms)");
                 log("OP", "开始 0x89×5(官方节奏 158/112/1105/1107ms)");
                 for (int i = 0; i < 5; i++) {
                     if (link != active || !active.isConnected()) throw new java.io.IOException("连接已断开");
@@ -365,6 +370,7 @@ public final class DiagFragment extends BaseTabFragment {
                 active.send(VciLink.CMD_POLL, new byte[]{1, 1});
                 int seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE, ZeehoRs485Ops.wrapRs485ForVci(ZeehoRs485Ops.MASTER_SLAVE_CONFIRM_71));
                 log("TX", op + " 主从确认 0x71(byte6=0x20) seq=" + seq);
+                flowStage("①/③ 等待仪表重启:0x79(≤4s)/0x17 广播(≤8-12s)");
                 String confirm79 = pollAwaitNode(active, 0x79, null, 4000);
                 boolean got79 = confirm79 != null;
                 String wake17 = pollAwaitNode(active, 0x17, null, got79 ? 8000 : 12000);
@@ -376,13 +382,26 @@ public final class DiagFragment extends BaseTabFragment {
                 final boolean ok = got79 || wake;
                 ui.post(() -> {
                     if (!isAdded()) { releaseGate(); return; }
+                    dismissFlowProgress(); // 让位给切换结果确认框(执行段会重新弹进度框)
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
                             .setMessage(ok ? "仪表应已黑屏并自动重启唤醒。\n确认后继续「" + op + "」执行段。"
                                     : "未检测到 0x79/0x17 应答。\n请观察仪表:若未重启请中止并导出日志;若已重启可继续。")
                             .setNegativeButton("中止", (d, w) -> { log("OP", op + " 用户中止(切换后)"); exitMasterSlaveQuiet(active); releaseGate(); })
                             .setPositiveButton("继续", (d, w) -> new Thread(() -> {
                                 try { onSwitched.run(); }
-                                catch (Exception e) { log("ERR", op + " 执行段失败: " + e.getMessage()); exitMasterSlaveQuiet(active); releaseGate(); }
+                                catch (Exception e) {
+                                    log("ERR", op + " 执行段失败: " + e.getMessage());
+                                    exitMasterSlaveQuiet(active);
+                                    releaseGate();
+                                    ui.post(() -> {
+                                        dismissFlowProgress();
+                                        if (!isAdded()) return;
+                                        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                                .setTitle(op + " 执行失败")
+                                                .setMessage("执行段出错:" + e.getMessage() + "\n已尝试发送退出帧并恢复心跳。请导出日志排查。")
+                                                .setPositiveButton("知道了", null).show();
+                                    });
+                                }
                             }, "diag-op-stage2").start())
                             .setCancelable(false).show();
                 });
@@ -391,6 +410,14 @@ public final class DiagFragment extends BaseTabFragment {
                 active.resumeKeepAlive();
                 active.startPolling();
                 releaseGate();
+                ui.post(() -> {
+                    dismissFlowProgress();
+                    if (!isAdded()) return;
+                    new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                            .setTitle(op + " 失败")
+                            .setMessage("主从切换阶段出错:" + e.getMessage() + "\n已尝试发送退出帧并恢复心跳。请导出日志排查。")
+                            .setPositiveButton("知道了", null).show();
+                });
             }
         }, "diag-master").start();
     }
@@ -740,15 +767,22 @@ public final class DiagFragment extends BaseTabFragment {
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
+                    showFlowProgress("读版本", "①/③ 主从切换准备(开道+挂起心跳)…");
                     officialMasterSlave(active, "读版本", () -> {
+                        long t0 = android.os.SystemClock.elapsedRealtime();
+                        showFlowProgress("读版本(续)", "②/③ 0x80 VIN 查询(节点 0x88 应答)…");
                         // 官方 2026-11-15 02:39 会话:每个阶段前重复 FFA×2+前导;应答节点=查询节点|0x80
                         stageOpen(active, "读版本");
                         pollAndSend(active, "版本 0x80(VIN 查询)", ZeehoRs485Ops.VERSION_QUERY_80);
                         String vin = pollAwaitNode(active, 0x88, null, 2500);
-                        log("OP", "0x80 应答(节点 0x88): " + (vin != null ? vin : "无"));
+                        log("OP", "0x80 应答(节点 0x88): " + (vin != null ? vin : "无") + " " + secSince(t0));
                         StringBuilder sb = new StringBuilder();
                         if (vin != null) sb.append("0x88: ").append(vin).append('\n');
+                        int silentNodes = 0;
+                        int nodeIdx = 0, nodeTotal = ZeehoRs485Ops.VERSION_NODES.length;
                         for (int node : ZeehoRs485Ops.VERSION_NODES) {
+                            nodeIdx++;
+                            flowStage("③/③ 节点 " + Integer.toHexString(node) + "(" + nodeIdx + "/" + nodeTotal + ") 22F193/F195…");
                             stageOpen(active, "读版本 node " + Integer.toHexString(node));
                             pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F193", ZeehoRs485Ops.udsReadDid(node, 0xF193));
                             String hw = pollAwaitNode(active, node | 0x80, new int[]{0x62, 0xF1, 0x93}, 2500);
@@ -756,12 +790,22 @@ public final class DiagFragment extends BaseTabFragment {
                             pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F195", ZeehoRs485Ops.udsReadDid(node, 0xF195));
                             String sw = pollAwaitNode(active, node | 0x80, new int[]{0x62, 0xF1, 0x95}, 2500);
                             String line = "node " + Integer.toHexString(node) + ": HW=" + asciiAfter(hw, 3) + "  SW=" + asciiAfter(sw, 3);
-                            log("OP", "版本 " + line);
+                            log("OP", "版本 " + line + " " + secSince(t0));
+                            if (hw == null && sw == null) silentNodes++;
                             sb.append(line).append('\n');
                         }
-                        log("OP", "读版本完成");
+                        log("OP", "读版本完成,总耗时 " + secSince(t0));
                         exitMasterSlaveQuiet(active);
                         releaseGate();
+                        dismissFlowProgress();
+                        if (vin == null && silentNodes == nodeTotal) {
+                            sb.append("[全部节点无应答]").append('\n')
+                              .append("0x80 与 5 个节点 22F193/F195 全部超时 —— 总线静默。常见原因:").append('\n')
+                              .append("· 刚做过主从切换,仪表仍在重启窗口(约 1 分钟)——等仪表完全亮起后断开重连 VCI 再试;").append('\n')
+                              .append("· L3 通道已失活 —— 断开 VCI 重连后再读;").append('\n')
+                              .append("· 上一流程未发退出帧,从机模式未恢复 —— 断电重上电车辆。");
+                            log("WARN", "读版本:0x80+全部节点无应答(总线静默),已附排查提示");
+                        }
                         // 结果固定显示在页面"诊断结果"区(对齐官方 zscan 诊断界面),不再弹窗
                         showResult("版本读取", sb.toString());
                     });
@@ -868,30 +912,53 @@ public final class DiagFragment extends BaseTabFragment {
         // 主从切换 → EOL 动态授权(F4 09 01/02 → FC 81/82)→ 07D0 提时 → 0x4F 写入 → DID 0309 回读核对 → 退出。
         if (!opGate("写里程")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL 0x4F)")
-                .setMessage("协议总汇 §3.2.2 流程:\n主从切换(仪表将黑屏重启)→ EOL 动态授权 → 0x4F mode0 写入 " + raw + " km(小端,km×10)→ DID 0309 回读核对 → 退出。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
+                .setMessage("协议总汇 §3.2.2 流程:\n①主从切换(仪表黑屏重启,约8-20s+确认)→ ②EOL动态授权(≤6s)→ ③07D0+写前回读(≤3s)→ ④0x4F mode0 写入 " + raw + " km(小端,km×10,≤3s)→ ⑤写后回读(≤3s)→ ⑥退出。\n全程典型 15-30s,每阶段有进度框与已用秒数;结束弹成功与否确认。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
+                    showFlowProgress("写里程 " + raw + " km", "①/③ 主从切换准备(开道+挂起心跳)…");
                     officialMasterSlave(active, "写里程", () -> {
+                        long t0 = android.os.SystemClock.elapsedRealtime();
+                        showFlowProgress("写里程 " + raw + " km(续)", "②/⑥ EOL 动态授权(F4 09 01/02 → FC 81/82)…");
                         authorizeEol(active);
-                        log("OP", "写里程: EOL 授权完成");
+                        log("OP", "写里程: EOL 授权完成 " + secSince(t0));
+                        flowStage("③/⑥ 07D0 提时 + 写前 DID 0309 回读…");
                         byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
                         active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
                         sleepMs(50);
                         String before = readOdoViaDid(active);
-                        log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)"));
+                        log("OP", "写前里程回读: " + (before != null ? before : "无应答(继续写入)") + " " + secSince(t0));
+                        flowStage("④/⑥ 0x4F mode0 写入(小端 km×10)…");
                         pollAndSend(active, "写里程 0x4F mode0", ZeehoRs485Ops.mileageWriteEol(tenth));
                         String ack = pollAwaitNode(active, 0xFC, null, 3000);
-                        log("OP", "0x4F 应答: " + (ack != null ? ack : "无(观察仪表/回读核实)"));
+                        log("OP", "0x4F 应答: " + (ack != null ? ack : "无(观察仪表/回读核实)") + " " + secSince(t0));
+                        flowStage("⑤/⑥ 写后 DID 0309 回读核对…");
                         sleepMs(500);
                         String after = readOdoViaDid(active);
-                        log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)"));
-                        log("OP", "写里程 完成");
+                        log("OP", "写后里程回读: " + (after != null ? after : "无应答(观察仪表核实)") + " " + secSince(t0));
+                        flowStage("⑥/⑥ 发送退出帧 0x71 并恢复心跳…");
+                        log("OP", "写里程 执行段完成,总耗时 " + secSince(t0));
                         exitMasterSlaveQuiet(active);
                         releaseGate();
+                        dismissFlowProgress();
+                        final String beforeF = before, afterF = after, ackF = ack;
                         showResult("写里程 EOL 0x4F", "目标 " + raw + " km\n写前 " + (before != null ? before : "无应答")
                                 + "\n0x4F 应答 " + (ack != null ? ack : "无")
                                 + "\n写后 " + (after != null ? after : "无应答"));
+                        final String target = String.format(java.util.Locale.US, "%.1f", km) + " km";
+                        ui.post(() -> {
+                            if (!isAdded()) return;
+                            String verdict = afterF != null
+                                    ? (afterF.equals(target) ? "成功(回读=目标)" : "已写入,回读值不符")
+                                    : (ackF != null ? "已发送(回读无应答,看仪表核实)" : "未确认(无应答)");
+                            new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                    .setTitle("写里程:" + verdict)
+                                    .setMessage("目标 " + raw + " km\n写前 " + (beforeF != null ? beforeF : "无应答")
+                                            + "\n0x4F 应答 " + (ackF != null ? ackF : "无")
+                                            + "\n写后回读 " + (afterF != null ? afterF : "无应答")
+                                            + "\n\n§十.3 验证:断电重上电后再回读一次,数值不回跳才算持久化成功。")
+                                    .setPositiveButton("知道了", null).show();
+                        });
                     });
                 }).show();
     }
@@ -1180,6 +1247,51 @@ public final class DiagFragment extends BaseTabFragment {
         send.putExtra(android.content.Intent.EXTRA_TEXT, dump);
         startActivity(android.content.Intent.createChooser(send, "诊断日志"));
         toast("日志已保存:\n" + path);
+    }
+
+    /** 流程进度框(非模态、不可取消):indeterminate 进度条 + 分阶段文案 + 已用秒数。 */
+    private void showFlowProgress(final String title, final String firstStage) {
+        ui.post(() -> {
+            if (!isAdded()) return;
+            dismissFlowProgress();
+            android.widget.LinearLayout box = new android.widget.LinearLayout(requireContext());
+            box.setOrientation(android.widget.LinearLayout.VERTICAL);
+            int pad = (int) (16 * getResources().getDisplayMetrics().density);
+            box.setPadding(pad, pad / 2, pad, 0);
+            android.widget.ProgressBar bar = new android.widget.ProgressBar(requireContext());
+            bar.setIndeterminate(true);
+            box.addView(bar);
+            flowStageView = new android.widget.TextView(requireContext());
+            flowStageView.setText(firstStage);
+            flowStageView.setPadding(0, pad / 2, 0, 0);
+            box.addView(flowStageView);
+            flowStartMs = android.os.SystemClock.elapsedRealtime();
+            flowProgress = new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(title).setView(box).setCancelable(false).show();
+        });
+    }
+
+    /** 更新阶段文案(带已用秒);后台线程可直接调用,无进度框时为 no-op。 */
+    private void flowStage(final String text) {
+        final android.widget.TextView v = flowStageView;
+        if (v == null) return;
+        ui.post(() -> {
+            if (v != flowStageView || !isAdded()) return;
+            v.setText(text + "  · 已用 " + ((android.os.SystemClock.elapsedRealtime() - flowStartMs) / 1000) + "s");
+        });
+    }
+
+    private void dismissFlowProgress() {
+        final android.app.Dialog d = flowProgress;
+        flowProgress = null;
+        flowStageView = null;
+        if (d != null) ui.post(() -> { try { d.dismiss(); } catch (Throwable ignored) { } });
+    }
+
+    /** 自 t0(毫秒单调钟)以来经过的秒数,用于流程各阶段耗时打点。 */
+    private static String secSince(long t0) {
+        return String.format(java.util.Locale.US, "(+%.1fs)",
+                (android.os.SystemClock.elapsedRealtime() - t0) / 1000.0);
     }
 
     /** 诊断结果区追加一条结果(线程安全,自动滚底,8KB 截断)——对齐官方 zscan 诊断界面的结果展示。 */
