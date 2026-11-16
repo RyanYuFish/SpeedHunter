@@ -373,20 +373,20 @@ public final class DiagFragment extends BaseTabFragment {
                 flowStage("①/③ 被动等待 0x79(≤4s)/0x17 广播(≤8-12s),期间零 TX(官方同款静默)");
                 String confirm79 = pollAwaitNode(active, 0x79, null, 4000);
                 boolean got79 = confirm79 != null;
-                String wake17 = pollAwaitNode(active, 0x17, null, got79 ? 8000 : 12000);
+                String wake17 = pollAwaitNode(active, 0x17, null, got79 ? 8000 : 8000); // 从机超时预算~1min,总等待收紧
                 // 黄金抓取:0x71 之后到下一次有意写入之间官方完全静默,VCI 主动推送应答;
                 // 此处不恢复心跳/轮询(此前在此恢复导致总线被扰死亡→仪表重启),
                 // 用户确认后由执行段/退出帧(exitMasterSlaveQuiet)/catch 恢复。
                 boolean wake = wake17 != null;
                 log("OP", (got79 ? "0x79 已应答(官方同款)" : "0x79 未应答")
-                        + (wake ? ";检测到 0x17 广播,仪表已唤醒重启" : ";未检测到 0x17 广播"));
+                        + (wake ? ";检测到 0x17 广播(从机上线信号)" : ";未检测到 0x17 广播"));
                 final boolean ok = got79 || wake;
                 ui.post(() -> {
                     if (!isAdded()) { releaseGate(); return; }
                     dismissFlowProgress(); // 让位给切换结果确认框(执行段会重新弹进度框)
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
-                            .setMessage(ok ? "已收到 0x79/0x17 应答(黄金抓取:切换后总线保持存活,仪表无需重启;若仪表黑屏请中止并导出日志)。\n确认后继续「" + op + "」执行段。"
-                                    : "未检测到 0x79/0x17 应答。\n请观察仪表:若黑屏请中止并导出日志;仪表正常可继续。")
+                            .setMessage(ok ? "已收到 0x79/0x17 应答,仪表应已进入从机模式。\n注意:从机模式下长时间不写入,仪表会超时自动恢复(黑屏,约1分钟自愈)——请尽快点「继续」完成「" + op + "」执行段。"
+                                    : "未检测到 0x79/0x17 应答,但切换可能已生效(实车观察:状态未知时仪表也已切从机)。\n请观察仪表尽快确认;从机下长时间不写入会超时自动恢复(黑屏,约1分钟自愈)。")
                             .setNegativeButton("中止", (d, w) -> { log("OP", op + " 用户中止(切换后)"); exitMasterSlaveQuiet(active); releaseGate(); })
                             .setPositiveButton("继续", (d, w) -> new Thread(() -> {
                                 try { onSwitched.run(); }
@@ -454,7 +454,7 @@ public final class DiagFragment extends BaseTabFragment {
         log("OP", label + ":阶段开道完成(FFA×2+前导 60×3+69×3)");
     }
 
-    /** 被动等待指定节点 CF 应答(黄金抓取实证:VCI 主动推送全部应答,官方等待期零 TX;我方轮询会扰乱主从切换窗口导致仪表重启)。
+    /** 被动等待指定节点 CF 应答(黄金抓取实证:VCI 主动推送全部应答,官方等待期零 TX;我方等待期轮询与官方零 TX 行为不符,实车曾致总线静默)。
      *  应答节点 = 查询节点|0x80(如 0x14→0x94)。prefix 可选 payload 前缀;命中返回 payload hex,超时 null。 */
     private String pollAwaitNode(VciSppLink active, int node, int[] payloadPrefix, long timeoutMs) {
         int mark;
@@ -576,7 +576,7 @@ public final class DiagFragment extends BaseTabFragment {
     private void beginExtendedRead() {
         if (!opGate("扩展读取")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("扩展读取(协议总汇)")
-                .setMessage("主从切换(仪表将黑屏重启)→ EOL 动态授权 → 节点 0x14 DID 全表(F187/F18A/F197/F193/F195/0203/0309/0312)→ F4 50 电池电压 / F4 3D 保养里程 / F4 6F 状态位图 0-2 页。\n全部只读;帧式按文档【汇】,子码后 00 填充为【推】。")
+                .setMessage("主从切换(进入从机模式;超时未写入会自动恢复)→ EOL 授权 → 节点 0x14 DID 全表(F187/F18A/F197/F193/F195/0203/0309/0312)→ F4 50 电池电压 / F4 3D 保养里程 / F4 6F 状态位图 0-2 页。\n全部只读;帧式按文档【汇】,子码后 00 填充为【推】。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
@@ -847,7 +847,7 @@ public final class DiagFragment extends BaseTabFragment {
     private void beginDtcRead() {
         if (!opGate("读DTC")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("读故障码")
-                .setMessage("主从切换(仪表将黑屏重启)→ EOL 动态授权 → F4 51 00。\n协议总汇:F4 51 = 读 46B 诊断状态;33/36/38 = 写 NVM18/19/20(DTC_0/1/2,20/10/10B),故 46B 推断为 6B 状态头 + 20+10+10 三块。")
+                .setMessage("主从切换(进入从机模式)→ EOL 授权 → F4 51 00。\n协议总汇:F4 51 = 读 46B 诊断状态;33/36/38 = 写 NVM18/19/20(DTC_0/1/2,20/10/10B),故 46B 推断为 6B 状态头 + 20+10+10 三块。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
@@ -939,17 +939,17 @@ public final class DiagFragment extends BaseTabFragment {
         int tenth = (int) Math.round(km * 10);
         // 协议总汇 §3.2.2:EOL 0x4F mode0 = 43 46 F4 06 4F 00 [4B LE] SUM 45 44,raw=km×10,
         // 上限 999999.0(clamp),必须先过 §3.2.1 EOL 认证。流程:
-        // 主从切换 → EOL 动态授权(F4 09 01/02 → FC 81/82)→ 07D0 提时 → 0x4F 写入 → DID 0309 回读核对 → 退出。
+        // 主从切换 → EOL 授权(官方静态对 F4 09 01/02 → FC 81/82)→ 07D0 提时 → 0x4F 写入 → DID 0309 回读核对 → 退出。
         if (!opGate("写里程")) return;
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("写里程(EOL 0x4F)")
-                .setMessage("协议总汇 §3.2.2 流程:\n①主从切换(仪表黑屏重启,约8-20s+确认)→ ②EOL动态授权(≤6s)→ ③07D0+写前回读(≤3s)→ ④0x4F mode0 写入 " + raw + " km(小端,km×10,≤3s)→ ⑤写后回读(≤3s)→ ⑥退出。\n全程典型 15-30s,每阶段有进度框与已用秒数;结束弹成功与否确认。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
+                .setMessage("协议总汇 §3.2.2 流程:\n①主从切换(进入从机模式,约8-20s+确认;从机下超过约1分钟不写入会超时自动恢复——确认框请尽快点)→ ②EOL 授权(官方静态对,≤6s)→ ③07D0+写前回读(≤3s)→ ④0x4F mode0 写入 " + raw + " km(小端,km×10,≤3s)→ ⑤写后回读(≤3s)→ ⑥退出。\n全程典型 15-30s,每阶段有进度框与已用秒数;结束弹成功与否确认。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
                     final VciSppLink active = link;
                     showFlowProgress("写里程 " + raw + " km", "①/③ 主从切换准备(开道+挂起心跳)…");
                     officialMasterSlave(active, "写里程", () -> {
                         long t0 = android.os.SystemClock.elapsedRealtime();
-                        showFlowProgress("写里程 " + raw + " km(续)", "②/⑥ EOL 动态授权(F4 09 01/02 → FC 81/82)…");
+                        showFlowProgress("写里程 " + raw + " km(续)", "②/⑥ EOL 授权(官方静态对 F4 09 01/02 → FC 81/82)…");
                         authorizeEol(active);
                         log("OP", "写里程: EOL 授权完成 " + secSince(t0));
                         flowStage("③/⑥ 07D0 提时 + 写前 DID 0309 回读…");
