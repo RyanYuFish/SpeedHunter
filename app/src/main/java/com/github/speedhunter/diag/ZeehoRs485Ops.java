@@ -155,9 +155,18 @@ public final class ZeehoRs485Ops {
             hex("00000000000040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
     /** CF→0x80 全零: 官方读版本流程在 0x71(04) 后发,触发节点 0x88 回 "000F01"+VIN。 */
     public static final byte[] VERSION_QUERY_80 = Rs485.encode(0x80, zeros(64));
-    /** 旧 btsnoop 解出的 0x89 变体(读版本会话用,含疑似时间戳,默认不使用)。 */
-    public static final byte[] MASTER_SLAVE_89_VERSION = Rs485.encode(0x89, hex(
+
+    // ===== 官方读版本流程(2026-11-15 02:24 zscan 黄金抓取逐字节):寻址扫描而非主从切换,仪表不重启 =====
+    /** 寻址扫描 0x89 载荷 64B(内含节点表 80/90/a0/b0/c0;时间戳域该会话内恒定不变,可静态重放)。 */
+    public static final byte[] VERSION_SCAN_89 = Rs485.encode(0x89, hex(
         "2B22100C050F12501330001E0000006000001000CC6440750E00000000000080000000000000009000000000000000A000CC0000000000B0CCCCCCCC000000C0"));
+    /** 旧名兼容(= VERSION_SCAN_89)。 */
+    public static final byte[] MASTER_SLAVE_89_VERSION = VERSION_SCAN_89;
+    /** 读版本确认/退出帧: 0x71 byte6=0x04(区别于删卡切换的 0x20/0x40;黄金抓取 +16.100 发送/+16.182 节点 0x79 应答实证)。 */
+    public static final byte[] VERSION_CONFIRM_71 = Rs485.encode(0x71, hex("00000000000004000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+    public static final byte[] VERSION_EXIT_71 = VERSION_CONFIRM_71;
+    /** 官方读版本 0x89×5 均匀节奏(1106/1109/1107/1107,第 5 次后到 0x71 也是 ~1107ms)。 */
+    public static final int VERSION_SCAN_DELAY_MS = 1107;
 
     /** 官方 0x89×5 节奏(每次发送后 sleep): 158/112/1105/1107,之后 1108ms 发 0x71。 */
     public static final int[] MASTER_SLAVE_DELAYS_MS = {158, 112, 1105, 1107};

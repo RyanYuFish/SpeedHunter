@@ -25,8 +25,8 @@ android {
         applicationId "com.github.speedhunter"
         minSdk 24
         targetSdk 34
-        versionCode 135
-        versionName "4.9.1"
+        versionCode 136
+        versionName "4.9.2"
     }
 
     signingConfigs {

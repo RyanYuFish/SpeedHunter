@@ -262,6 +262,29 @@ public final class DiagSelfTest {
             sb.append("[FAIL] 动态认证: ").append(t.getMessage()).append('\n'); fail++;
         }
 
+        // 16) 官方读版本流程常量(2026-11-15 02:24 zscan 黄金抓取逐字节)
+        try {
+            // 逐段校验:头 + 节点 + 长度 0x40 + 载荷 + 校验和 + 尾;校验和 = (node+len+Σdata)&FF
+            Rs485.Frame fr = Rs485.decode(ZeehoRs485Ops.VERSION_SCAN_89);
+            boolean okFr = fr.node == 0x89 && fr.payload.length == 64
+                    && (fr.payload[0] & 0xFF) == 0x2B && (fr.payload[3] & 0xFF) == 0x0C
+                    && (fr.payload[20] & 0xFF) == 0xCC && (fr.payload[24] & 0xFF) == 0x0E; // 时间戳域 CC6440750E 位于 [20..24]
+            String conf71 = Hex.format(ZeehoRs485Ops.VERSION_CONFIRM_71).replace(" ", "");
+            Rs485.Frame fr71 = Rs485.decode(ZeehoRs485Ops.VERSION_CONFIRM_71);
+            boolean ok71 = fr71.node == 0x71 && fr71.payload.length == 64 && (fr71.payload[6] & 0xFF) == 0x04
+                    && ZeehoRs485Ops.VERSION_EXIT_71 == ZeehoRs485Ops.VERSION_CONFIRM_71
+                    && ZeehoRs485Ops.VERSION_SCAN_DELAY_MS == 1107;
+            if (okFr && ok71) {
+                sb.append("[PASS] 读版本寻址扫描 0x89(64B 黄金载荷) + 0x71(04) 确认/退出帧 + 1107ms 节奏\n");
+                pass++;
+            } else {
+                sb.append("[FAIL] 读版本常量 scan=").append(okFr).append(" conf71=").append(ok71).append('\n');
+                fail++;
+            }
+        } catch (Throwable t) {
+            sb.append("[FAIL] 读版本常量: ").append(t.getMessage()).append('\n'); fail++;
+        }
+
         sb.append("----------------------------------------\n");
         sb.append("结果：").append(pass).append(" 通过 / ").append(fail).append(" 失败\n");
         if (fail == 0) sb.append("协议内核就绪，可接入传输层。\n");
