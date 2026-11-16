@@ -169,6 +169,11 @@ public final class RemoteSettings {
         }
     }
 
+    /** 通用「自学习」写入（内存立即生效 + 落盘）：账号/车型等运行时发现的键。 */
+    public static void rememberString(String key, String value) {
+        rememberAccountString(key, value);
+    }
+
     // ==================== 广播接收（主通道） ====================
 
     /**

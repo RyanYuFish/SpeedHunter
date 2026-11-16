@@ -73,7 +73,8 @@ public final class AbsUnlock {
     }
 
     public static boolean enabled() {
-        return RemoteSettings.getBool(Keys.KEY_ABS_UI, false);
+        // AE7 原生已有 ABS 行，再克隆注入会重复/冲突 ⇒ 直接不启用
+        return RemoteSettings.getBool(Keys.KEY_ABS_UI, false) && !VehicleModel.isAe7();
     }
 
     public static final class Result {

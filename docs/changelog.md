@@ -1,3 +1,17 @@
+## 4.8.9
+
+- **按车型门控 hook（AE5i / AE7 Pro）**：新增车型能力表 `core/ModelProfile`（AE7 独有 15 项 /
+  AE5i 独有 9 项，数据来自 2026-11-16 官方 `vehicleSet/items|itemsV2` 双车实采差分）与运行时判定
+  `net/VehicleModel`（功能码优先、VIN 兜底，结果落盘 `vehicle_model`）。
+- **AE7 上原生已有 ⇒ 不再 hook**：G1/G2 改写（`vehicleKinds=2` 在 AE7 原生 3 上是降级）、
+  氮气与 ABS 注入全部跳过，并在 `NitroUnlock/AbsUnlock.enabled()` 加双保险。修复 AE7 上重复注入导致的闪退风险。
+- **AE5i 上裁掉响应不了的项**：`net/UnsupportedFilter` 从响应数组移除 AE7 独有 functionCode
+  （含 `LIGHTING_EFFECT`、`POWER_MODE`、`CUSTOMIZE_MAX_SPEED`、`EASY_RIDE`、`CHARGING_POWER_AE8`、
+  `CUSTOM_BUTTON_HIGH` 等），防止模块克隆注入把它们带到 AE5i。`STEEP_SLOPE_DESCENT` 不裁
+  （AE5i items 确有该码且 isSupport=true）。
+- 真机 AE7 验证：`vehicle model -> AE7 Pro`、无 `G1 OLD`/`nitro unlock`/`abs unlock`、无崩溃、
+  首页与「灯效设置」「感应解锁 2.0」正常。证据 `docs/features/vehicle-model-settings.md`。
+
 ## 4.8.7
 
 - **取消 root 依赖(root 改为可选)**:停官方 App/蓝牙重置的 su 调用失败不再警告刷屏,

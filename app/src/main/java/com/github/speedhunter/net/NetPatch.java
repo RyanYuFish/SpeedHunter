@@ -13,6 +13,7 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
 import com.github.speedhunter.core.HookKit;
 import com.github.speedhunter.core.HookLog;
+import com.github.speedhunter.core.ModelProfile;
 import com.github.speedhunter.ride.RideFill;
 import com.github.speedhunter.ride.RideOptions;
 
@@ -126,6 +127,10 @@ public final class NetPatch {
             boolean hasEventKey = body.contains(NetOptions.KEY_EVENT_GATE);
 
             JSONObject root = new JSONObject(body);
+            // 车型判定（数据驱动）：AE7 原生已有这些能力 ⇒ 跳过注入；AE5i 裁掉响应不了的项
+            String model = VehicleModel.observe(url, root);
+            boolean nativeAe7 = ModelProfile.MODEL_AE7.equals(model);
+            boolean ae5i = ModelProfile.MODEL_AE5I.equals(model);
             Tally tally = new Tally();
             com.github.speedhunter.ride.RideFill.Result fill = null;
             NitroUnlock.Result nitro = null;
@@ -146,24 +151,32 @@ public final class NetPatch {
             }
 
             if (hasAnalyseKey || hasEventKey) {
-                walk(root, url, tally);
+                walk(root, url, tally, nativeAe7);
             }
 
-            // 氮气入口（opt-in）：G1 先把 vehicleKinds 1→2，这里随后覆盖为 3（AE7 档）
-            nitro = NitroUnlock.apply(root, url);
-            // ABS 开关入口（opt-in）：克隆注入 ANTI_LOCK_BRAKE_SYSTEM，与氮气同一条已实车验证的路径
-            abs = AbsUnlock.apply(root, url);
+            // 氮气 / ABS（opt-in）：AE7 原生已有，再 hook 会与官方实现冲突（实测闪退）⇒ 跳过
+            if (!nativeAe7) {
+                // 氮气入口：G1 先把 vehicleKinds 1→2，这里随后覆盖为 3（AE7 档）
+                nitro = NitroUnlock.apply(root, url);
+                // ABS 开关入口：克隆注入 ANTI_LOCK_BRAKE_SYSTEM，与氮气同一条已实车验证的路径
+                abs = AbsUnlock.apply(root, url);
+            }
             // 车模替换（opt-in）：vehiclePicUrl/Pic3dUrl/ScalePicUrl/appThemeRgb 全树换 URL
             art = VehicleArtUnlock.apply(root, url);
+
+            // AE5i 等非 AE7 车型：裁掉响应里混入的 AE7 独有项（硬件响应不了，显示即误导）
+            int stripped = ae5i ? UnsupportedFilter.strip(root) : 0;
 
             boolean fillChanged = fill != null && fill.changed;
             boolean nitroChanged = nitro != null && nitro.changed();
             boolean absChanged = abs != null && abs.changed();
             boolean artChanged = art != null && art.changed();
-            if (!tally.changed && !fillChanged && !nitroChanged && !absChanged && !artChanged) {
+            if (!tally.changed && !fillChanged && !nitroChanged && !absChanged && !artChanged
+                    && stripped == 0) {
                 if (NetOptions.LOG_SEEN_UNCHANGED) {
                     logOnce("seen " + shortUrl(url) + " -> already on"
-                            + " (analyse=" + tally.analyse + " event=" + tally.event + ")");
+                            + " (model=" + ModelProfile.label(model)
+                            + " analyse=" + tally.analyse + " event=" + tally.event + ")");
                 }
                 return;
             }
@@ -190,6 +203,7 @@ public final class NetPatch {
             }
             param.setResult(patched);
             logOnce("patched " + shortUrl(url)
+                    + "  model=" + ModelProfile.label(model)
                     + "  analyse=" + tally.analyse + " event=" + tally.event
                     + (fillChanged ? ("  fill{rides=" + fill.rides + " days=" + fill.days + "}") : "")
                     + (nitroChanged ? ("  nitro{kinds=" + nitro.kinds
@@ -198,6 +212,7 @@ public final class NetPatch {
                             + " sub=" + abs.injectedSub + " state=" + abs.stateAdded + "}") : "")
                     + (artChanged ? ("  art{pic=" + art.pic + " pic3d=" + art.pic3d
                             + " scale=" + art.scale + " rgb=" + art.rgb + "}") : "")
+                    + (stripped > 0 ? ("  strip=" + stripped) : "")
                     + "  (" + bytes.length + " B)");
         } catch (Throwable t) {
             // 改写失败必须静默 —— 宁可没效果，也不能让 App 请求崩掉
@@ -207,8 +222,15 @@ public final class NetPatch {
         }
     }
 
-    /** 递归改写：不假设字段层级，任何一层出现目标 key 都改。 */
-    private static void walk(Object node, String url, Tally tally) throws Throwable {
+    /**
+     * 递归改写：不假设字段层级，任何一层出现目标 key 都改。
+     *
+     * @param nativeCapable 该车型原生已有统计能力（AE7）⇒ G1/G2 一律不改写，
+     *                      避免把原生 {@code vehicleKinds=3} 降成 2
+     */
+    private static void walk(Object node, String url, Tally tally, boolean nativeCapable)
+            throws Throwable {
+        if (nativeCapable) return;
         if (node instanceof JSONObject) {
             JSONObject obj = (JSONObject) node;
             java.util.Iterator<String> keys = obj.keys();
@@ -247,7 +269,7 @@ public final class NetPatch {
                 }
                 Object child = obj.opt(key);
                 if (child instanceof JSONObject || child instanceof JSONArray) {
-                    walk(child, url, tally);
+                    walk(child, url, tally, false);
                 }
             }
         } else if (node instanceof JSONArray) {
@@ -255,7 +277,7 @@ public final class NetPatch {
             for (int i = 0; i < array.length(); i++) {
                 Object child = array.opt(i);
                 if (child instanceof JSONObject || child instanceof JSONArray) {
-                    walk(child, url, tally);
+                    walk(child, url, tally, false);
                 }
             }
         }

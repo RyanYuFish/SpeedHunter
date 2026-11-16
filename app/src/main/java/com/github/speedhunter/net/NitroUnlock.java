@@ -65,7 +65,8 @@ public final class NitroUnlock {
     }
 
     public static boolean enabled() {
-        return RemoteSettings.getBool(Keys.KEY_NITRO_UI, false);
+        // AE7 原生已有氮气入口，再注入会与官方实现冲突（实测闪退）⇒ 直接不启用
+        return RemoteSettings.getBool(Keys.KEY_NITRO_UI, false) && !VehicleModel.isAe7();
     }
 
     public static final class Result {
