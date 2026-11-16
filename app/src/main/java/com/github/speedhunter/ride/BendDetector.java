@@ -9,10 +9,10 @@ import java.util.List;
  *
  * <p>核心思路：<b>累计转角法</b> —— 光看「航向变化率超过阈值」会把一个连续的弯
  * 数成十几次（每个点都超阈值），所以先把连续超阈值的点合并成一个「run」，
- * 用 run 的<b>累计转角</b>再判一次：一个 run 累计转过 15° 以上才算一次压弯。</p>
+ * 用 run 的<b>累计转角</b>再判一次：一个 run 累计转过 60° 以上才算一次压弯。</p>
  *
  * <p><b>本实现与 iOS 侧 {@code RideFill.js} 的 countBends 逐行等价</b>
- * （v16 定稿，参数由 {@link RideConfig} 运行时读取，算法本身不写死常量）：</p>
+ * （v16 定稿，参数由 {@link RideConfig} 运行时读取，算法本身不写死常量）。</p>
  * <ol>
  *   <li><b>逐段航向</b>：相邻点算 bearing；段太短（&lt; 6 m，停车时 GPS 乱飘）、
  *       间隔太久（&gt; 25 s，中间丢数据）、时间倒流一律标 NaN 断开；</li>
@@ -22,7 +22,7 @@ import java.util.List;
  *       并过三道闸：速度在 [20, 80] km/h、单步转角 &lt; 45°（防抖点）、方向取符号；</li>
  *   <li><b>合并为同向 run</b>：连续同符号累加 {@code cum}，遇反号立即断开另起一个
  *       （左弯右弯是两次压弯，不该合并）；</li>
- *   <li><b>过滤</b>：{@code BEND_CUM_MIN(15°) <= cum <= BEND_CUM_CAP(90°)}、
+ *   <li><b>过滤</b>：{@code BEND_CUM_MIN(60°) <= cum <= BEND_CUM_CAP(90°)}、
  *       段长 ≥ {@link RideConfig#BEND_RUN_MIN}、段内最高速 ≤ {@code BEND_V_MAX(80)}，
  *       最后乘 {@code BEND_COEF}。</li>
  * </ol>
@@ -30,11 +30,15 @@ import java.util.List;
  * <p>★ 参数调整史（别再回退）：</p>
  * <ul>
  *   <li>技术文档 v1.0 给 {@code BEND_V_MIN: 10} → 实测 7 月 1211 次（152 次/100km），
- *       明显偏高。<b>这才是「压弯过多」的真因</b>，不是 cum_min。</li>
+ *       明显偏高。<b>这才是「压弯过多」的第一层真因</b>，不是 cum_min。</li>
  *   <li>把 {@code v_min} 提到 <b>20</b>（与 iOS 定稿一致）后密度降到 85 次/100km。</li>
- *   <li>本项目一度把 {@code cum_min} 也从 15 提到 30 试图压总量，
- *       结果是无依据地把 7 月压到 616 次（只有 iOS 口径的 62%）。
- *       <b>已改回 15 与 iOS 对齐</b>。</li>
+ *   <li>一度把 {@code cum_min} 从 15 提到 30 试图压总量，结果 7 月只算出 616 次
+ *       （iOS 口径的 62%），<b>已改回 15</b>。</li>
+ *   <li>★ <b>2026-11-16 起 cum_min 改为 60</b>，依据是车机 IMU 真值对标，不再靠人工目视：
+ *       AE7 Pro 47.2 km / 732 点样本，车机上报 {@code bendingTimes=13}；
+ *       同一份轨迹 cum=15 → 66 次（虚高 5.1 倍）、cum=60 → <b>13 次</b>。
+ *       命中的 13 个 run 累计转角全在 62–89°（完整大弯），被排除的 11 个在 45–60°
+ *       （中等路口转弯）。详见 {@code docs/features/ride-calibration.md}。</li>
  * </ul>
  *
  * <p>复杂度 O(n)，无排序。1000 点 &lt; 5 ms。</p>

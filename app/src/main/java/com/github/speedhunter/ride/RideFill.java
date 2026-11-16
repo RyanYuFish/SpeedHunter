@@ -261,6 +261,7 @@ public final class RideFill {
                 // 标定用：逐 run 打印判定过程与拒绝原因（默认关，对应 iOS 的 C.DEBUG）
                 if (RideConfig.debugBend() && out.rides <= DEBUG_RIDES) {
                     log("BENDS " + BendDetector.explain(pts, rideId));
+                    log("BRAKES " + BrakeDetector.explain(pts, rideId));
                 }
                 if (dayStr != null && m != null) {
                     RideDayStore.accum(dayStr, rideId, b, bd,

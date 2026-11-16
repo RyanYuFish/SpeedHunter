@@ -1,3 +1,23 @@
+## 4.9.0 (vc134) — 2026-11-16
+
+- **骑行指标按车机 IMU 真值重新标定**（压弯 / 急刹），首次拿到「同一条轨迹 + 原厂值」对照：
+  AE7 Pro 47.2 km / 732 点 / 121.7 min，车机上报 `acc=3 brake=5 bend=13`。
+  - **压弯 `BEND_CUM_MIN` 15 → 60**：同一轨迹 cum=15 算出 66 次（虚高 5.1 倍），
+    cum=60 恰好 **13 次**，且命中 run 的累计转角全在 62–89°（完整大弯）。
+    61 条真实轨迹合计密度 120 → **30 次/100km**，与 IMU 的 27.5 同档。
+  - **`BEND_MIN_KM` 1.0 → 2.0**：AE7 1.2 km 短程真值 0，cum=60 下仍会误报 1 次（小区掉头）。
+  - **急刹算法重写**（`BrakeDetector`）：旧实现用「点数窗口」（5 点 = 实际 50 秒，
+    因轨迹是 10 秒/点）+ `A_MIN=0.5` + `CALIB=2.5` 乘回去，47.2 km 样本算出 **70 次**
+    （真值 5）。新实现逐段算物理减速度、按 10 秒时间合并、`A_MIN` 提到 **1.0 m/s²**、
+    `CALIB` 改 **1.0**，同一轨迹输出 **6 次**。新增 `BRAKE_A_MAX=5.0` 丢 GPS 跳点。
+  - **加速不回填**（保持现状）：`accelerationTimes` 是车机 IMU 上报的事件数，
+    58 条样本验证与 GPS 派生算法无关，硬填只会更差。
+- **取证与标定工具**：`tools/ride/fetch_ridetrack.py`（签名直取 `ridetrack_v2`，
+  踩坑记录见文档：sortedQuery 不能 URL 编码、vinNo/userId 用明文、startTime 必填）、
+  `tools/ride/eval_traj.py`（离线复刻 Java 算法并对照真值）。
+- 文档 `docs/features/ride-calibration.md`：数据来源、采样率真相、参数扫描表、边界。
+- ⚠️ iOS 侧 `ZeehoRideFill.js` 仍是旧默认（cum 15 / calib 2.5），本次未同步。
+
 ## 4.8.9
 
 - **按车型门控 hook（AE5i / AE7 Pro）**：新增车型能力表 `core/ModelProfile`（AE7 独有 15 项 /

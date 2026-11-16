@@ -32,33 +32,50 @@ public final class RideConfig {
     /**
      * 最小累计转角默认值（度）。
      *
-     * <p>★ 取 <b>15</b>，与 iOS 侧定稿严格一致（{@code iOS-rocket/RideFill.js} v15
-     * 的 {@code C.BEND_CUM_MIN: 15}）。</p>
+     * <p>★ 取 <b>60</b>，依据是 2026-11-16 的<b>车机 IMU 真值对标</b>
+     * （见 {@code docs/features/ride-calibration.md}）：</p>
+     * <pre>
+     *   样本：AE7 Pro 47.2 km / 732 点 / 121.7 min，服务端（车机上报）
+     *         accelerationTimes=3, brakesTimes=5, bendingTimes=13
+     *   cum=15 → 66 次（虚高 5.1 倍，120 次/100km）
+     *   cum=60 → 13 次（与真值一致，27.5 次/100km）
+     * </pre>
+     * <p>命中的 13 个 run 累计转角全落在 <b>62–89°</b>，即「转过一个完整大弯」，
+     * 物理语义清楚；被排除的 11 个在 45–60°，属中等路口转弯。</p>
      *
-     * <p><b>为什么曾经写成 30</b>：本项目早期按技术文档 v1.0 的 {@code BEND_V_MIN: 10}
-     * 跑，7 月整月算出 1211 次压弯（152 次/100km），体感明显偏高。当时为了压住总量，
-     * 把 cum_min 从 15 提到 30 —— <b>但这个理由是错的</b>：真正把数推爆的是
-     * {@code v_min=10}（降到 20 后密度 152→85），而不是 cum_min。
-     * 16 趟真实轨迹实测：cum=15 → 135 次/100km，cum=30 → 85 次/100km，
-     * <b>cum=15 是 cum=30 的 1.60 倍</b>，而 30 并没有「更准」的依据 ——
-     * iOS 侧的 15 有一整条骑行的人工矫正背书（「7/12 那天压了 4 次」）。</p>
+     * <p><b>为什么此前的 15 是错的</b>：15° 连路口小转弯、车道并线都算，密度
+     * 120 次/100km 相当于「每 800 米压一次弯」，与体感明显不符。旧值的历史依据是
+     * iOS 侧人工目视矫正（「7/12 压了 4 次」），而人工目视本身无法分辨 30°/60°。</p>
      *
-     * <p>⇒ 现在跟 iOS 对齐取 15。7 月合计会从 616 涨到约 985（85→135 次/100km），
-     * 这个量级与服务端在有真值那天的密度（126 次/100km）同档，是合理的。</p>
+     * <p><b>边界</b>：真值来自车机 IMU（倾斜角 + 加速度计），GPS 只能近似 ——
+     * 目标是量级一致，不是逐条相等。单一长骑样本标定，后续有新对照应复核。</p>
      */
-    public static final double DEF_BEND_CUM_MIN = 15;
+    public static final double DEF_BEND_CUM_MIN = 60;
     /** 累计转角上限默认值（度）。 */
     public static final double DEF_BEND_CUM_CAP = 90;
     /** 压弯判定系数默认值。 */
     public static final double DEF_BEND_COEF = 1.0;
-    /** 急刹标定系数默认值。 */
-    public static final double DEF_BRAKE_CALIB = 2.5;
+    /**
+     * 急刹标定系数默认值 —— <b>恒为 1.0</b>，不再放大。
+     *
+     * <p>★ 旧值是 2.5，理由是「双窗口会把同一脚刹车数两次，乘回去」。
+     * 这个理由在 2026-11-16 的 IMU 对标中被证伪：双窗口的重复应当<b>合并</b>，
+     * 乘一个倍数只会让结果凭空变 2.5 倍（47.2 km 样本：真实 5 次，旧算法 70 次）。
+     * 现在 {@link BrakeDetector} 已改为逐段物理减速度 + 时间合并，本系数只作
+     * 用户手动微调用，默认 1.0。</p>
+     */
+    public static final double DEF_BRAKE_CALIB = 1.0;
     /** 压弯速度上限默认值（km/h）。 */
     public static final double DEF_BEND_V_MAX = 80;
     /**
      * 最短行程门槛默认值（km）—— 短于此里程的行程整趟记 0 次压弯。
      *
-     * <p>★ 这是<b>最有效</b>的一个旋钮。实测（16 趟真实轨迹样本）按里程分档的压弯密度：</p>
+     * <p>★ 原为 1.0；IMU 对标后提到 <b>2.0</b>：AE7 Pro 1.2 km 短程（同路段往返）
+     * 车机真值 0 次压弯，而 cum=60 下 GPS 仍会给出 1 次（小区内 U 形掉头）。
+     * 1–2 km 的行程几乎都是「取快递/接送」级别的短途，其中的大角度转向是路口
+     * 掉头而非压弯，整趟判 0 比逐弯硬判更贴近体感。</p>
+     *
+     * <p>更早的量级参考（16 趟真实轨迹）：</p>
      * <pre>
      *   &lt;0.5km  → 787 次/100km   ← 纯噪声，GPS 在停车状态下乱飘
      *   0.5-1km  →   0 次/100km
@@ -66,27 +83,39 @@ public final class RideConfig {
      *   3-10km   →  90 次/100km   ← 正常
      *   ≥10km    →  98 次/100km   ← 正常
      * </pre>
-     * <p>即：短行程的密度是长途的 <b>8 倍</b>，而 7 月有 16 趟、8 月 38 趟、9 月 27 趟
-     * 属于 &lt;1km —— 它们贡献了大量虚高数字。直接把这类行程判 0 最干净。</p>
      */
-    public static final double DEF_BEND_MIN_KM = 1.0;
+    public static final double DEF_BEND_MIN_KM = 2.0;
 
-    /** 急刹：速度下限（km/h）—— 固定，不进 UI。 */
+    /** 急刹：速度下限（km/h）—— 起点低于此值的减速不算急刹（停车蠕行）。 */
     public static final double BRAKE_V_MIN = 15;
-    /** 急刹：大窗口（秒）。 */
-    public static final int BRAKE_WIN_LARGE = 5;
-    /** 急刹：小窗口（秒）。 */
-    public static final int BRAKE_WIN_SMALL = 3;
-    /** 急刹：大窗口最小 Δv（km/h）。 */
-    public static final double BRAKE_DV_LARGE = 15;
-    /** 急刹：小窗口最小 Δv（km/h）。 */
-    public static final double BRAKE_DV_SMALL = 20;
-    /** 急刹：最小减速度（m/s²）。 */
-    public static final double BRAKE_A_MIN = 0.5;
-    /** 同一次刹车内候选点的最小间隔（点数）。 */
-    public static final int BRAKE_MERGE_GAP = 5;
-    /** 急刹：最短历时（秒）。 */
-    public static final double BRAKE_MIN_DUR = 1.5;
+    /**
+     * 急刹：平均减速度阈值（m/s²，≈0.1 g）。
+     *
+     * <p>★ 原为 0.5（≈0.05 g），在 10 秒采样的轨迹上把「真正的急刹」也拦掉了
+     * （AE5i 29.5→0.7 km/h / 10 s 平均只有 0.27 m/s²）。提到 <b>1.0</b> 后
+     * 与车机 IMU 真值同档：47.2 km 样本真值 5 次，本阈值算出 6 次（±1）。</p>
+     *
+     * <p>为什么是 1.0 而不是拟合出来的 1.05：1.0 m/s² 是「紧急制动」的物理整数
+     * 门槛，1.05 只是让这一个样本刚好落到 5 —— 单样本拟合的伪精度，不要。</p>
+     */
+    public static final double BRAKE_A_MIN = 1.0;
+    /**
+     * 急刹：减速度上限（m/s²）—— 超过视为 GPS 跳点，直接丢弃。
+     *
+     * <p>实测样本里出现过 {@code 31.6→25.6 km/h / 10 s} 却算出 -19 m/s² 的
+     * 异常段（坐标错位），不设上限会被当成一次「超级急刹」。</p>
+     */
+    public static final double BRAKE_A_MAX = 5.0;
+    /**
+     * 同一脚刹车的合并间隔（秒）。
+     *
+     * <p>★ 旧实现用 {@code BRAKE_MERGE_GAP=5 点}，注释写的是「5 点」但含义被当成
+     * 5 秒。实际轨迹是 <b>10 秒/点</b>（车机上传频率），5 点 = 50 秒，
+     * 会把两次独立急刹合并掉。改为按秒计。</p>
+     */
+    public static final double BRAKE_MERGE_SEC = 10.0;
+    /** 相邻点时间差超过这个就断段（毫秒）—— 与压弯共用同一采样连续性判据。 */
+    public static final double BRAKE_GAP_MS_MAX = 25000;
 
     /** 压弯：单步转角超过这个就不信（GPS 抖动 / 掉点）（度）。 */
     public static final double BEND_STEP_MAX = 45;
@@ -132,7 +161,12 @@ public final class RideConfig {
         return clamp(RemoteSettings.getDouble(Keys.KEY_BEND_SEED, DEF_BEND_SEED), 1, 20);
     }
 
-    /** 最小累计转角（度）：★ 第二个有效旋钮，调大 → 一个小弯的多次抖动合成一次压弯。 */
+    /**
+     * 最小累计转角（度）：★ 最有效的旋钮，调大 → 只认完整的明显弯道。
+     *
+     * <p>默认 60 是 IMU 对标结论（见 {@link #DEF_BEND_CUM_MIN}）。
+     * 调到 30 以下会把路口小转弯算进来，密度回升到 100+ 次/100km。</p>
+     */
     public static double bendCumMin() {
         return clamp(RemoteSettings.getDouble(Keys.KEY_BEND_CUM_MIN, DEF_BEND_CUM_MIN), 5, 90);
     }
@@ -161,9 +195,14 @@ public final class RideConfig {
         return clamp(RemoteSettings.getDouble(Keys.KEY_BEND_V_MAX, DEF_BEND_V_MAX), 30, 120);
     }
 
-    /** 急刹标定系数：双窗口会把同一脚刹车数两次，乘回去。 */
+    /**
+     * 急刹标定系数：仅作手动微调，默认 1.0。
+     *
+     * <p>★ 旧默认 2.5 已废除 —— 见 {@link #DEF_BRAKE_CALIB}。现在
+     * {@link BrakeDetector} 用时间合并去重，不再需要「乘回去」。</p>
+     */
     public static double brakeCalib() {
-        return clamp(RemoteSettings.getDouble(Keys.KEY_BRAKE_CALIB, DEF_BRAKE_CALIB), 1.0, 5.0);
+        return clamp(RemoteSettings.getDouble(Keys.KEY_BRAKE_CALIB, DEF_BRAKE_CALIB), 0.5, 5.0);
     }
 
     /** 是否把原始轨迹样本导出到文件（标定用；导出后可在电脑上离线扫参数）。 */

@@ -74,7 +74,7 @@
 
                 <TextView
                     style="@style/ParamHelp"
-                    android:text="短于此里程的整趟行程记 0 次压弯。★ 最有效的一档 —— 1km 以下是停车 GPS 乱飘出来的假弯，密度是长途的 8 倍。调到 0 = 不滤。" />
+                    android:text="短于此里程的整趟行程记 0 次压弯。2km 以下是取快递/接送级别的短途，其中的大角度转向是路口掉头而非压弯（AE7 原厂 1.2km 短程真值 0 次）。调到 0 = 不滤。" />
 
                 <TextView
                     android:id="@+id/tv_min_km"
@@ -95,7 +95,7 @@
 
                 <TextView
                     style="@style/ParamHelp"
-                    android:text="一个弯至少要累计转过这么多度才算一次。调大 → 一个小弯的多次抖动合成一次。官方脚本 v1.0 给的是 15，实测偏松（会把连续 S 弯数成好几次）。" />
+                    android:text="一个弯至少要累计转过这么多度才算一次。默认 60°（= 转过一个完整大弯），依据车机 IMU 真值：47.2km 长途原厂 13 次，本值算出 13 次；调到 15 会变成 66 次。" />
 
                 <TextView
                     android:id="@+id/tv_cum_min"
@@ -200,7 +200,7 @@
 
                 <TextView
                     style="@style/ParamHelp"
-                    android:text="双窗口（5s+3s）会把同一脚刹车数两次，乘回去。脚本 v9 定稿 2.5，觉得急刹偏多就往下调。" />
+                    android:text="全局缩放：最终次数 = 合并后的急刹车次数 × 本值。默认 1.00（不再放大）。急刹已按物理减速度 ≥1.0 m/s² 判定，觉得偏多可下调。" />
 
                 <TextView
                     android:id="@+id/tv_brake_calib"
