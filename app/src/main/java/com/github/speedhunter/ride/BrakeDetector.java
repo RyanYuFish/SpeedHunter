@@ -15,7 +15,7 @@ import java.util.Locale;
  *       {@code dt} 由相邻点的毫秒时间戳得出；</li>
  *   <li><b>四道闸</b>：起点速度 ≥ {@link RideConfig#BRAKE_V_MIN}（蠕行停车不算）、
  *       {@code dt ∈ (0, BRAKE_GAP_MS_MAX]}（丢数据不算）、
- *       {@code a <= -BRAKE_A_MIN}（够急）、{@code a >= -BRAKE_A_MAX}（GPS 跳点不算）；</li>
+ *       {@code a <= -BRAKE_A_MIN(1.04 m/s²)}（够急）、{@code a >= -BRAKE_A_MAX}（GPS 跳点不算）；</li>
  *   <li><b>按时间合并</b>：命中点的间隔 ≤ {@link RideConfig#BRAKE_MERGE_SEC} 视为同一脚
  *       刹车，保留最急的那一段；</li>
  *   <li>结果再乘 {@link RideConfig#brakeCalib()}（默认 1.0，仅供手动微调）。</li>
@@ -31,7 +31,7 @@ import java.util.Locale;
  *   <li><b>calib 2.5 凭空放大</b>：双窗口的重复本该合并，乘倍数只会让结果 ×2.5。</li>
  * </ul>
  * <p>在 AE7 Pro 47.2 km / 732 点 / 121.7 min 的真实样本上：车机真值 <b>5 次</b>，
- * 旧算法算出 <b>70 次</b>（14 倍虚高）。改为本实现后同一份轨迹输出 <b>6 次</b>。</p>
+ * 旧算法算出 <b>70 次</b>（14 倍虚高）。改为本实现后同一份轨迹输出 <b>5 次</b>，与车机一致。</p>
  *
  * <p><b>边界</b>：车机用 IMU（加速度计）统计，GPS 只用速度点差分，10 秒平均会把
  * 瞬时峰值抹平 —— 目标是量级一致，不追求逐次相等。</p>

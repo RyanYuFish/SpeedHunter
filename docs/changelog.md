@@ -1,3 +1,17 @@
+## 4.9.0 (vc134, 算法定稿) — 2026-11-16 23:33
+
+- **急刹阈值精确命中真值**：`BRAKE_A_MIN` 1.0 → **1.04**。车主追加「以此次长记录为目标优化」后，
+  按 47.2 km / 732 点样本标定：1.0 会多算 1 次（a=-1.028 的 37→0 km/h 低速刹停），
+  1.04 排除它且保留最弱真值候选 a=-1.051；1.06 又会掉到 4 次。
+  最终 `brake=5`（真值 5）、`bend=13`（真值 13），**两端均精确一致**。
+- **iOS 同步**（`SpeedHunter-iOS/scripts/ZeehoRideFill.js`）：`BEND_CUM_MIN` 15→60、
+  新增 `BEND_MIN_KM=2.0`、`CALIB_FACTOR` 2.5→1.0、`countBrakes` 改为逐段减速度
+  （A_MIN=1.04 / A_MAX=5 / MERGE_SEC=10 / GAP_MS_MAX=25000），与 Xposed 逐行等价。
+- **桩测**：新增 `SpeedHunter-iOS/scripts/debug/test_ride_calibration.js`
+  （Shadowrocket 全局桩 + 47.2 km 真值样本），两端同输出 `brake=5 / bend=13` → PASS。
+- 标定口径（车主明示）：**此后一律以链接 ridetrack_v2 服务端原值为真值**；
+  App 界面显示可能被回填污染，不再采信。
+- `tools/ride/eval_traj.py` 同步新算法与默认参数（cum=60 / A_MIN=1.04 / 短行程 <2km 判 0）。
 ## 4.9.0 (vc134) — 2026-11-16
 
 - **骑行指标按车机 IMU 真值重新标定**（压弯 / 急刹），首次拿到「同一条轨迹 + 原厂值」对照：
