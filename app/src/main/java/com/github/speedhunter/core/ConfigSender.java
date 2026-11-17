@@ -23,6 +23,28 @@ public final class ConfigSender {
     }
 
     public static void pushFromPrefs(Context context, SharedPreferences prefs) {
+        pushFromPrefs(context, prefs, false, false);
+    }
+
+    /** 清除凭证 / 登出时用：强制推账号三键（含空值）。 */
+    public static void pushFromPrefs(Context context, SharedPreferences prefs,
+                                     boolean forceAccount) {
+        pushFromPrefs(context, prefs, forceAccount, false);
+    }
+
+    /**
+     * @param forceAccount 强制下发账号三键（含空值）。仅「清除凭证 / 登出」用：
+     *     需要显式把 hook 侧的 token 与 login 清掉；普通同步一律 false，
+     *     让 hook 侧继承落盘值，避免 UI 空 prefs 冲掉有效凭证。
+     */
+    /**
+     * @param skipAccount 不推账号三键。反向同步（CONFIG_SYNC）专用：
+     *     UI 的 prefs 可能与 hook 落盘值不同步（重装、多进程、旧版本残留），
+     *     让同步广播带上账号键会把有效凭证冲成过期的本地值。
+     *     账号三键只由 AccountActivity.save() / clear() 显式推送。
+     */
+    public static void pushFromPrefs(Context context, SharedPreferences prefs,
+                                     boolean forceAccount, boolean skipAccount) {
         try {
             Intent intent = new Intent(Keys.ACTION_CONFIG);
             intent.putExtra(Keys.KEY_WEB_LAYER, prefs.getBoolean(Keys.KEY_WEB_LAYER, true));
@@ -49,12 +71,20 @@ public final class ConfigSender {
             // 车漆配色索引（-1 = 关闭；hook 侧按 carColorMaterials.size() 有界保护）
             intent.putExtra(Keys.KEY_VEHICLE_ART_COLOR,
                     prefs.getInt(Keys.KEY_VEHICLE_ART_COLOR, -1));
-            intent.putExtra(Keys.KEY_ACCOUNT_LOGIN,
-                    prefs.getBoolean(Keys.KEY_ACCOUNT_LOGIN, false));
-            intent.putExtra(Keys.KEY_ACCOUNT_TOKEN,
-                    prefs.getString(Keys.KEY_ACCOUNT_TOKEN, ""));
-            intent.putExtra(Keys.KEY_ACCOUNT_USERID,
-                    prefs.getString(Keys.KEY_ACCOUNT_USERID, ""));
+            // ★ 账号三键：只有 UI 侧【真的存过凭证】才显式下发。
+            //   ConfigReceiver 对账号键是「extra 存在才覆盖，否则继承 hook 落盘值」——
+            //   若 prefs 为空（用户刚重装/清过模块数据）还硬推 token="" 与 login=false，
+            //   就会把 hook 侧已经落盘的有效凭证冲掉，表现为「引导登录突然失效」。
+            //   AccountActivity.save() 存完凭证后 prefs 非空，仍会正常下发，不受影响。
+            String uiToken = prefs.getString(Keys.KEY_ACCOUNT_TOKEN, "");
+            String uiUserId = prefs.getString(Keys.KEY_ACCOUNT_USERID, "");
+            if (!skipAccount && (forceAccount || (uiToken != null && !uiToken.isEmpty()
+                    && uiUserId != null && !uiUserId.isEmpty()))) {
+                intent.putExtra(Keys.KEY_ACCOUNT_LOGIN,
+                        prefs.getBoolean(Keys.KEY_ACCOUNT_LOGIN, false));
+                intent.putExtra(Keys.KEY_ACCOUNT_TOKEN, uiToken);
+                intent.putExtra(Keys.KEY_ACCOUNT_USERID, uiUserId);
+            }
             intent.putExtra(Keys.KEY_RIDE_FULLSCAN, prefs.getBoolean(Keys.KEY_RIDE_FULLSCAN, true));
             intent.setPackage(Keys.TARGET_PKG);
             context.sendBroadcast(intent);

@@ -112,7 +112,21 @@ public final class NetPatch {
             }
 
             // peekBody 拷一份出来读，原始流留给 App（Retrofit + Gson 读的是 charStream）
-            Object peeked = XposedHelpers.callMethod(response, "peekBody", maxBytes);
+            // ★ 系统 okhttp（com.android.okhttp.Response）的签名是 peekBody(long) 原生类型；
+            //   XposedHelpers.callMethod 的可变参数会把 long 装箱成 Long，
+            //   匹配不到原生形参 ⇒ NoSuchMethodError。所以这里显式给出参数类型。
+            Object peeked = null;
+            try {
+                java.lang.reflect.Method peek = response.getClass().getMethod(
+                        "peekBody", long.class);
+                peeked = peek.invoke(response, maxBytes);
+            } catch (Throwable t) {
+                try {
+                    peeked = XposedHelpers.callMethod(response, "peekBody", maxBytes);
+                } catch (Throwable ignored) {
+                    return;   // 两条路都不通就放弃改写，不影响 App 自身响应
+                }
+            }
             if (peeked == null) return;
             Object rawText = XposedHelpers.callMethod(peeked, "string");
             if (!(rawText instanceof String)) return;

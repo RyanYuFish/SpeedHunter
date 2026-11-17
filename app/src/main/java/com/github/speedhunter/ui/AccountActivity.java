@@ -294,7 +294,7 @@ public final class AccountActivity extends AppCompatActivity {
                     swLogin.setChecked(false);
                     suppressSwitchPersist = false;
                     prefs.edit().putBoolean(Keys.KEY_ACCOUNT_LOGIN, false).commit();
-                    ConfigSender.pushFromPrefs(this, prefs);
+                    ConfigSender.pushFromPrefs(this, prefs, true);
                     // 2) 让 hook 进程清空极核 App 登录态并自重启
                     try {
                         Intent intent = new Intent(Keys.ACTION_CLEAR_LOGIN);
@@ -320,7 +320,7 @@ public final class AccountActivity extends AppCompatActivity {
                             .putBoolean(Keys.KEY_ACCOUNT_LOGIN, false)
                             .remove(Keys.KEY_ACCOUNT_STATUS)
                             .commit();
-                    ConfigSender.pushFromPrefs(this, prefs);
+                    ConfigSender.pushFromPrefs(this, prefs, true);
                     etToken.setText("");
                     etUserId.setText("");
                     suppressSwitchPersist = true;

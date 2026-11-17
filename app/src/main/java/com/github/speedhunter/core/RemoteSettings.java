@@ -184,13 +184,31 @@ public final class RemoteSettings {
      * 保证这类一次性指令不被漏掉。</p>
      */
     public static void ensureReceiver() {
-        registerReceiverIfNeeded();
+        registerReceiverIfNeeded(null);
     }
 
-    private static void registerReceiverIfNeeded() {
+    /**
+     * 用外部传入的 Context 注册 —— 供 {@code Application.attachBaseContext} 阶段调用。
+     *
+     * <p>此刻 {@code ActivityThread.currentApplication()} 还是 null，只能靠 hook 拿到的
+     * base Context。转成 Application 失败时退回 getApplicationContext()。</p>
+     */
+    public static void ensureReceiver(Context context) {
+        registerReceiverIfNeeded(context);
+    }
+
+    private static void registerReceiverIfNeeded(Context explicitCtx) {
         if (receiverRegistered) return;
-        Application app = currentApplication();
-        if (app == null) return;   // attach 早期拿不到，等第一个响应时再试
+        Application app = null;
+        if (explicitCtx != null) {
+            try {
+                app = explicitCtx instanceof Application
+                        ? (Application) explicitCtx
+                        : (Application) explicitCtx.getApplicationContext();
+            } catch (Throwable ignored) { }
+        }
+        if (app == null) app = currentApplication();
+        if (app == null) return;   // 还没拿到 Context，等下一次再试
         synchronized (LOCK) {
             if (receiverRegistered) return;
             try {
@@ -547,8 +565,20 @@ public final class RemoteSettings {
         }
     }
 
+    // ★ 官方 App 多进程（主进程 + io.rong.push 等）共享同一个外部 files 目录。
+    //   若每个进程都写配置，推送进程会用自己读到的默认值把主进程的有效凭证冲掉
+    //   （实测：主进程 prime login=true，8 秒后融云进程写回 login=false）。
+    //   只有主进程允许落盘；其它进程只读内存快照、不写文件。
+    private static volatile boolean configWriter = false;
+
+    /** 由 MainHook 在 attach 时按 {@code packageName == processName} 设置。 */
+    public static void setConfigWriter(boolean enabled) {
+        configWriter = enabled;
+    }
+
     /** 把一份配置 Map 序列化成 JSON 写进本进程外部 files 目录（冷启动恢复用）。 */
     private static void persistConfigToFile(Context context, Map<String, String> config) {
+        if (!configWriter) return;   // 非主进程只读，避免多进程互相覆盖
         try {
             File dir = context.getExternalFilesDir(null);
             if (dir == null) return;
@@ -789,7 +819,7 @@ public final class RemoteSettings {
     // ==================== 汇总 ====================
 
     private static Map<String, String> fetch() {
-        registerReceiverIfNeeded();
+        registerReceiverIfNeeded(null);
         long now = SystemClock.elapsedRealtime();
         Map<String, String> snapshot = persisted;
         if (snapshot != null && now - fetchedAt < TTL_MS) return snapshot;

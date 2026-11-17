@@ -60,4 +60,23 @@ public final class HookKit {
                     + " (" + t.getClass().getSimpleName() + ")");
         }
     }
+
+    /**
+     * 按方法名挂<b>全部重载</b> —— 用于目标 App 升级后方法签名改变的场景。
+     *
+     * <p>{@link #hookIfExists} 传空参数表只匹配无参重载；官方 App 3.1.0 起
+     * {@code AppContext#getUserInfo} 等带参，精确签名会抛 NoSuchMethodError。
+     * 这里先定位类，再对所有同名方法挂同一个回调。</p>
+     */
+    public static void hookAllMethodsIfExists(String tag, String className,
+                                              String methodName, XC_MethodHook callback) {
+        try {
+            Class<?> type = Class.forName(className, false, targetClassLoader);
+            de.robv.android.xposed.XposedBridge.hookAllMethods(type, methodName, callback);
+            HookLog.log(tag + " hooked all " + className + "#" + methodName);
+        } catch (Throwable t) {
+            HookLog.log(tag + " skip all " + className + "#" + methodName
+                    + " (" + t.getClass().getSimpleName() + ")");
+        }
+    }
 }

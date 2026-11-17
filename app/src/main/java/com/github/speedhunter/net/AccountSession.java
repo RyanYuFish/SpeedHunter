@@ -19,7 +19,30 @@ final class AccountSession {
 
     private AccountSession() { }
 
+    private static boolean installed;
+
     static void install() {
+        // ★ 爱加密加固：handleLoadPackage 阶段业务类还没解密，Class.forName 必失败。
+        //   延迟到官方 App 第一个 Activity.onResume 再挂（MirrorTrigger 已验证该锚点稳定）。
+        try {
+            XposedHelpers.findAndHookMethod(android.app.Activity.class, "onResume",
+                    new XC_MethodHook() {
+                        @Override protected void afterHookedMethod(MethodHookParam p) {
+                            if (installed) return;
+                            android.app.Activity a = (android.app.Activity) p.thisObject;
+                            if (!"com.cfmoto".equals(a.getPackageName())) return;
+                            installed = true;
+                            installNow();
+                        }
+                    });
+            HookLog.log(TAG + " session install deferred to Activity.onResume");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " defer session install failed: " + t.getClass().getSimpleName());
+            installNow();   // 兜底：仍按老时机试一次
+        }
+    }
+
+    private static void installNow() {
         hook("getUserInfo");
         hook("getUserId");
         hook("getToken");
@@ -28,7 +51,9 @@ final class AccountSession {
     }
 
     private static void hook(final String name) {
-        HookKit.hookIfExists(TAG, "com.cfmoto.AppContext", name, new XC_MethodHook() {
+        // ★ 官方 App 3.1.0 起这些会话方法带参（无参精确签名会 ClassNotFoundError）。
+        //   按方法名挂全部重载，结果一律覆盖成引导登录会话，参数不影响。
+        HookKit.hookAllMethodsIfExists(TAG, "com.cfmoto.AppContext", name, new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam p) {
                 Session session = session();
                 if (session == null) return;

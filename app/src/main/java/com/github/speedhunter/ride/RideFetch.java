@@ -53,6 +53,11 @@ public final class RideFetch {
             "okhttp3.Request$Builder",
             "com.cfmoto.okhttp3.Request$Builder",
             "com.cfmoto.shadow.okhttp3.Request$Builder",
+            // ★ 官方 App 3.1.0（联想平板 Android 9）实测：okhttp 来自系统 boot classpath
+            //   （/system/framework/boot-okhttp.vdex），不是 App 自带的 okhttp3。
+            //   前三个候选全 ClassNotFoundError ⇒ 请求头注入为 0，App 本地以为已登录
+            //   但请求不带 token，mine 接口返回 401 → 循环弹「登录已过期」。
+            "com.android.okhttp.Request$Builder",
     };
 
     private RideFetch() {

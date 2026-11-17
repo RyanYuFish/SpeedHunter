@@ -48,6 +48,38 @@ import com.github.speedhunter.ride.RideHooks;
  */
 public final class MainHook implements IXposedHookLoadPackage {
 
+    /**
+     * 落盘注入心跳：{@code "<pid>,<epochMillis>,<versionName>"}。
+     *
+     * <p>UI 侧据此判定「模块确实注入过 com.cfmoto」，不要求官方 App 此刻在运行 ——
+     * 这正是「作用域勾对了、但 App 没开就显示未挂载」的修复点。</p>
+     */
+    private void writeAttachHeartbeat() {
+        try {
+            java.io.File dir = new java.io.File(
+                    android.os.Environment.getExternalStorageDirectory(),
+                    "Android/data/" + com.github.speedhunter.core.Keys.TARGET_PKG + "/files");
+            if (!dir.exists() && !dir.mkdirs()) {
+                return;
+            }
+            String version = "?";
+            try {
+                version = de.robv.android.xposed.XposedBridge.class.getPackage() != null
+                        ? "xposed" : "?";
+            } catch (Throwable ignored) {
+            }
+            String payload = Process.myPid() + "," + System.currentTimeMillis() + "," + version;
+            java.io.FileOutputStream out = new java.io.FileOutputStream(
+                    new java.io.File(dir, com.github.speedhunter.core.Keys.HOOK_ALIVE_FILE));
+            try {
+                out.write(payload.getBytes("UTF-8"));
+            } finally {
+                out.close();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!Targets.PACKAGE.equals(lpparam.packageName)) {
@@ -55,6 +87,10 @@ public final class MainHook implements IXposedHookLoadPackage {
         }
 
         HookKit.setClassLoader(lpparam.classLoader);
+        // 多进程防冲刷：只有主进程写 speedhunter_config.json，
+        // 融云推送等附属进程只读（它们共享同一目录，写入会把有效凭证冲成默认值）。
+        com.github.speedhunter.core.RemoteSettings.setConfigWriter(
+                lpparam.packageName.equals(lpparam.processName));
         HookLog.init(lpparam.packageName,
                 lpparam.appInfo == null ? null : lpparam.appInfo.dataDir);
 
@@ -63,6 +99,13 @@ public final class MainHook implements IXposedHookLoadPackage {
                 + " pkg=" + lpparam.packageName
                 + " " + HookLog.describeWriters() + " ==========");
 
+        writeAttachHeartbeat();
+
+        // ★ 挂载检测（PING/PONG）必须最先装：ConfigReceiver 在 Application 就绪后才注册，
+        //   而 primeConfigAtAttach 把 liveConfig 填满后 getString 不再走 fetch()，
+        //   唯一主动注册点 MirrorTrigger 又只装在主进程 —— 两侧都漏就永远不回 PONG，
+        //   UI 一直显示「未挂载」（即使作用域已勾对）。这里在所有进程、所有 Activity 之前
+        //   挂 Application.attachBaseContext，拿到 Context 立刻注册。
         if (lpparam.packageName.equals(lpparam.processName)) {
             try { com.github.speedhunter.ota.MirrorTrigger.install(); }
             catch (Throwable t) { HookLog.log(HookLog.MIRROR + " bridge install failed: " + t.getClass().getSimpleName()); }
@@ -81,6 +124,11 @@ public final class MainHook implements IXposedHookLoadPackage {
         //   （否则引导登录覆盖要等 Application 就绪后约 4~5 秒才生效，App 早已据此判定未登录并缓存）
         com.github.speedhunter.core.RemoteSettings.primeConfigAtAttach(lpparam.packageName);
         com.github.speedhunter.net.AccountLogin.installAll();  // 引导登录（opt-in，默认关）
+        // 从未官方登录过的设备：融云 IM 会话缺失会反复弹「登录已过期」，
+        // 与 ZEEHO 主账号无关（主账号请求实测 200）。只拦这一条精确文案。
+        if (lpparam.packageName.equals(lpparam.processName)) {
+            com.github.speedhunter.net.ExpiredToastFilter.install();
+        }
         MqttHooks.installAll();      // ★ MQTT broker/凭据/topic 捕获（只读）
         RideHooks.installAll();      // 视图层兜底（默认关）
         OtaHooks.installAll();

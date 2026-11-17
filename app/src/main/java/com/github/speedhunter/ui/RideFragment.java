@@ -90,11 +90,31 @@ public final class RideFragment extends BaseTabFragment {
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean hookAlive;
     private boolean pongReceiverRegistered;
+    /** 用户点了刷新：本轮只认新 PONG，不再沿用持久化的「曾挂载过」。 */
+    private boolean probing;
 
     private final Runnable pongTimeoutTask = new Runnable() {
         @Override
         public void run() {
-            // 超时没等到 PONG：从未确认过 ⇒ 落回「未挂载」；已确认过 ⇒ 保持挂载（不翻车）
+            // ★ 超时只做判定，绝不拉起官方 App（4.9.7 教训：自动拉起会把用户从模块
+            //   踹到极核 App，并在「从未官方登录过」的设备上反复弹「登录已过期」）。
+            com.github.speedhunter.core.HookLog.log("PING timeout: hookAlive=" + hookAlive
+                    + " probing=" + probing);
+            // ★ PONG 只证明「官方 App 此刻在运行」。收不到时用心跳文件兜底判定 ——
+            //   模块被注入过就是已挂载，App 没开不算未挂载（旧实现的最大误报来源）。
+            if (!hookAlive && hasAttachHeartbeat()) {
+                hookAlive = true;
+                prefs.edit().putBoolean(PREF_MOUNTED, true).apply();
+            }
+            // 从未确认过 ⇒ 落回「未挂载」；已确认过 ⇒ 保持挂载（不翻车）
+            if (probing && !hookAlive) {
+                probing = false;
+                Toast.makeText(requireContext(), "检测完成：未收到官方 App 回执（未挂载）",
+                        Toast.LENGTH_SHORT).show();
+            } else if (probing && hookAlive) {
+                probing = false;
+                Toast.makeText(requireContext(), "检测完成：已挂载", Toast.LENGTH_SHORT).show();
+            }
             updateStatus();
         }
     };
@@ -103,6 +123,7 @@ public final class RideFragment extends BaseTabFragment {
         @Override
         public void onReceive(Context context, Intent intent) {
             hookAlive = true;
+            probing = false;
             prefs.edit().putBoolean(PREF_MOUNTED, true).apply();   // 持久记下：作用域已激活
             uiHandler.removeCallbacks(pongTimeoutTask);
             updateStatus();
@@ -178,6 +199,7 @@ public final class RideFragment extends BaseTabFragment {
         icStatus = view.findViewById(R.id.ic_status);
         tvModeChip = view.findViewById(R.id.tv_mode_chip);
         cardStatus = view.findViewById(R.id.card_status);
+        view.findViewById(R.id.btn_refresh_mount).setOnClickListener(v -> pingHook(true));
 
         swWeb.setChecked(prefs.getBoolean(Keys.KEY_WEB_LAYER, true));
         swG1.setChecked(prefs.getBoolean(Keys.KEY_GATE_ANALYSE, true));
@@ -316,16 +338,67 @@ public final class RideFragment extends BaseTabFragment {
      * 官方 App 被后台清理时 PING 自然收不到回执，不能据此翻成未挂载（那是错误的）。
      */
     private void pingHook() {
+        pingHook(false);
+    }
+
+    /**
+     * @param force true = 用户点刷新：以「心跳文件 + 本轮 PONG」重新判定，不沿用旧标记。
+     */
+    private void pingHook(boolean force) {
+        if (force) {
+            probing = true;
+            // 心跳文件是主要依据：它证明模块被注入过，与官方 App 此刻是否在运行无关。
+            hookAlive = hasAttachHeartbeat();
+            prefs.edit().putBoolean(PREF_MOUNTED, hookAlive).apply();
+            Toast.makeText(requireContext(),
+                    hookAlive ? "正在检测官方 App 回执…" : "未发现注入记录，正在检测…",
+                    Toast.LENGTH_SHORT).show();
+        }
+        sendPing();
+        if (!force) {
+            hookAlive = prefs.getBoolean(PREF_MOUNTED, false);   // 乐观沿用持久标记
+        }
+        uiHandler.removeCallbacks(pongTimeoutTask);
+        uiHandler.postDelayed(pongTimeoutTask, 800);
+        if (force) updateStatus();
+    }
+
+    /**
+     * 读 hook 注入心跳（com.cfmoto 外部 files 目录下的 {@link Keys#HOOK_ALIVE_FILE}）。
+     *
+     * <p>文件内容 {@code "<pid>,<epochMillis>,<ver>"}；只要求存在且可解析，
+     * 不校验 pid 是否存活（进程退出不代表模块没挂过 —— 那正是要证明的事）。</p>
+     */
+    private boolean hasAttachHeartbeat() {
+        try {
+            java.io.File f = new java.io.File(Keys.TARGET_FILES_DIR, Keys.HOOK_ALIVE_FILE);
+            if (!f.exists()) return false;
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            try {
+                byte[] buf = new byte[128];
+                int n = in.read(buf);
+                if (n <= 0) return false;
+                String text = new String(buf, 0, n, "UTF-8").trim();
+                return text.split(",").length >= 2;
+            } finally {
+                in.close();
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 只发定向 PING；重试与首次共用，避免两处逻辑漂移。 */
+    private void sendPing() {
         try {
             Intent ping = new Intent(Keys.ACTION_HOOK_PING);
             ping.setPackage(Keys.TARGET_PKG);
             requireContext().sendBroadcast(ping);
         } catch (Throwable ignored) {
         }
-        hookAlive = prefs.getBoolean(PREF_MOUNTED, false);   // 乐观沿用持久标记，不主动翻成未挂载
-        uiHandler.removeCallbacks(pongTimeoutTask);
-        uiHandler.postDelayed(pongTimeoutTask, 800);
     }
+
+
 
     private String versionName() {
         try {

@@ -146,6 +146,20 @@ public final class Keys {
     /** hook 进程持久化配置的文件名（在其自身外部 files 目录下）。 */
     public static final String CONFIG_FILE = "speedhunter_config.json";
 
+    /**
+     * hook 注入心跳文件（同样落在 com.cfmoto 的外部 files 目录）。
+     *
+     * <p>★ 挂载判定的第二条通道：PING/PONG 只能证明「官方 App <b>正在运行</b>且注入成功」，
+     * 但用户点刷新时 App 往往没在运行 —— 旧实现据此判定「未挂载」，误报。
+     * 本文件由 hook 在 {@code handleLoadPackage} 阶段无条件写入（进程 pid + 时间戳 + 版本），
+     * UI 直接读文件即可确认「模块确实被注入过 com.cfmoto」，与 App 是否在跑无关。</p>
+     */
+    public static final String HOOK_ALIVE_FILE = "speedhunter_hook_alive";
+
+    /** 目标 App 数据目录（UI 进程读心跳用）。Android 10+ 分作用域存储下可能读不到。 */
+    public static final String TARGET_FILES_DIR =
+            "/sdcard/Android/data/com.cfmoto/files";
+
     // ---- 四个开关 ----
     /** 主开关：网络层能力位改写（= iOS Shadowrocket 脚本做的事）。 */
     public static final String KEY_WEB_LAYER = "web_layer";

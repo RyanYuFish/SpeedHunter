@@ -70,8 +70,11 @@ public final class UiApp extends Application {
             try {
                 SharedPreferences prefs =
                         android.preference.PreferenceManager.getDefaultSharedPreferences(context);
-                ConfigSender.pushFromPrefs(context, prefs);
-                HookLog.log(HookLog.CFG + " config re-pushed on sync request");
+                // 反向同步只推开关类参数，账号三键跳过：
+                // UI prefs 在重装/多进程场景下可能与 hook 落盘值不同步，
+                // 带账号键会把有效凭证冲成过期的本地值（实测反复弹「登录已过期」）。
+                ConfigSender.pushFromPrefs(context, prefs, false, true);
+                HookLog.log(HookLog.CFG + " config re-pushed on sync request (account skipped)");
             } catch (Throwable t) {
                 HookLog.log(HookLog.CFG + " config re-push failed: " + t);
             }

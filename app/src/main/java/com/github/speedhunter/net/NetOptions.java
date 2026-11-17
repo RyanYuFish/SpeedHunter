@@ -87,6 +87,8 @@ public final class NetOptions {
             "okhttp3.Response$Builder",
             "com.cfmoto.okhttp3.Response$Builder",
             "com.cfmoto.shadow.okhttp3.Response$Builder",
+            // 官方 App 3.1.0 用系统 boot-okhttp（见 RideFetch.REQUEST_BUILDERS）
+            "com.android.okhttp.Response$Builder",
     };
 
     private NetOptions() {

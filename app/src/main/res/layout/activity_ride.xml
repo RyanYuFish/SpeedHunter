@@ -89,6 +89,15 @@
                                 android:layout_height="1dp"
                                 android:layout_weight="1" />
 
+                            <ImageButton
+                                android:id="@+id/btn_refresh_mount"
+                                android:layout_width="32dp"
+                                android:layout_height="32dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:contentDescription="刷新挂载状态"
+                                android:src="@drawable/ic_refresh"
+                                app:tint="?attr/colorOnPrimaryContainer" />
+
                             <ImageView
                                 android:id="@+id/ic_status"
                                 android:layout_width="22dp"
