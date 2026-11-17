@@ -271,11 +271,13 @@ public final class DiagSelfTest {
                     && (fr.payload[20] & 0xFF) == 0xCC && (fr.payload[24] & 0xFF) == 0x0E; // 时间戳域 CC6440750E 位于 [20..24]
             String conf71 = Hex.format(ZeehoRs485Ops.VERSION_CONFIRM_71).replace(" ", "");
             Rs485.Frame fr71 = Rs485.decode(ZeehoRs485Ops.VERSION_CONFIRM_71);
+            Rs485.Frame frExit = Rs485.decode(ZeehoRs485Ops.VERSION_EXIT_71);
             boolean ok71 = fr71.node == 0x71 && fr71.payload.length == 64 && (fr71.payload[6] & 0xFF) == 0x04
-                    && ZeehoRs485Ops.VERSION_EXIT_71 == ZeehoRs485Ops.VERSION_CONFIRM_71
+                    && frExit.node == 0x71 && frExit.payload.length == 64 && (frExit.payload[6] & 0xFF) == 0x40
+                    && ZeehoRs485Ops.VERSION_EXIT_71 != ZeehoRs485Ops.VERSION_CONFIRM_71
                     && ZeehoRs485Ops.VERSION_SCAN_DELAY_MS == 1107;
             if (okFr && ok71) {
-                sb.append("[PASS] 读版本寻址扫描 0x89(64B 黄金载荷) + 0x71(04) 确认/退出帧 + 1107ms 节奏\n");
+                sb.append("[PASS] 读版本寻址扫描 0x89(64B 黄金载荷) + 确认 0x71(04)/退出 0x71(40) 分帧 + 1107ms 节奏\n");
                 pass++;
             } else {
                 sb.append("[FAIL] 读版本常量 scan=").append(okFr).append(" conf71=").append(ok71).append('\n');

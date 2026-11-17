@@ -41,6 +41,45 @@ import com.github.speedhunter.diag.ZeehoRs485Ops;
  */
 public final class DiagFragment extends BaseTabFragment {
 
+
+    /** 4.9.4 诊断:pollAwaitNode 超时后逐帧说明未命中原因(mark/size/每帧节点与前缀判定),仅超时路径调用。 */
+    private void scanNodeSinceDebug(int mark, int node, int[] payloadPrefix) {
+        synchronized (responseLock) {
+            int size = pendingResponses.size();
+            log("SCANDBG", "want node=" + Integer.toHexString(node) + " mark=" + mark + " size=" + size);
+            if (mark > size) log("SCANDBG", "mark>size:列表被裁剪或重置,mark 已过期");
+            int shown = 0;
+            for (int i = Math.max(0, mark); i < size && shown < 12; i++) {
+                VciLink.DataFrame f = pendingResponses.get(i);
+                if (!f.fromVehicle) { log("SCANDBG", "#" + i + " cmd=" + Integer.toHexString(f.cmd) + " 本机帧(跳过)"); shown++; continue; }
+                java.util.List<byte[]> cfs = VciLink.extractCfFrames(f);
+                if (cfs.isEmpty()) { log("SCANDBG", "#" + i + " cmd=" + Integer.toHexString(f.cmd) + " 无CF"); shown++; continue; }
+                for (byte[] raw : cfs) {
+                    try {
+                        Rs485.Frame fr = Rs485.decode(raw);
+                        String why = fr.node != node ? ("node=" + Integer.toHexString(fr.node) + " 不匹配")
+                                : (payloadPrefix != null && !hasPrefix(fr.payload, payloadPrefix) ? "前缀不符 payload=" + Hex.format(fr.payload) : "??应命中却未命中??");
+                        log("SCANDBG", "#" + i + " cmd=" + Integer.toHexString(f.cmd) + " CF node=" + Integer.toHexString(fr.node) + " → " + why);
+                    } catch (IllegalArgumentException e) {
+                        log("SCANDBG", "#" + i + " CF解码异常:" + e.getMessage());
+                    }
+                    shown++;
+                }
+            }
+        }
+    }
+
+    /** 版本值渲染:无应答 / 空正响应(0x17 对 F193/F195 回空 62F193)/ 正常 ASCII。 */
+    private static String verVal(String hit) {
+        if (hit == null) return "无应答";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 6; i + 1 < hit.length(); i += 2) { // 跳过 62 F1 xx 三字节正响应头
+            int c = Integer.parseInt(hit.substring(i, i + 2), 16);
+            if (c >= 0x20 && c < 0x7F) sb.append((char) c);
+        }
+        return sb.length() > 0 ? sb.toString() : "(空应答)";
+    }
+
     private VciSppLink link;
     private final DiagLogger logger = new DiagLogger();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -341,7 +380,7 @@ public final class DiagFragment extends BaseTabFragment {
         long age = link.lastDataRxAgeMs();
         if (age > 5000) log("WARN", "L3 通道疑似失活(最后数据 " + (age / 1000) + "s 前);若操作无应答请断开重连 VCI");
         flowBusy = true;
-        log("OP", op + ":阶段1 主从切换(官方对齐)");
+        log("OP", op + ":流程开始(按官方流程)");
         return true;
     }
 
@@ -463,7 +502,10 @@ public final class DiagFragment extends BaseTabFragment {
         while (active.isConnected()) {
             String hit = scanNodeSince(mark, node, payloadPrefix);
             if (hit != null) return hit;
-            if (android.os.SystemClock.elapsedRealtime() >= deadline) return null;
+            if (android.os.SystemClock.elapsedRealtime() >= deadline) {
+                scanNodeSinceDebug(mark, node, payloadPrefix); // 4.9.4: 超时逐帧诊断(定位"帧已在列表却未命中")
+                return null;
+            }
             sleepMs(120);
         }
         return null;
@@ -763,19 +805,15 @@ public final class DiagFragment extends BaseTabFragment {
                                 log("TX", "读版本 寻址 0x89 #" + (i + 1));
                                 sleepMs(ZeehoRs485Ops.VERSION_SCAN_DELAY_MS);
                             }
-                            flowStage("①/③ 确认帧 0x71(04),被动等 0x79…");
+                            flowStage("①/③ 确认帧 0x71(04)(0x79 应答最晚 ~21s:改被动收取)…");
                             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
                             active.sendRs485(ZeehoRs485Ops.VERSION_CONFIRM_71);
                             log("TX", "读版本 确认 0x71(byte6=0x04)");
-                            String scan79 = pollAwaitNode(active, 0x79, null, 2000);
-                            log("OP", "读版本 0x79: " + (scan79 != null ? "已应答" : "无(继续 0x80)") + " " + secSince(t0));
-                            flowStage("②/③ 0x80 VIN 查询(节点 0x88 应答)…");
+                            int vinMark;
+                            synchronized (responseLock) { vinMark = pendingResponses.size(); }
+                            flowStage("②/③ 0x80 VIN 查询(官方首批应答延迟可达 ~21s:不阻塞,流程末被动收取)…");
                             pollAndSend(active, "版本 0x80(VIN 查询)", ZeehoRs485Ops.VERSION_QUERY_80);
-                            String vinPayload = pollAwaitNode(active, 0x88, null, 2500);
-                            String vin = vinPayload != null ? asciiAfter(vinPayload, 3) : null;
-                            log("OP", "0x80 应答(节点 0x88): " + (vin != null ? vin : "无") + " " + secSince(t0));
-                            StringBuilder sb = new StringBuilder();
-                            if (vin != null) sb.append("VIN(0x88): ").append(vin).append('\n');
+                            StringBuilder sbNodes = new StringBuilder();
                             int silentNodes = 0;
                             int nodeIdx = 0, nodeTotal = ZeehoRs485Ops.VERSION_NODES.length;
                             for (int node : ZeehoRs485Ops.VERSION_NODES) {
@@ -784,20 +822,28 @@ public final class DiagFragment extends BaseTabFragment {
                                 stageOpen(active, "读版本 node " + Integer.toHexString(node));
                                 String hw = versionQueryDid(active, node, 0xF193);
                                 String sw = versionQueryDid(active, node, 0xF195);
-                                String line = "node " + Integer.toHexString(node) + nodeName(node) + ": HW=" + asciiAfter(hw, 3) + "  SW=" + asciiAfter(sw, 3);
+                                String line = "node " + Integer.toHexString(node) + nodeName(node) + ": HW=" + verVal(hw) + "  SW=" + verVal(sw);
                                 log("OP", "版本 " + line + " " + secSince(t0));
                                 if (hw == null && sw == null) silentNodes++;
-                                sb.append(line).append('\n');
+                                sbNodes.append(line).append('\n');
                             }
+                            String vinPayload = scanNodeSince(vinMark, 0x88, null);
+                            String vin = vinPayload != null ? asciiAfter(vinPayload, 3) : null;
+                            String confirm79 = scanNodeSince(vinMark, 0x79, null);
+                            log("OP", "0x80 应答(节点 0x88): " + (vinPayload != null ? ("已收 " + vin) : "无(被动窗内未见)") + " " + secSince(t0));
+                            log("OP", "确认帧 0x79: " + (confirm79 != null ? "已应答(被动收取)" : "未见"));
+                            StringBuilder sb = new StringBuilder();
+                            if (vinPayload != null) sb.append("VIN(0x88): ").append(vin).append('\n');
+                            sb.append(sbNodes);
                             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
                             active.sendRs485(ZeehoRs485Ops.VERSION_EXIT_71);
-                            log("TX", "读版本 退出 0x71(byte6=0x04)");
+                            log("TX", "读版本 退出 0x71(byte6=0x40,官方对齐)");
                             log("OP", "读版本完成,总耗时 " + secSince(t0));
                             active.resumeKeepAlive();
                             active.startPolling();
                             releaseGate();
                             dismissFlowProgress();
-                            if (vin == null && silentNodes == nodeTotal) {
+                            if (vinPayload == null && silentNodes == nodeTotal) {
                                 sb.append("[全部节点无应答]").append('\n')
                                   .append("0x80 与 5 个节点 22F193/F195 全部超时 —— 总线静默。常见原因:").append('\n')
                                   .append("· 上一流程残留从机模式 —— 断电重上电车辆后重试;").append('\n')
@@ -830,7 +876,8 @@ public final class DiagFragment extends BaseTabFragment {
         for (int attempt = 1; attempt <= 3; attempt++) {
             pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F1" + Integer.toHexString(did & 0xFF),
                     ZeehoRs485Ops.udsReadDid(node, did));
-            String hit = pollAwaitNode(active, node | 0x80, prefix, 1200);
+            // 4.9.4:0x27 首应答实测 1.34s
+            String hit = pollAwaitNode(active, node | 0x80, prefix, 1500);
             if (hit != null) return hit;
         }
         return null;
