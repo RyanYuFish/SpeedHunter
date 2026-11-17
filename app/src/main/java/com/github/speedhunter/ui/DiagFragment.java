@@ -651,11 +651,27 @@ public final class DiagFragment extends BaseTabFragment {
         // FC 81 内 4B 挑战是随机值(实见 2f985e45),与静态对无关,仅记录不参与计算。
         int mark;
         synchronized (responseLock) { mark = pendingResponses.size(); }
-        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
-        byte[] challenge = scanFcChallengeSince(mark);
-        if (challenge != null) log("OP", "EOL 授权 FC 81 挑战(信息性记录): " + Hex.format(challenge).replace(" ", ""));
-        requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
-        log("OP", "EOL 授权完成(静态对,FC 81/82 应答)");
+        try {
+            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
+            byte[] challenge = scanFcChallengeSince(mark);
+            if (challenge != null) log("OP", "EOL 授权 FC 81 挑战(信息性记录): " + Hex.format(challenge).replace(" ", ""));
+            requestResponse(active, ZeehoRs485Ops.EOL_AUTH_2, 0x82);
+            log("OP", "EOL 授权完成(静态对,FC 81/82 应答)");
+            return;
+        } catch (java.io.IOException e) {
+            // 跨车型兼容(AE7 Pro 等 Gemini 同架构车型):静态厂钥可能随车型不同被拒,
+            // 回退协议总汇 §3.2.1 动态挑战授权(帧① F4 09 01 0100… → FC 81 00 <挑战> → 帧② 02+挑战+×2023),
+            // proof 由车辆自身挑战计算,车型无关。
+            log("OP", "静态对未获 FC 应答(" + e.getMessage() + "),回退动态挑战授权(跨车型兼容)");
+        }
+        int mark2;
+        synchronized (responseLock) { mark2 = pendingResponses.size(); }
+        requestResponse(active, ZeehoRs485Ops.eolAuth1Dynamic(), 0x81);
+        byte[] dynChallenge = scanFcChallengeSince(mark2);
+        if (dynChallenge == null) throw new java.io.IOException("动态授权:FC 81 应答未携带 4B 挑战");
+        log("OP", "动态授权挑战: " + Hex.format(dynChallenge).replace(" ", ""));
+        requestResponse(active, ZeehoRs485Ops.eolAuth2For(dynChallenge), 0x82);
+        log("OP", "EOL 授权完成(动态挑战,FC 82 应答)");
     }
 
     /** 扫描 mark 后 FC 81 00 <challenge×4> 应答;返回 4B 挑战或 null。 */
