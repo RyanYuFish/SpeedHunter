@@ -56,6 +56,12 @@ final class AccountSession {
         HookKit.hookAllMethodsIfExists(TAG, "com.cfmoto.AppContext", name, new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam p) {
                 Session session = session();
+                // 诊断：确认调用真的进来了（3.1.0 这些方法是 native，
+                // 若日志完全没有 HIT，说明 hook 没挂上或被壳绕过）
+                com.github.speedhunter.core.HookLog.log(TAG + " [Session] HIT " + name
+                        + " ready=" + (session != null)
+                        + " native=" + java.lang.reflect.Modifier.isNative(
+                                p.method.getModifiers()));
                 if (session == null) return;
                 if ("getUserInfo".equals(name)) {
                     session.awaitProfile();
@@ -63,7 +69,13 @@ final class AccountSession {
                 } else if ("getUserId".equals(name)) {
                     p.setResult(session.id);
                 } else if ("getToken".equals(name)) {
-                    p.setResult(session.token);
+                    // ★ 必须带 "Bearer " 前缀：官方 App 3.1.0 把这个返回值**原样**写进
+                    //   {@code Authorization} 头（不经任何补前缀逻辑）。录入的是裸 token，
+                    //   于是发出 {@code Authorization: 4cf9a649-…}，服务端一律
+                    //   401 Unauthorized（实测同一 token 加 Bearer 就 200）。
+                    //   这条 401 会走 CarViewModule.loadCarList → VehicleFragment.onInitError
+                    //   → 弹「登录已过期，请重新登录」。
+                    p.setResult(session.bearer());
                 } else {
                     p.setResult(true);
                 }
@@ -131,6 +143,11 @@ final class AccountSession {
             this.id = id;
             this.token = token;
             this.user = user;
+        }
+
+        /** 供 {@code AppContext#getToken()} 返回：服务端要求 {@code Bearer <token>}。 */
+        String bearer() {
+            return token.regionMatches(true, 0, "Bearer ", 0, 7) ? token : "Bearer " + token;
         }
 
         boolean matches(String otherId, String otherToken) {

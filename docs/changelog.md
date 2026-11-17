@@ -1,3 +1,67 @@
+## 5.0.1 (vc145) — 2026-11-18
+
+### 引导登录根治：`Authorization` 缺 `Bearer ` 前缀
+
+**脱壳取证**（11 个明文 DEX / 45 MB，从 `com.android.okhttp.Response` 侧 dump）：
+
+```
+VehicleFragment.observeData  (LiveData 收到 ResultState.Error)
+  → BaseFragment.onInitError(ApiException code=401)
+    → ToastUtils.showToast → Resources.getText(0x7f130b1e = string/token_error)
+      "登录已过期，请重新登录"
+```
+
+沿异常链上溯：`CustomException.handleException(Throwable)` 的入参是
+`retrofit2.adapter.rxjava2.HttpException: HTTP 401`，而 401 的请求头是：
+
+```
+Authorization: 4cf9a649-cf4c-41ea-bda5-b1ee0ba79c77      ← 裸 token，无 Bearer
+```
+
+同一 token 手工请求对比（服务端行为）：
+
+| 请求头 | 结果 |
+|---|---|
+| `Authorization: Bearer 4cf9a649-…` | **200** |
+| `Authorization: 4cf9a649-…` | **401 Unauthorized** |
+
+受影响接口（全部 `/v1.0/app/cfmotoserverapp/**`）：
+`vehicle/list`、`vehicleSet/blueToothServiceCode`、
+`vehicle/navigation/address/list/0`、`mine/setting/userMuteStatus/{uid}`、`app/ota/v2/red-point/content`。
+
+**根因**：官方 App 3.1.0 把 `AppContext#getToken()` 的返回值**原样**写进
+`Authorization` 头，不做任何补前缀处理。模块注入的是裸 token，于是整条
+App 网关链路 401。`vehicle/list` 失败 → `CarViewModule.loadCarList` 抛
+`ApiException(401)` → 极车页 `onInitError` → 弹「登录已过期，请重新登录」。
+
+**修复**：`AccountSession` 的 `getToken` 分支返回 `"Bearer " + token`
+（幂等，已带前缀不重复加）。改后：401 从 11 → **0**，`token_error` 归零，
+极车页正常显示车辆名/电量/续航，`我的`页显示真实账号（昵称、极核号、积分、签到）。
+
+### 3.1.0 适配（爱加密加固）
+
+| 问题 | 现象 | 修复 |
+|---|---|---|
+| `AppContext` 会话方法是 **native** | attach 阶段 `Class.forName` 必失败 | 延后到首个 `Activity.onResume`；且 3.1.0 这些方法**带参**，按名挂全部重载 |
+| 业务类整体未解密 | `com.tencent.mmkv.MMKV` 等全部 skip | MMKV hook 同样延后到 onResume |
+| okhttp 来自 **boot-okhttp** | `okhttp3.*` 三候选全 ClassNotFound，`account inject=0` | 补 `com.android.okhttp.Request$Builder` / `Response$Builder` |
+| `peekBody` 是原生 `long` | `XposedHelpers.callMethod` 装箱成 `Long` → NoSuchMethodError | 反射 `getMethod("peekBody", long.class)` |
+| 多进程共享外部目录 | `io.rong.push` 把主进程刚 prime 的 `account_login=true` 写回 `false` | 只有主进程（`packageName == processName`）可写配置 |
+| 反向同步冲掉凭证 | UI 空 prefs 覆盖 hook 侧有效 token | `CONFIG_SYNC` 一律 `skipAccount`；清除/登出仍 `forceConfirm` |
+
+### 挂载判定（上一版遗留问题一并修正）
+
+- **删除**刷新按钮的 `launchTargetApp`：4.9.7 会自动把用户从模块踹到极核 App。
+- 新增**注入心跳** `speedhunter_hook_alive`（`pid,timestamp,ver`）：UI 读文件即判定
+  「模块注入过」，**与官方 App 是否在运行无关** —— 这是「作用域勾对了却提示未挂载」的根因。
+- 刷新按钮：只探测、不跳转；PONG 为第二通道，两者都无才判未挂载。
+
+### 保留的兜底
+
+`ExpiredToastFilter`：拦截 XToast（`com.zeeho.constant.toast`，走
+`WindowManager.addView` 而非 `Toast`）的「登录已过期」浮层。
+根治后已不再触发，保留防第三方服务端异常时刷屏。
+
 ## 4.9.6 (vc140) — 跨车型 EOL 动态授权回退
 
 - 诊断 EOL 授权:静态厂钥对(黄金实证)任一步无 FC 81/82 应答时,自动回退协议总汇 §3.2.1 动态挑战授权(帧① F4 09 01 0100… → FC 81 挑战 4B → 帧② 02+挑战+challenge×2023 → FC 82);proof 由车辆自身挑战计算,车型无关,为 AE7 Pro 等 Gemini 同架构车型同步写里程做兼容铺垫。

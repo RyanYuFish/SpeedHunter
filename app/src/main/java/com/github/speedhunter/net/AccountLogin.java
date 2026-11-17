@@ -90,6 +90,7 @@ public final class AccountLogin {
             });
         }
         installPrefs();
+        installAuthHeaderFix();
         AccountSession.install();
         HookLog.log(TAG + " account login installed (on=" + AccountOptions.ready() + ")");
     }
@@ -166,7 +167,36 @@ public final class AccountLogin {
     }
 
     /** MMKV 是具体类，直接静态 hook。 */
+    /**
+     * MMKV 是具体类，必须等业务类解密后才能解析 —— attach 阶段
+     * {@code Class.forName} 必失败（实测日志全是 skip）。延后到首个 Activity.onResume。
+     */
     private static void installMmkv() {
+        try {
+            XposedHelpers.findAndHookMethod(android.app.Activity.class, "onResume",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) {
+                            if (mmkvHooked) return;
+                            Object a = p.thisObject;
+                            if (!(a instanceof android.app.Activity)) return;
+                            if (!"com.cfmoto".equals(((android.app.Activity) a).getPackageName())) {
+                                return;
+                            }
+                            mmkvHooked = true;
+                            installMmkvNow();
+                        }
+                    });
+            HookLog.log(TAG + " mmkv hook deferred to onResume");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " defer mmkv failed: " + t.getClass().getSimpleName());
+            installMmkvNow();
+        }
+    }
+
+    private static volatile boolean mmkvHooked;
+
+    private static void installMmkvNow() {
         HookKit.hookIfExists(TAG, "com.tencent.mmkv.MMKV", "decodeString", SP_READ,
                 String.class, String.class);
         HookKit.hookIfExists(TAG, "com.tencent.mmkv.MMKV", "decodeBool", SP_READ,
@@ -186,27 +216,142 @@ public final class AccountLogin {
         protected void afterHookedMethod(MethodHookParam p) {
             Object keyObj = p.args.length > 0 ? p.args[0] : null;
             if (!(keyObj instanceof String)) return;
+            String rawKey = (String) keyObj;
+            // 诊断（2026-11-18）：只打登录相关 key 的「覆盖前原值」，
+            // 用来确认 App 3.1.0 的登录态到底存在哪个 key、是否加密。
+            String lk = rawKey.toLowerCase();
+            if (lk.contains("login") || lk.contains("token") || lk.contains("user")
+                    || lk.contains("account") || lk.contains("auth")) {
+                logOnceDiag("SP read " + rawKey + " = " + brief(p.getResult()));
+            }
             if (!AccountOptions.ready()) return;
-            String key = ((String) keyObj).toLowerCase();
+            String key = lk;
             String method = p.method.getName();
             if (method.equals("getString") || method.equals("decodeString")) {
                 if (TOKEN_KEYS.contains(key)) {
                     p.setResult(AccountOptions.token());
+                    logOnceDiag("OVERRIDE " + rawKey + " -> token");
                 } else if (USER_KEYS.contains(key)) {
                     p.setResult(AccountOptions.userId());
                 }
             } else if (method.equals("getBoolean") || method.equals("decodeBool")) {
                 if (LOGIN_KEYS.contains(key)) {
                     p.setResult(Boolean.TRUE);
+                    logOnceDiag("OVERRIDE " + rawKey + " -> true");
                 }
             } else if (method.equals("getLong") || method.equals("decodeLong")) {
                 if (USER_KEYS.contains(key)) {
-                    try { p.setResult(Long.valueOf(AccountOptions.userId())); }
-                    catch (NumberFormatException ignored) { }
+                    try {
+                        p.setResult(Long.valueOf(AccountOptions.userId()));
+                        logOnceDiag("OVERRIDE " + rawKey + " -> long uid");
+                    } catch (NumberFormatException ignored) { }
+                }
+            } else if (method.equals("getInt") || method.equals("decodeInt")) {
+                // ★ 3.1.0 的 USER_ID 是 long（20250914005048350 超出 int 范围），
+                //   但个别通道仍用 int 读；命中就覆盖，读不出就交回原值。
+                if (USER_KEYS.contains(key)) {
+                    try {
+                        p.setResult((int) Long.parseLong(AccountOptions.userId()));
+                        logOnceDiag("OVERRIDE " + rawKey + " -> int uid");
+                    } catch (NumberFormatException ignored) { }
                 }
             }
         }
     };
+
+
+    /**
+     * 修正 {@code Authorization} 头缺少 {@code Bearer } 前缀的问题。
+     *
+     * <p>★ 2026-11-18 脱壳定位到的真正根因：官方 App 3.1.0 的
+     * {@code ResponseTransformer}/{@code ErrorResumeFunction} 链路里，
+     * 车辆类接口（{@code /v1.0/app/cfmotoserverapp/**}）的请求头被 App 自己的
+     * 签名 Interceptor 写成<b>裸 token</b>：</p>
+     * <pre>
+     *   Authorization: 4cf9a649-cf4c-41ea-bda5-b1ee0ba79c77
+     * </pre>
+     * <p>而同一 token 手工请求（{@code Authorization: Bearer <token>}）返回 200。
+     * 服务端要求 Bearer 前缀，裸 token 一律 401
+     * （{@code UnauthorizedException: Full authentication is required}）。
+     * {@code vehicle/list} 401 → {@code CarViewModule.loadCarList} 失败
+     * → {@code VehicleFragment.onInitError} → 弹「登录已过期，请重新登录」。</p>
+     *
+     * <p>在 {@code Request.Builder#header(name, value)} 处纠正最稳：无论谁设置的
+     * （App 的拦截器、我们的 patch、其它库），只要 name 是 Authorization 且
+     * 值不以 {@code Bearer } 开头，就补前缀，且不会重复叠加。</p>
+     */
+    private static void installAuthHeaderFix() {
+        for (String className : REQUEST_BUILDER_CLASSES) {
+            try {
+                Class<?> c = Class.forName(className, false, HookKit.classLoader());
+                // header() 是替换语义、addHeader() 是追加语义；Retrofit 的
+                // @Header 注解走 addHeader，两条都要挂。
+                for (String m : new String[]{"header", "addHeader"}) {
+                    de.robv.android.xposed.XposedBridge.hookAllMethods(c, m,
+                            new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) {
+                                    fixAuth(p);
+                                }
+                            });
+                }
+                HookLog.log(TAG + " auth header fix hooked on " + className);
+                hookHeadersBuilder(className);
+            } catch (Throwable t) {
+                HookLog.log(TAG + " auth header fix skip " + className
+                        + " (" + t.getClass().getSimpleName() + ")");
+            }
+        }
+    }
+
+    /** 与 {@code RideFetch.REQUEST_BUILDERS} 同源，避免两处漂移。 */
+    private static final String[] REQUEST_BUILDER_CLASSES =
+            com.github.speedhunter.ride.RideFetch.REQUEST_BUILDERS;
+
+
+    /**
+     * 最底层兜底：{@code Request.Builder} 内部最终都落到 {@code Headers.Builder.add}。
+     * 官方 App 3.1.0 实测既不调 {@code header()} 也不调 {@code addHeader()}
+     * （Retrofit 的注解处理器直接操作 Headers），只能在这一层纠。
+     */
+    private static void hookHeadersBuilder(String requestBuilderClass) {
+        String headersClass = requestBuilderClass.replace("Request$Builder", "Headers");
+        try {
+            Class<?> b = Class.forName(headersClass + "$Builder", false, HookKit.classLoader());
+            de.robv.android.xposed.XposedBridge.hookAllMethods(b, "add",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam p) {
+                            fixAuth(p);
+                        }
+                    });
+            HookLog.log(TAG + " auth header fix hooked on " + headersClass + "$Builder");
+        } catch (Throwable t) {
+            HookLog.log(TAG + " auth header fix headers-builder skip: "
+                    + t.getClass().getSimpleName());
+        }
+    }
+
+    private static void fixAuth(XC_MethodHook.MethodHookParam p) {
+        try {
+            if (p.args == null || p.args.length < 2) return;
+            Object name = p.args[0];
+            Object value = p.args[1];
+            if (!(name instanceof String) || !(value instanceof String)) return;
+            if (!"Authorization".equalsIgnoreCase((String) name)) return;
+            String v = ((String) value).trim();
+            if (v.isEmpty()) return;
+            if (v.regionMatches(true, 0, "Bearer ", 0, 7)) return;   // 已正确
+            p.args[1] = "Bearer " + v;
+            if (AUTH_FIXED.add(v)) {
+                HookLog.log(TAG + " auth header fixed: <token len=" + v.length() + "> -> Bearer");
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static final Set<String> AUTH_FIXED = Collections.newSetFromMap(
+            new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
 
     private static void patch(XC_MethodHook.MethodHookParam param) {
         Object request = param.getResult();
@@ -310,6 +455,43 @@ public final class AccountLogin {
     private static String mask(String s) {
         if (s == null || s.length() <= 4) return "****";
         return s.substring(0, 2) + "****" + s.substring(s.length() - 2);
+    }
+
+    /** 诊断去重集合（同一个 key 只打一次，避免刷爆日志）。 */
+    private static final Set<String> DIAG_SEEN =
+            Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<String, Boolean>());
+
+    private static void logOnceDiag(String message) {
+        if (DIAG_SEEN.add(message)) {
+            HookLog.log(TAG + " [Diag] " + message);
+        }
+    }
+
+    /** 值摘要：明文短值直接给，长/疑似密文只给长度与可打印比例。 */
+    private static String brief(Object v) {
+        if (v == null) return "null";
+        if (v instanceof Boolean || v instanceof Number) return String.valueOf(v);
+        String s = String.valueOf(v);
+        if (s.length() <= 32 && isPrintable(s)) return s;
+        return "<len=" + s.length() + " printable=" + printableRatio(s) + ">";
+    }
+
+    private static boolean isPrintable(String s) {
+        return ratio(s) > 0.9;
+    }
+
+    private static String printableRatio(String s) {
+        return String.format(java.util.Locale.ROOT, "%.2f", ratio(s));
+    }
+
+    private static double ratio(String s) {
+        if (s.isEmpty()) return 0;
+        int ok = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x20 && c != 0x7f) ok++;
+        }
+        return ok / (double) s.length();
     }
 
     private static String shortUrl(String url) {
