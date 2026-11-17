@@ -162,6 +162,7 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> runWithLink("清DTC", this::beginDtcClear));
         root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> runWithLink("扩展读取", this::beginExtendedRead));
         root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> runWithLink("ABS排气", this::beginAbsBleed));
+        root.findViewById(R.id.btn_diag_restore).setOnClickListener(v -> runWithLink("恢复主机", this::beginRestoreMaster));
         root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("写里程", () -> writeMileage()));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
         root.findViewById(R.id.btn_diag_clear).setOnClickListener(v -> {
@@ -396,6 +397,8 @@ public final class DiagFragment extends BaseTabFragment {
                 stageOpen(active, op + " 切换开道");
                 active.suspendKeepAlive();
                 active.stopPolling(); // 0x89 突发窗口复刻官方节奏(仅 poll+write 对)
+                int preTraffic = probeBusTraffic(active, 1500); // 官方从任意状态诱导切换;零 TX 探测仅记录状态
+                log("OP", "总线探测: " + preTraffic + " 帧车流" + (preTraffic > 0 ? "(主机广播在线)" : "(静默:可能从机/休眠,0x89 诱导照发)"));
                 flowStage(op + " ①/③ 主从切换:0x89×5 发送中(官方节奏 158/112/1105/1107ms)");
                 log("OP", "开始 0x89×5(官方节奏 158/112/1105/1107ms)");
                 for (int i = 0; i < 5; i++) {
@@ -425,7 +428,7 @@ public final class DiagFragment extends BaseTabFragment {
                     dismissFlowProgress(); // 让位给切换结果确认框(执行段会重新弹进度框)
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle(ok ? "主从切换完成" : "主从切换状态未知")
                             .setMessage(ok ? "已收到 0x79/0x17 应答,仪表应已进入从机模式。\n注意:从机模式下长时间不写入,仪表会超时自动恢复(黑屏,约1分钟自愈)——请尽快点「继续」完成「" + op + "」执行段。"
-                                    : "未检测到 0x79/0x17 应答,但切换可能已生效(实车观察:状态未知时仪表也已切从机)。\n请观察仪表尽快确认;从机下长时间不写入会超时自动恢复(黑屏,约1分钟自愈)。")
+                                    : "未检测到 0x79/0x17 应答,但切换可能已生效(实车观察:状态未知时仪表也已切从机)。\n请观察仪表尽快确认;从机下长时间不写入会超时自动恢复(黑屏,约1分钟自愈);中止后可用「恢复主机」按钮退出并验证。")
                             .setNegativeButton("中止", (d, w) -> { log("OP", op + " 用户中止(切换后)"); exitMasterSlaveQuiet(active); releaseGate(); })
                             .setPositiveButton("继续", (d, w) -> new Thread(() -> {
                                 try { onSwitched.run(); }
@@ -474,6 +477,83 @@ public final class DiagFragment extends BaseTabFragment {
             active.resumeKeepAlive();
             active.startPolling();
         }
+    }
+
+    /** 被动探测总线车流(等待期零 TX):统计 mark 后来自车辆方向的帧数;>0 = 主机广播在线。 */
+    private int probeBusTraffic(VciSppLink active, long ms) {
+        int mark;
+        synchronized (responseLock) { mark = pendingResponses.size(); }
+        long deadline = android.os.SystemClock.elapsedRealtime() + ms;
+        while (android.os.SystemClock.elapsedRealtime() < deadline && active.isConnected()) sleepMs(150);
+        synchronized (responseLock) {
+            int n = 0;
+            for (int i = mark; i < pendingResponses.size(); i++) {
+                if (pendingResponses.get(i).fromVehicle) n++;
+            }
+            return n;
+        }
+    }
+
+    /** 恢复主机:官方退出帧 0x71(byte6=0x40)→0x79 确认→0x80→0x88(VIN)验证主机寻址;从机超时 ~1min 自动恢复兜底。 */
+    private void beginRestoreMaster() {
+        if (!opGate("恢复主机")) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("恢复主机状态")
+                .setMessage("发送官方退出帧 0x71(byte6=0x40)并用 0x80→0x88(VIN)验证主机寻址是否恢复。" + "\n\n" + "从机模式下长时间不写入,仪表也会超时自动恢复(约1分钟,期间可能黑屏)。")
+                .setNegativeButton("取消", (d, w) -> releaseGate())
+                .setPositiveButton("开始", (d, w) -> {
+                    final VciSppLink active = link;
+                    new Thread(() -> {
+                        long t0 = android.os.SystemClock.elapsedRealtime();
+                        try {
+                            active.suspendKeepAlive();
+                            active.stopPolling();
+                            showFlowProgress("恢复主机", "①/③ 总线探测+开道…");
+                            int traffic = probeBusTraffic(active, 1500);
+                            log("OP", "总线探测: " + traffic + " 帧车流" + (traffic > 0 ? "(主机广播在线:可能本就主机态)" : "(静默:可能从机/休眠)"));
+                            stageOpen(active, "恢复主机");
+                            flowStage("①/③ 退出帧 0x71(40) + 0x79 确认(≤2.5s)…");
+                            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+                            active.sendRs485(ZeehoRs485Ops.MASTER_SLAVE_EXIT_71);
+                            log("TX", "恢复主机 退出 0x71(byte6=0x40)");
+                            String r79 = pollAwaitNode(active, 0x79, null, 2500);
+                            log("OP", "0x79 " + (r79 != null ? "已应答(总线控制帧在线)" : "无应答") + " " + secSince(t0));
+                            flowStage("②/③ 0x80 主机寻址验证(0x88 VIN,被动等待 ≤25s;官方首批应答可延迟 ~21s)…");
+                            active.send(VciLink.CMD_POLL, new byte[]{1, 1});
+                            active.sendRs485(ZeehoRs485Ops.VERSION_QUERY_80);
+                            log("TX", "恢复主机 0x80(VIN 查询)");
+                            String vinPayload = pollAwaitNode(active, 0x88, null, 25000);
+                            String vin = vinPayload != null ? asciiAfter(vinPayload, 3) : null;
+                            flowStage("③/③ 完成");
+                            log("OP", "0x88 " + (vinPayload != null ? ("已应答 VIN=" + vin) : "无应答") + " " + secSince(t0));
+                            final String title = vinPayload != null ? "主机已恢复" : "恢复结果";
+                            final String msg = vinPayload != null
+                                    ? "主机寻址已恢复(0x80→0x88 应答,VIN=" + vin + ")。" + "\n" + "仪表已回到主机(正常)状态,可直接使用车辆功能。"
+                                    : r79 != null
+                                    ? "退出帧已确认(0x79 应答),但 25s 内 0x88 未应答。" + "\n" + "从机超时自动恢复约 1 分钟(期间可能黑屏);稍后可再点本按钮验证,或断电重启。"
+                                    : "0x79/0x88 均无应答:仪表可能本就在主机态,或总线静默。" + "\n" + "若仪表黑屏,等待 ~1 分钟自动恢复;仍未恢复可断电重启。";
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (!isAdded()) return;
+                                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle(title).setMessage(msg)
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } catch (Exception e) {
+                            log("ERR", "恢复主机失败: " + e.getMessage());
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (!isAdded()) return;
+                                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("恢复主机失败").setMessage(e.getMessage() + "\n" + "可断开重连后再试;仪表从机超时会自动恢复(约1分钟)。")
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } finally {
+                            active.resumeKeepAlive();
+                            active.startPolling();
+                            releaseGate();
+                        }
+                    }, "diag-restore").start();
+                }).setCancelable(false).show();
     }
 
     /** 发送 L3 会话前导(60×3 + 69×3,帧间隔 15ms)。 */

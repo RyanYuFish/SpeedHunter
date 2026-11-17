@@ -199,6 +199,14 @@
             android:text="ABS 前轮排气(官方流程,实车待验证)"
             android:textSize="13sp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_diag_restore"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="恢复主机(0x71 退出 + 0x80→0x88 验证)"
+            android:textSize="13sp" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
