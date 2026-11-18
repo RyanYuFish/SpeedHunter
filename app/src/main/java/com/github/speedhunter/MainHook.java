@@ -80,6 +80,39 @@ public final class MainHook implements IXposedHookLoadPackage {
         }
     }
 
+    /**
+     * 把依赖真实 dex 的安装推迟到首个 {@code com.cfmoto} Activity.onResume。
+     *
+     * <p>锚点与 {@code net.AccountSession} 一致（Activity.onResume 框架方法，爱加密
+     * 不搬）。只触发一次；任一安装抛异常只记日志，不牵连队列里其它项。若框架
+     * hook 本身装不上（理论不可能），兜底立即执行，行为退回 attach 期安装。</p>
+     */
+    private static void deferUntilRealDexReady(final String what, final Runnable install) {
+        try {
+            de.robv.android.xposed.XposedHelpers.findAndHookMethod(
+                    android.app.Activity.class, "onResume", new de.robv.android.xposed.XC_MethodHook() {
+                private boolean fired;
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) {
+                    if (fired) return;
+                    android.app.Activity a = (android.app.Activity) p.thisObject;
+                    if (!Targets.PACKAGE.equals(a.getPackageName())) return;
+                    fired = true;
+                    try {
+                        HookLog.log("[Init] real-dex ready -> install " + what
+                                + " @ " + a.getClass().getName());
+                        install.run();
+                    } catch (Throwable t) {
+                        HookLog.log("[Init] deferred install failed (" + what + "): " + t);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            HookLog.log("[Init] defer failed (" + what + "): " + t.getClass().getSimpleName());
+            install.run();   // 兜底：仍按老时机试一次
+        }
+    }
+
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if (!Targets.PACKAGE.equals(lpparam.packageName)) {
@@ -111,11 +144,23 @@ public final class MainHook implements IXposedHookLoadPackage {
             catch (Throwable t) { HookLog.log(HookLog.MIRROR + " bridge install failed: " + t.getClass().getSimpleName()); }
         }
         MobGuard.install(lpparam);   // 先保命：规避 MobTech SDK 的启动崩溃
-        RideFetch.installAll();      // 请求侧：把 ridetrack_v2 的 pageSize 放大到 200
-        NetPatch.installAll();       // 主机制：网络层能力位改写 + 急刹/压弯回填
+        // ★ 爱加密 3.1.0（2026-11-18 真机取证）：真实 dex 要到首个 Activity.onResume
+        //   才解密挂进 app classloader —— attach 期 Class.forName("okhttp3.*") /
+        //   com.cfmoto.* 必 ClassNotFound，hookIfExists 记一行 skip 后<b>永不重试</b>，
+        //   于是 NetPatch/RideFetch/OTA/MQTT/车漆全部永久漏挂：日志里 [Net] patched
+        //   与 [Ride] fill 全零、回填从未执行（v5.2.0~v5.2.2「门控失效」的真正根因，
+        //   三轮门控改的代码根本没跑到）。与 AccountSession 同锚点延迟安装
+        //   （该锚点已实车验证稳定：AppContext 会话 hook 就是这么挂上的）。
+        deferUntilRealDexReady("RideFetch", new Runnable() { public void run() {
+            RideFetch.installAll();      // 请求侧：把 ridetrack_v2 的 pageSize 放大到 200
+        }});
+        deferUntilRealDexReady("NetPatch", new Runnable() { public void run() {
+            NetPatch.installAll();       // 主机制：网络层能力位改写 + 急刹/压弯回填
+        }});
         // 车模替换 v2：模型加载后应用用户选的车漆配色（ZeehoModelProcessor#onModelLoaded）
-        try { com.github.speedhunter.net.VehicleArtUnlock.installColorHook(); }
-        catch (Throwable t) { HookLog.log("art color install failed: " + t); }
+        deferUntilRealDexReady("ArtColor", new Runnable() { public void run() {
+            com.github.speedhunter.net.VehicleArtUnlock.installColorHook();
+        }});
         // 车模本地上传：官方 App 进程内的 loopback 资产服务器（模块 UI POST 上来，App 加载器来拉）
         if (lpparam.appInfo != null && lpparam.appInfo.dataDir != null) {
             com.github.speedhunter.net.AssetServer.start(lpparam.appInfo.dataDir);
@@ -129,9 +174,13 @@ public final class MainHook implements IXposedHookLoadPackage {
         if (lpparam.packageName.equals(lpparam.processName)) {
             com.github.speedhunter.net.ExpiredToastFilter.install();
         }
-        MqttHooks.installAll();      // ★ MQTT broker/凭据/topic 捕获（只读）
-        RideHooks.installAll();      // 视图层兜底（默认关）
-        OtaHooks.installAll();
+        deferUntilRealDexReady("Mqtt", new Runnable() { public void run() {
+            MqttHooks.installAll();  // ★ MQTT broker/凭据/topic 捕获（只读；paho 被改包名）
+        }});
+        RideHooks.installAll();      // 视图层兜底（默认关；只挂框架类，attach 期安全）
+        deferUntilRealDexReady("Ota", new Runnable() { public void run() {
+            OtaHooks.installAll();   // OTA 流量记录也勾 okhttp3 响应体，同样要等真实 dex
+        }});
         BleHooks.installAll();
         CustomKeyForce.installAll(); // 自定义键强制 = 切换信息组（opt-in，默认关）
         OtaSocketTrace.install();    // ★ 记录官方 EasyConnect 与车机 10950 的往来帧（只读）

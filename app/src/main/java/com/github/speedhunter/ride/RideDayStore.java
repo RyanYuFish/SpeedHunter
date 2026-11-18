@@ -396,6 +396,48 @@ public final class RideDayStore {
         }
     }
 
+    /**
+     * 全店累计（[0]=急刹 b，[1]=压弯 d）：遍历所有日账文件求和。
+     * 「我的骑行」顶部总里程旁的压弯是<b>本车全生命周期</b>口径（对照 AE7
+     * 官方显示逻辑，2026-11-18 车主令），不能只加当前响应/当月 —— 必须
+     * 跨月跨响应把整个 day store 累起来。
+     */
+    public static int[] totals() {
+        int b = 0, d = 0;
+        try {
+            File dir = dir();
+            if (dir == null) {
+                return new int[]{0, 0};
+            }
+            File[] files = dir.listFiles();
+            if (files == null) {
+                return new int[]{0, 0};
+            }
+            for (File f : files) {
+                if (!f.getName().endsWith(".json")) {
+                    continue;
+                }
+                try {
+                    FileInputStream in = new FileInputStream(f);
+                    byte[] bytes;
+                    try {
+                        bytes = new byte[(int) f.length()];
+                        if (in.read(bytes) > 0) {
+                            JSONObject o = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+                            b += o.optInt("b", 0);
+                            d += o.optInt("d", 0);
+                        }
+                    } finally {
+                        in.close();
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return new int[]{b, d};
+    }
+
     private static File dir() {
         File base = baseDir();
         if (base == null) {

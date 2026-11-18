@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Locale;
 
 import com.github.speedhunter.core.HookLog;
-import com.github.speedhunter.net.VehicleModel;
 import com.github.speedhunter.ride.RideDayStore.Day;
 
 /**
@@ -41,21 +40,27 @@ import com.github.speedhunter.ride.RideDayStore.Day;
  * <pre>
  *   ridetrack_v2   逐条算 b/d/里程/时长/极速 → 写回该条 → 按 dayTime 落盘
  *   homeRideInfo   修 lastRidingTime / rideMileageDay 的 0 值
- *   myRideInfo     按 rec.date 读 store → 补 0 值 → 非 0 的 bendingTimesDay 累加覆盖 bendingTimesTotal
+ *   myRideInfo     按 rec.date 读 store → 补 0 值 → bendingTimesTotal = day store 全店累计（本车全生命周期总压弯，2026-11-18 车主令）
  *   analyse        按 rideMonth 聚 31 天 store → 补 0 值
  * </pre>
  *
  * <p><b>红线</b>：只补 0 值 —— 服务端给的真值一律不动（服务端比我们准）。
  * 整个类静默失败：任何异常都不许冒泡到 {@code net.NetPatch}。</p>
  *
- * <h3>车型门控（2026-11-18 车主令）</h3>
- * <p>急刹 / 压弯回填<b>只对「服务器不统计这两项」的车型生效</b>（如 AE5i Pro，
- * {@code cyclingEventStatisticFlag=false}）。AE7 类车型服务端自己算真值，
- * 我们 GPS 近似值只会覆盖真值 ⇒ 三处 handler 全部跳过 b/d 写入与 day store
- * 记账（里程 / 极速 / 时长的「只补 0 值」不受影响）。判据：当前响应树里的
- * <b>原始</b> {@code cyclingEventStatisticFlag}（本方法在 {@code NetPatch.walk}
- * 改写之前运行，读到的一定是服务端原值）；响应里没有该字段时退回
- * {@link VehicleModel#isAe7()} 的跨响应车型缓存。</p>
+ * <h3>云端数据门控 · 按车型隔离（2026-11-18 16:26 车主令定稿）</h3>
+ * <p>急刹 / 压弯回填<b>只对「云端实际没在统计这辆车」的车型生效</b>，且判定
+ * <b>逐 fill 点、只看当前响应自己的数据</b> —— 不做任何跨响应记忆，不扫
+ * 非目标响应的全树。原因：本账号同时拥有 AE7 Pro（云端有压弯数据）和
+ * AE5i Pro（云端恒 0），任何账号级 / 进程级信号都会被 AE7 的 flag/总数
+ * 毒化（v5.2.0 的全树扫描、v5.2.1 的跨响应记忆都栽在这）。而这四个接口
+ * 都是<b>按当前车辆查询</b>的，响应本身天然单车，用它自己的数据判定就
+ * 不会有别的车型混进来。</p>
+ * <p>判据（{@link #serverManaged}）：节点自带 {@code
+ * cyclingEventStatisticFlag=true}，或计数 &gt;0（ridetrack 逐趟看
+ * {@code bendingTimes/brakesTimes}，myRideInfo 看 {@code bendingTimesTotal}，
+ * analyse 看周期 {@code bendingTimes/brakesTimes}）⇒ 云端在统计这辆车，
+ * 该节点事件字段保持服务端值；全 0 / 缺失（AE5i Pro 实测形态）⇒ 回填。
+ * 里程 / 极速的「只补 0 值」不受门控影响。</p>
  */
 public final class RideFill {
 
@@ -97,18 +102,16 @@ public final class RideFill {
         Result out = new Result();
         try {
             Object d = root.opt("data");
-            // ★ 车型门控：服务器原生统计 brake/bend 的车型（AE7 类）不回填这两项。
-            //   必须在这里读 —— NetPatch.walk 的能力位改写在本方法之后执行，
-            //   此刻树里的 cyclingEventStatisticFlag 还是服务端原值。
-            Boolean flag = scanStatsFlag(root);
-            boolean nativeStats = flag != null ? flag : VehicleModel.isAe7();
+            // ★ 云端数据门控 · 按车型隔离（2026-11-18 16:26 车主令）：不再做
+            //   跨响应记忆 / 全树扫描（多车型账号会被 AE7 的数据毒化账号级
+            //   信号）；逐 fill 点用当前响应自己的数据判定 —— 这些接口都按
+            //   当前车辆查询，响应天然单车。计数 >0 / flag=true ⇒ 云端在统计
+            //   这辆车，跳过事件写入；全 0 / 缺失（AE5i Pro 形态）⇒ 回填。
             logOnce("fill <- " + shortUrl(url)
-                    + "  data=" + (d instanceof JSONArray ? "array" : d instanceof JSONObject ? "object" : "?")
-                    + "  nativeStats=" + nativeStats + (flag == null ? "(model)" : "(flag)"));
-            boolean fillEvents = !nativeStats;
+                    + "  data=" + (d instanceof JSONArray ? "array" : d instanceof JSONObject ? "object" : "?"));
             if (d instanceof JSONArray && url != null && url.contains("ridetrack_v2")) {
                 // ★ ridetrack_v2 的 data 是数组（按天分组），必须先判 array
-                fillRidetrack((JSONArray) d, out, fillEvents);
+                fillRidetrack((JSONArray) d, out);
                 return out;
             }
             if (!(d instanceof JSONObject)) {
@@ -119,10 +122,10 @@ public final class RideFill {
                 return out;
             }
             if (url.contains("myRideInfo") && data.has("rideRecordList")) {
-                fillMyRideInfo(data, out, fillEvents);
+                fillMyRideInfo(data, out);
             }
             if (url.contains("analyse") && data.has("rideMonth")) {
-                fillAnalyse(data, out, fillEvents);
+                fillAnalyse(data, out);
             }
             if (url.contains("homeRideInfo")) {
                 fillHomeRideInfo(data, out);
@@ -134,38 +137,38 @@ public final class RideFill {
     }
 
     /**
-     * 深度扫描响应树里的原始 {@code cyclingEventStatisticFlag}。
+     * 云端数据门控核心（2026-11-18 16:26 定稿）：判定「这条数据所属的车辆」
+     * 是否已由服务端统计急刹/压弯。只看传入节点自己的字段，不看其它响应、
+     * 不扫全树 —— 多车型账号里其它车型的 flag / 总数影响不到这里。
      *
-     * @return {@code Boolean.TRUE/FALSE} = 响应里带该字段（服务端明示）；
-     *         {@code null} = 本响应没带（myRideInfo / analyse / homeRideInfo 通常没有）
+     * <p>判定条件（满足任一即视为服务端在统计，本节点保持服务端真值）：</p>
+     * <ul>
+     *   <li>{@code cyclingEventStatisticFlag} = true（ridetrack 逐趟条目自带，
+     *       恰好就是那一趟所属车型的开关；AE5i Pro 实测为 null/0）；</li>
+     *   <li>{@code countKeys} 任一计数 &gt;0（「字段在」不代表「云端在统计」，
+     *       AE5i Pro 的这些字段在但恒 0，必须按 &gt;0 真值判）。</li>
+     * </ul>
      */
-    private static Boolean scanStatsFlag(Object node) {
+    private static boolean serverManaged(JSONObject node, String... countKeys) {
         try {
-            if (node instanceof JSONObject) {
-                JSONObject obj = (JSONObject) node;
-                Object flag = obj.opt("cyclingEventStatisticFlag");
-                if (flag instanceof Boolean) {
-                    return (Boolean) flag;
-                }
-                java.util.Iterator<String> keys = obj.keys();
-                while (keys.hasNext()) {
-                    Boolean hit = scanStatsFlag(obj.opt(keys.next()));
-                    if (hit != null) {
-                        return hit;
-                    }
-                }
-            } else if (node instanceof JSONArray) {
-                JSONArray array = (JSONArray) node;
-                for (int i = 0; i < array.length(); i++) {
-                    Boolean hit = scanStatsFlag(array.opt(i));
-                    if (hit != null) {
-                        return hit;
-                    }
+            Object flag = node.opt("cyclingEventStatisticFlag");
+            if (flag instanceof Boolean && (Boolean) flag) {
+                return true;
+            }
+            if (flag instanceof Number && ((Number) flag).intValue() != 0) {
+                return true;
+            }
+            if (flag instanceof String && "true".equalsIgnoreCase((String) flag)) {
+                return true;
+            }
+            for (String k : countKeys) {
+                if (toDouble(node.opt(k)) > 0) {
+                    return true;
                 }
             }
         } catch (Throwable ignored) {
         }
-        return null;
+        return false;
     }
 
     // ==================== 1. ridetrack_v2（唯一轨迹源） ====================
@@ -232,13 +235,14 @@ public final class RideFill {
         }
     }
 
-    private static void fillRidetrack(JSONArray days, Result out, boolean fillEvents) {
+    private static void fillRidetrack(JSONArray days, Result out) {
         int filled = 0;
         int noTraj = 0;
         int tooShort = 0;
         int shortRides = 0;
         int dayCount = 0;
         int dayTouched = 0;
+        int serverSkipped = 0;
         long t0 = System.currentTimeMillis();
         StringBuilder detail = new StringBuilder();
 
@@ -263,6 +267,12 @@ public final class RideFill {
                     continue;
                 }
                 JSONObject r = (JSONObject) itemObj;
+                // ★ 按趟门控：这一趟自带 flag=true 或计数 >0 ⇒ 云端在统计这辆
+                //   车，事件字段与 day store 全跳过（里程/极速只补 0 仍执行）。
+                boolean managed = serverManaged(r, "bendingTimes", "brakesTimes");
+                if (managed) {
+                    serverSkipped++;
+                }
                 String traj = r.optString("trajectory", "");
                 if (traj == null || traj.isEmpty()) {
                     noTraj++;
@@ -286,9 +296,9 @@ public final class RideFill {
                     shortRides++;
                 }
 
-                // ★ 车型门控：服务器原生统计的车型（AE7 类）不写 b/d、不进 day store
+                // ★ 服务端在统计这辆车（AE7 类）⇒ 不写 b/d、不进 day store
                 //   —— 我们的 GPS 近似值只会覆盖车机 IMU 真值。里程/极速照常只补 0 值。
-                if (fillEvents) {
+                if (!managed) {
                     put(r, "brakesTimes", b);
                     put(r, "bendingTimes", bd);
                     filled += 2;
@@ -319,7 +329,7 @@ public final class RideFill {
                     log("BENDS " + BendDetector.explain(pts, rideId));
                     log("BRAKES " + BrakeDetector.explain(pts, rideId));
                 }
-                if (fillEvents && dayStr != null && m != null) {
+                if (!managed && dayStr != null && m != null) {
                     RideDayStore.accum(dayStr, rideId, b, bd,
                             m.distanceKm, m.durationMin, m.maxSpeed);
                     // ★ 这一天灌过了，从「待重灌」清单里销账（清空后手工重灌的进度反馈）
@@ -340,7 +350,7 @@ public final class RideFill {
         out.changed = filled > 0;
         out.fields = filled;
         log("ridetrack_v2: days=" + dayCount + " rides=" + out.rides
-                + (fillEvents ? "" : " nativeStats=skip-b/d")
+                + (serverSkipped > 0 ? " serverManaged=" + serverSkipped : "")
                 + " noTraj=" + noTraj + " shortTraj=" + tooShort
                 + " shortRides(<" + RideConfig.bendMinKm() + "km)=" + shortRides
                 + " dayStore=" + dayTouched + " " + (System.currentTimeMillis() - t0) + "ms |"
@@ -415,12 +425,16 @@ public final class RideFill {
 
     // ==================== 3. myRideInfo ====================
 
-    private static void fillMyRideInfo(JSONObject data, Result out, boolean fillEvents) {
+    private static void fillMyRideInfo(JSONObject data, Result out) {
         JSONArray list = data.optJSONArray("rideRecordList");
         if (list == null) {
             return;
         }
         int filled = 0;
+        // ★ 按车型隔离门控：本响应（= 当前车辆）自带 flag=true 或总量 >0 ⇒
+        //   云端在统计这辆车，事件字段（Day 记录 + bendingTimesTotal）全保持
+        //   服务端值；AE5i Pro 实测 bendingTimesTotal 恒 0 ⇒ 照常回填。
+        boolean managed = serverManaged(data, "bendingTimesTotal", "brakesTimesTotal");
 
         // ★ 这里<b>不</b>走 rideId 内存缓存：myRideInfo 的记录是「一天一条」，
         //   实测响应里只有 date / rideMileage / ridingTimeDayUnitMinute /
@@ -447,7 +461,7 @@ public final class RideFill {
             //   就会遇到「服务端给了个脏非 0（如上个月的残留）→ 补不掉」的死角。
             //   服务端<b>真</b>值（10/3 的 bendingTimesDay=2）本来就该被我们的 6 覆盖，
             //   因为服务端那个 2 是它自己按残缺数据算的，比我们少。
-            if (fillEvents) {
+            if (!managed) {
                 if (st.b >= 0) {
                     put(rec, "brakesTimesDay", String.valueOf(st.b));
                     filled++;
@@ -474,7 +488,10 @@ public final class RideFill {
             }
         }
 
-        // 顶部总计：与 iOS 一致 —— 只要这个月<b>有数据</b>就以我们的累加值为准。
+        // 顶部总计（总里程旁的压弯）：对照 AE7 官方显示逻辑，这个槽位是
+        // <b>本车记录的全生命周期总压弯</b>（2026-11-18 车主令），不能只加
+        // 当前响应（当月）—— 换月查看时只加响应月会把总数缩回单月。
+        // 取整个 day store 的累计值；store 读不到/为空时退回响应累加值。
         // 服务端给的 bendingTimesTotal 是它自己按残缺数据算的（实测 10 月 = 2，
         // 而同月 10/3 单日账本就有 6），留着只会让列表页顶部和明细自相矛盾。
         int sumD = 0;
@@ -484,9 +501,11 @@ public final class RideFill {
                 sumD += (int) toDouble(((JSONObject) recObj).opt("bendingTimesDay"));
             }
         }
+        int[] storeTot = RideDayStore.totals();
+        int allD = storeTot[1] > 0 ? storeTot[1] : sumD;
         boolean wroteTotal = false;
-        if (sumD > 0 && !String.valueOf(data.opt("bendingTimesTotal")).equals(String.valueOf(sumD))) {
-            put(data, "bendingTimesTotal", String.valueOf(sumD));
+        if (!managed && allD > 0 && !String.valueOf(data.opt("bendingTimesTotal")).equals(String.valueOf(allD))) {
+            put(data, "bendingTimesTotal", String.valueOf(allD));
             wroteTotal = true;
             filled++;
         }
@@ -495,16 +514,20 @@ public final class RideFill {
             out.fields += filled;
         }
         log("myRideInfo done: filled " + filled + " over " + list.length()
-                + " records, total: bendingTimesTotal=" + data.opt("bendingTimesTotal"));
+                + " records, total: bendingTimesTotal=" + data.opt("bendingTimesTotal")
+                + (managed ? "  [serverManaged -> event fields kept]" : ""));
     }
 
     // ==================== 4. analyse ====================
 
-    private static void fillAnalyse(JSONObject data, Result out, boolean fillEvents) {
+    private static void fillAnalyse(JSONObject data, Result out) {
         String prefix = monthPrefix(data.optString("rideMonth", ""));
         if (prefix == null) {
             return;
         }
+        // ★ 按车型隔离门控：本响应（= 当前车辆）周期计数 >0 / flag=true ⇒
+        //   云端在统计这辆车，事件汇总保持服务端值；全 0（AE5i Pro 形态）⇒ 回填。
+        boolean managed = serverManaged(data, "bendingTimes", "brakesTimes");
         int sumB = 0;
         int sumD = 0;
         int found = 0;
@@ -533,7 +556,7 @@ public final class RideFill {
         //   （实测 AE5i 7/8/9 月全 0、10 月只有 10/3 那天给了个残缺的 2）。
         //   如果套 isZero，服务端哪天给个脏非 0 我们就永远补不上，
         //   而月度汇总的正确来源只有一个 —— 那 31 天的账本。
-        if (fillEvents) {
+        if (!managed) {
             if (sumB > 0) {
                 put(data, "brakesTimes", String.valueOf(sumB));
                 fixed++;
@@ -567,7 +590,7 @@ public final class RideFill {
         }
         log("analyse done: month=" + prefix + " days=" + found + "/31"
                 + " sumB=" + sumB + " sumD=" + sumD + " km=" + round1(sumKm)
-                + " fixed=" + fixed);
+                + " fixed=" + fixed + (managed ? "  [serverManaged -> event fields kept]" : ""));
     }
 
     // ==================== 公共 ====================
