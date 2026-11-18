@@ -47,7 +47,7 @@ import com.github.speedhunter.ride.RideDayStore.Day;
  * <p><b>红线</b>：只补 0 值 —— 服务端给的真值一律不动（服务端比我们准）。
  * 整个类静默失败：任何异常都不许冒泡到 {@code net.NetPatch}。</p>
  *
- * <h3>云端数据门控 · 按车型隔离（2026-11-18 16:26 车主令定稿）</h3>
+ * <h3>云端数据门控 · 按车型 + 按事件类型隔离（2026-11-18 定稿，同日夜修订）</h3>
  * <p>急刹 / 压弯回填<b>只对「云端实际没在统计这辆车」的车型生效</b>，且判定
  * <b>逐 fill 点、只看当前响应自己的数据</b> —— 不做任何跨响应记忆，不扫
  * 非目标响应的全树。原因：本账号同时拥有 AE7 Pro（云端有压弯数据）和
@@ -55,12 +55,29 @@ import com.github.speedhunter.ride.RideDayStore.Day;
  * 毒化（v5.2.0 的全树扫描、v5.2.1 的跨响应记忆都栽在这）。而这四个接口
  * 都是<b>按当前车辆查询</b>的，响应本身天然单车，用它自己的数据判定就
  * 不会有别的车型混进来。</p>
- * <p>判据（{@link #serverManaged}）：节点自带 {@code
- * cyclingEventStatisticFlag=true}，或计数 &gt;0（ridetrack 逐趟看
- * {@code bendingTimes/brakesTimes}，myRideInfo 看 {@code bendingTimesTotal}，
- * analyse 看周期 {@code bendingTimes/brakesTimes}）⇒ 云端在统计这辆车，
- * 该节点事件字段保持服务端值；全 0 / 缺失（AE5i Pro 实测形态）⇒ 回填。
- * 里程 / 极速的「只补 0 值」不受门控影响。</p>
+ *
+ * <p>★ <b>急刹与压弯必须分开判</b>（2026-11-18 车主令 + 实车接口复核）。AE5i Pro
+ * 的真实形态是<b>只发急刹、不发压弯</b>：</p>
+ * <pre>
+ *   2026-07-02 及之前：brakesTimes 有真值（7/1 合计 67、7/2 合计 116），bendingTimes 恒 0
+ *   2026-07-03 起    ：两者全 0（云端不再统计这辆车）
+ *   2026-06 全月     ：169 趟里 153 趟 brakesTimes &gt; 0，bendingTimes &gt; 0 的 0 趟
+ * </pre>
+ * <p>旧实现把两个计数塞进同一个 {@code serverManaged(node, "bendingTimes", "brakesTimes")}：
+ * 急刹 &gt;0 就把整趟判成「云端在统计」⇒ <b>2026-07-02 之前的压弯永远不回填</b>，
+ * 这些天也不会进 day store（连带 myRideInfo / analyse 的月度压弯都补不上）。
+ * 现改为逐事件判定（{@link #eventManaged}）：</p>
+ * <ul>
+ *   <li><b>压弯</b>：{@code bendingTimes} / {@code bendingTimesTotal} / 月
+ *       {@code bendingTimes} &gt;0 或 flag=true ⇒ 保持服务端值，否则回填。</li>
+ *   <li><b>急刹</b>：{@code brakesTimes} / 逐日 {@code brakesTimesDay} / 月
+ *       {@code brakesTimes} &gt;0、flag=true，或日期 ≤
+ *       {@link #SERVER_BRAKES_LAST_DAY}（云端在那之前确实在统计急刹）⇒ 保持
+ *       服务端值，否则回填。</li>
+ * </ul>
+ * <p>日期兜底只作用于急刹的「0 值」：2026-07-02 前某趟恰好 0 次急刹是<b>真 0</b>，
+ * 不该被 GPS 估算改成正数；压弯不受该日期影响（云端从来没发过）。</p>
+ * <p>里程 / 极速的「只补 0 值」不受门控影响。</p>
  */
 public final class RideFill {
 
@@ -137,19 +154,31 @@ public final class RideFill {
     }
 
     /**
-     * 云端数据门控核心（2026-11-18 16:26 定稿）：判定「这条数据所属的车辆」
-     * 是否已由服务端统计急刹/压弯。只看传入节点自己的字段，不看其它响应、
-     * 不扫全树 —— 多车型账号里其它车型的 flag / 总数影响不到这里。
+     * 云端为 AE5i Pro 统计急刹的最后一天（含当天）。
      *
-     * <p>判定条件（满足任一即视为服务端在统计，本节点保持服务端真值）：</p>
-     * <ul>
-     *   <li>{@code cyclingEventStatisticFlag} = true（ridetrack 逐趟条目自带，
-     *       恰好就是那一趟所属车型的开关；AE5i Pro 实测为 null/0）；</li>
-     *   <li>{@code countKeys} 任一计数 &gt;0（「字段在」不代表「云端在统计」，
-     *       AE5i Pro 的这些字段在但恒 0，必须按 &gt;0 真值判）。</li>
-     * </ul>
+     * <p>实车接口复核（AE5i Pro `358122500143678`）：</p>
+     * <pre>
+     *   2026-07-01  brakesTimes 合计 67
+     *   2026-07-02  brakesTimes 合计 116
+     *   2026-07-03 起 全 0（当月 7/10 之后每趟都是 0）
+     *   2026-06     169 趟里 153 趟 &gt; 0
+     * </pre>
+     * <p>所以这一天及之前，{@code brakesTimes} 为 0 是<b>真 0</b>（那趟确实没急刹），
+     * 不能拿 GPS 派生值去覆盖；之后的 0 才是「云端没统计」，才允许回填。
+     * 压弯没有这个日期概念 —— 云端从未下发过，见类注释。</p>
      */
-    private static boolean serverManaged(JSONObject node, String... countKeys) {
+    static final String SERVER_BRAKES_LAST_DAY = "2026.07.02";
+
+    /**
+     * 云端在这辆车/这条数据上是否统计<b>某一种</b>事件。
+     *
+     * <p>★ 必须逐事件调用（压弯、急刹各一次）：AE5i Pro 的急刹有真值而压弯恒 0，
+     * 合在一起判会把压弯一起跳过 —— 这正是「2026-07-02 前的压弯不回填」的根因。</p>
+     *
+     * @param node     当前响应里的节点（逐趟记录 / 月汇总 / 日列表响应）
+     * @param countKey 该事件的计数字段（{@code bendingTimes}、{@code brakesTimesDay} …）
+     */
+    private static boolean eventManaged(JSONObject node, String countKey) {
         try {
             Object flag = node.opt("cyclingEventStatisticFlag");
             if (flag instanceof Boolean && (Boolean) flag) {
@@ -161,14 +190,15 @@ public final class RideFill {
             if (flag instanceof String && "true".equalsIgnoreCase((String) flag)) {
                 return true;
             }
-            for (String k : countKeys) {
-                if (toDouble(node.opt(k)) > 0) {
-                    return true;
-                }
-            }
+            return toDouble(node.opt(countKey)) > 0;
         } catch (Throwable ignored) {
         }
         return false;
+    }
+
+    /** 这一天是否仍在「云端统计急刹」的区间内（含 {@link #SERVER_BRAKES_LAST_DAY}）。 */
+    static boolean serverBrakesAvailable(String day) {
+        return day != null && day.length() >= 10 && day.compareTo(SERVER_BRAKES_LAST_DAY) <= 0;
     }
 
     // ==================== 1. ridetrack_v2（唯一轨迹源） ====================
@@ -267,10 +297,22 @@ public final class RideFill {
                     continue;
                 }
                 JSONObject r = (JSONObject) itemObj;
-                // ★ 按趟门控：这一趟自带 flag=true 或计数 >0 ⇒ 云端在统计这辆
-                //   车，事件字段与 day store 全跳过（里程/极速只补 0 仍执行）。
-                boolean managed = serverManaged(r, "bendingTimes", "brakesTimes");
-                if (managed) {
+                // ★ 先算日期：急刹门控要用它区分「云端在统计」与「云端已停统计」。
+                String own = r.optString("dayTime", "");
+                String dayStr = normDay(own.isEmpty() ? dayTime : own);
+
+                // ★ 逐事件门控（2026-11-18 修订）：急刹与压弯分开判。
+                //   旧实现 `serverManaged(r, "bendingTimes", "brakesTimes")` 把两者绑在一起，
+                //   AE5i Pro 在 2026-07-02 及之前急刹有真值（>0）而压弯恒 0 ⇒ 整趟被判成
+                //   「云端在统计」⇒ 压弯不回填、也不进 day store。这正是本次要修的问题。
+                //   · 压弯：flag=true 或 bendingTimes>0 ⇒ 保服务端值；否则回填。
+                //   · 急刹：flag=true 或 brakesTimes>0 ⇒ 保服务端值；
+                //           另外 2026-07-02 及之前即使为 0 也是真 0（云端当时在统计），
+                //           不能用 GPS 估算覆盖，见 SERVER_BRAKES_LAST_DAY。
+                boolean brakesManaged = eventManaged(r, "brakesTimes")
+                        || serverBrakesAvailable(dayStr);
+                boolean bendsManaged = eventManaged(r, "bendingTimes");
+                if (brakesManaged && bendsManaged) {
                     serverSkipped++;
                 }
                 String traj = r.optString("trajectory", "");
@@ -296,14 +338,18 @@ public final class RideFill {
                     shortRides++;
                 }
 
-                // ★ 服务端在统计这辆车（AE7 类）⇒ 不写 b/d、不进 day store
-                //   —— 我们的 GPS 近似值只会覆盖车机 IMU 真值。里程/极速照常只补 0 值。
-                if (!managed) {
+                // ★ 逐事件写入：只写「云端没在统计」的那一项。
+                //   AE5i Pro 2026-07-02 前 ⇒ 只补 bendingTimes，brakesTimes 保持真值。
+                if (!brakesManaged) {
                     put(r, "brakesTimes", b);
-                    put(r, "bendingTimes", bd);
-                    filled += 2;
-                    dayFilled += 2;
+                    filled++;
+                    dayFilled++;
                     dayB += b;
+                }
+                if (!bendsManaged) {
+                    put(r, "bendingTimes", bd);
+                    filled++;
+                    dayFilled++;
                     dayD += bd;
                 }
                 // 基础指标同样只补 0 值（服务端这两页多数是真值，但 7 月 2 日之后有 0）
@@ -317,9 +363,6 @@ public final class RideFill {
                 }
                 String rideId = rideIdOf(r);
 
-                String own = r.optString("dayTime", "");
-                String dayStr = normDay(own.isEmpty() ? dayTime : own);
-
                 // 标定用：把原始轨迹样本落盘，可以在电脑上离线扫参数（默认关）
                 if (RideConfig.exportTrack() && out.rides <= EXPORT_RIDES) {
                     exportSample(rideId, dayStr == null ? dayTime : dayStr, pts);
@@ -329,7 +372,10 @@ public final class RideFill {
                     log("BENDS " + BendDetector.explain(pts, rideId));
                     log("BRAKES " + BrakeDetector.explain(pts, rideId));
                 }
-                if (!managed && dayStr != null && m != null) {
+                // ★ 只要有一项是我们算的就进 day store —— 2026-07-02 前的趟
+                //   急刹归云端、压弯归我们，压弯必须落盘，否则 myRideInfo /
+                //   analyse 的月度压弯没有数据源。两项都归云端（AE7 形态）才跳过。
+                if ((!brakesManaged || !bendsManaged) && dayStr != null && m != null) {
                     RideDayStore.accum(dayStr, rideId, b, bd,
                             m.distanceKm, m.durationMin, m.maxSpeed);
                     // ★ 这一天灌过了，从「待重灌」清单里销账（清空后手工重灌的进度反馈）
@@ -350,7 +396,7 @@ public final class RideFill {
         out.changed = filled > 0;
         out.fields = filled;
         log("ridetrack_v2: days=" + dayCount + " rides=" + out.rides
-                + (serverSkipped > 0 ? " serverManaged=" + serverSkipped : "")
+                + (serverSkipped > 0 ? " bothManaged=" + serverSkipped : "")
                 + " noTraj=" + noTraj + " shortTraj=" + tooShort
                 + " shortRides(<" + RideConfig.bendMinKm() + "km)=" + shortRides
                 + " dayStore=" + dayTouched + " " + (System.currentTimeMillis() - t0) + "ms |"
@@ -431,10 +477,16 @@ public final class RideFill {
             return;
         }
         int filled = 0;
-        // ★ 按车型隔离门控：本响应（= 当前车辆）自带 flag=true 或总量 >0 ⇒
-        //   云端在统计这辆车，事件字段（Day 记录 + bendingTimesTotal）全保持
-        //   服务端值；AE5i Pro 实测 bendingTimesTotal 恒 0 ⇒ 照常回填。
-        boolean managed = serverManaged(data, "bendingTimesTotal", "brakesTimesTotal");
+        // ★ 逐事件门控（2026-11-18 修订）：
+        //   · 压弯：本响应（= 当前车辆）的 bendingTimesTotal > 0 ⇒ 云端在统计压弯
+        //     （AE7 实测 1376），保持服务端所有 bendingTimesDay；
+        //     AE5i Pro 实测恒 0（6 月 / 7 月 / 9 月全是 "0"）⇒ 按 day store 回填。
+        //   · 急刹：这个接口没有 brakesTimesTotal，只能逐日判（见循环内）。
+        //   旧实现把 bendingTimesTotal / brakesTimesTotal 合成一个 managed，且
+        //   brakesTimesTotal 根本不存在 ⇒ 实际只按 bendingTimesTotal 判，压弯在
+        //   AE5i 上一直是 false，本该能补 —— 真正卡住 2026-07-02 前数据的是
+        //   ridetrack 的合并门控（旧账本里根本没有那些天的记录）。
+        boolean bendsManaged = eventManaged(data, "bendingTimesTotal");
 
         // ★ 这里<b>不</b>走 rideId 内存缓存：myRideInfo 的记录是「一天一条」，
         //   实测响应里只有 date / rideMileage / ridingTimeDayUnitMinute /
@@ -461,15 +513,24 @@ public final class RideFill {
             //   就会遇到「服务端给了个脏非 0（如上个月的残留）→ 补不掉」的死角。
             //   服务端<b>真</b>值（10/3 的 bendingTimesDay=2）本来就该被我们的 6 覆盖，
             //   因为服务端那个 2 是它自己按残缺数据算的，比我们少。
-            if (!managed) {
-                if (st.b >= 0) {
-                    put(rec, "brakesTimesDay", String.valueOf(st.b));
-                    filled++;
-                }
-                if (st.d >= 0) {
-                    put(rec, "bendingTimesDay", String.valueOf(st.d));
-                    filled++;
-                }
+            //
+            // ★ 但急刹要逐日分开判（2026-11-18 修订）：AE5i Pro 在 2026-07-02 及
+            //   之前<b>确实在统计急刹</b>（6 月逐日 73/46/37…，7/1=67、7/2=116），
+            //   这些值是车机真值，绝不能被 GPS 估算覆盖（那天恰好 0 次也是真 0）；
+            //   2026-07-03 起云端不再统计 ⇒ 0 才有回填意义。
+            //   `bendsManaged` 是「这辆车云端在统计事件」的车型级信号
+            //   （AE7 的 bendingTimesTotal=1376）：它为 true 时急刹也一律不动，
+            //   否则 AE7 那些真 0 的天会被 GPS 估算注入假急刹。
+            boolean brakesDayManaged = bendsManaged
+                    || eventManaged(rec, "brakesTimesDay")
+                    || serverBrakesAvailable(day2);
+            if (!brakesDayManaged && st.b >= 0) {
+                put(rec, "brakesTimesDay", String.valueOf(st.b));
+                filled++;
+            }
+            if (!bendsManaged && st.d >= 0) {
+                put(rec, "bendingTimesDay", String.valueOf(st.d));
+                filled++;
             }
             // 基础指标：里程 / 极速同样以账本为准
             if (isZero(rec.opt("rideMileage"))) {
@@ -504,7 +565,7 @@ public final class RideFill {
         int[] storeTot = RideDayStore.totals();
         int allD = storeTot[1] > 0 ? storeTot[1] : sumD;
         boolean wroteTotal = false;
-        if (!managed && allD > 0 && !String.valueOf(data.opt("bendingTimesTotal")).equals(String.valueOf(allD))) {
+        if (!bendsManaged && allD > 0 && !String.valueOf(data.opt("bendingTimesTotal")).equals(String.valueOf(allD))) {
             put(data, "bendingTimesTotal", String.valueOf(allD));
             wroteTotal = true;
             filled++;
@@ -515,7 +576,7 @@ public final class RideFill {
         }
         log("myRideInfo done: filled " + filled + " over " + list.length()
                 + " records, total: bendingTimesTotal=" + data.opt("bendingTimesTotal")
-                + (managed ? "  [serverManaged -> event fields kept]" : ""));
+                + (bendsManaged ? "  [bends managed -> kept]" : ""));
     }
 
     // ==================== 4. analyse ====================
@@ -525,9 +586,15 @@ public final class RideFill {
         if (prefix == null) {
             return;
         }
-        // ★ 按车型隔离门控：本响应（= 当前车辆）周期计数 >0 / flag=true ⇒
-        //   云端在统计这辆车，事件汇总保持服务端值；全 0（AE5i Pro 形态）⇒ 回填。
-        boolean managed = serverManaged(data, "bendingTimes", "brakesTimes");
+        // ★ 逐事件门控（2026-11-18 修订）：AE5i Pro 6 月 brakesTimes=1814 而
+        //   bendingTimes=0、7 月 brakesTimes=202 而 bendingTimes=0 —— 合成一个
+        //   managed 会让「有急刹真值」把压弯一起挡掉，月度压弯永远补不上。
+        //   AE7 11 月两项都 >0（brakes=13 / bends=56）⇒ 两项都保持服务端值。
+        boolean bendsManaged = eventManaged(data, "bendingTimes");
+        // ★ `bendsManaged` 同时是「这辆车云端在统计事件」的车型级信号
+        //   （AE7 11 月 bends=56）：它为 true 时急刹也保持服务端值，
+        //   避免把 AE7 真 0 的月份用 GPS 估算填成假急刹。
+        boolean brakesManaged = bendsManaged || eventManaged(data, "brakesTimes");
         int sumB = 0;
         int sumD = 0;
         int found = 0;
@@ -552,19 +619,17 @@ public final class RideFill {
         }
         int fixed = 0;
         // ★ 覆盖语义与 iOS v15 一致：sumB/sumD > 0 就写，不再套 isZero。
-        //   analyse 的 brakesTimes/bendingTimes 是<b>服务端从未真算过</b>的字段
-        //   （实测 AE5i 7/8/9 月全 0、10 月只有 10/3 那天给了个残缺的 2）。
-        //   如果套 isZero，服务端哪天给个脏非 0 我们就永远补不上，
-        //   而月度汇总的正确来源只有一个 —— 那 31 天的账本。
-        if (!managed) {
-            if (sumB > 0) {
-                put(data, "brakesTimes", String.valueOf(sumB));
-                fixed++;
-            }
-            if (sumD > 0) {
-                put(data, "bendingTimes", String.valueOf(sumD));
-                fixed++;
-            }
+        //   压弯：AE5i Pro 云端从未下发（bendingTimes 恒 0），账本是唯一真相，
+        //   即使服务端给过脏非 0 也要覆盖。
+        //   急刹：2026-07-02 及之前的月份服务端是真值（6 月 1814），只有
+        //   brakesTimes=0 的月份（2026-08 起）才回填。
+        if (!brakesManaged && sumB > 0) {
+            put(data, "brakesTimes", String.valueOf(sumB));
+            fixed++;
+        }
+        if (!bendsManaged && sumD > 0) {
+            put(data, "bendingTimes", String.valueOf(sumD));
+            fixed++;
         }
         // 基础指标：月度里程 / 时长 / 极速。服务端这几个是真值（10 月 ridingTime=71 对得上），
         // 所以保持「只补 0 值」—— 这是 iOS 侧没有、但本项目实测需要的一条。
@@ -590,7 +655,10 @@ public final class RideFill {
         }
         log("analyse done: month=" + prefix + " days=" + found + "/31"
                 + " sumB=" + sumB + " sumD=" + sumD + " km=" + round1(sumKm)
-                + " fixed=" + fixed + (managed ? "  [serverManaged -> event fields kept]" : ""));
+                + " fixed=" + fixed
+                + (brakesManaged || bendsManaged
+                        ? "  [kept: " + (brakesManaged ? "brakes " : "")
+                        + (bendsManaged ? "bends" : "") + "]" : ""));
     }
 
     // ==================== 公共 ====================

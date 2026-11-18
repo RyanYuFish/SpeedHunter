@@ -1,3 +1,48 @@
+## 5.2.5 (vc152) — 2026-11-18
+
+### 2026-07-02 前的压弯不回填：门控改为逐事件判定
+
+车主令：AE5i Pro 在 2026-07-02 及之前**仍然提供急刹数据、从未提供压弯数据**，
+但 SpeedHunter 不会回填这段日期的压弯。
+
+**接口实测**（AE5i Pro `358122500143678`）：
+
+| 字段 | 2026-06 | 2026-07-01 | 2026-07-02 | 2026-07-03 起 |
+|---|---|---|---|---|
+| ridetrack `brakesTimes` | 153/169 趟 > 0 | 67 | 116 | 0 |
+| ridetrack `bendingTimes` | 0 | 0 | 0 | 0 |
+| myRideInfo `brakesTimesDay` | 73 / 46 / 37 … | 67 | 116 | 0 |
+| myRideInfo `bendingTimesTotal` | "0" | "0" | "0" | "0" |
+| analyse `brakesTimes` | 1814 | — | — | 202（7 月） |
+| analyse `bendingTimes` | 0 | — | — | 0 |
+
+**根因**：`RideFill.serverManaged(node, "bendingTimes", "brakesTimes")` 把急刹与
+压弯放进同一个判定。急刹有真值 ⇒ 整趟判成「云端在统计」⇒ 压弯不写、也不进
+day store，连带 myRideInfo / analyse 的月度压弯全部没有数据源；2026-07-03 起
+急刹也变 0，门控才放行 —— 所以 7 月 2 日前的压弯永远是 0。
+
+**修复**：
+
+- `serverManaged` → `eventManaged(node, countKey)`，逐事件调用：
+  - 压弯：flag=true 或计数 > 0 才保服务端值；否则回填（云端从未下发）。
+  - 急刹：flag=true 或计数 > 0，**或日期 ≤ 2026.07.02**（`SERVER_BRAKES_LAST_DAY`）
+    保服务端值；其余回填。
+- ridetrack：任一事件归我们就进 day store（`!brakesManaged || !bendsManaged`），
+  两项都归云端（AE7 形态）才跳过。
+- myRideInfo：压弯用响应级 `bendingTimesTotal`；急刹逐日判 + 日期兜底
+  （响应里没有 `brakesTimesTotal`）。急刹额外受车型级信号保护：`bendsManaged`
+  （AE7 的 `bendingTimesTotal`=1376）为 true 时急刹一律不动，避免把 AE7 真 0
+  的月份填成假急刹。
+- analyse：`brakesTimes` / `bendingTimes` 各自判，不再合并；同样用 `bendsManaged`
+  兜住急刹的车型级判定。
+
+**离线预估**（`tools/ride/eval_traj.py` 复刻 Java 参数跑真实轨迹）：
+2026-06 可回填压弯 **534 次 / 29 天**，2026-07 **287 次 / 21 天**
+（7/1–7/2 共 50 次）。修前这些天全为 0。
+
+**注意**：这些天的账本需要重新灌一次 —— 打开官方 App「我的骑行 → 历史轨迹」
+把 2026-07 之前的月份各翻一遍，`ridetrack_v2` 才会把轨迹喂给 day store。
+
 ## 5.2.4 (vc151) — 2026-11-18
 
 ### 总压弯改为本车全生命周期口径（17:27 车主令）

@@ -271,6 +271,51 @@ cum≤40 才能逼近（GPS 连续 S 弯欠采样），47.2 km 趟 cum=60 才精
 恒 `true`：急刹/压弯一律回填。`$persistentStore` 的 `zeeho_native_stats`
 遗留键不再读写。
 
+### 2026-11-18 二次修订：急刹/压弯必须逐事件判（2026-07-02 前的压弯）
+
+> 车主令：「2026-07-02 之前 AE5i Pro 仍然会提供急刹数据，从未提供压弯数据；
+> SpeedHunter 不会回填 2026-07-02 前的压弯数据。按这个逻辑优化。」
+
+**接口实测（AE5i Pro `358122500143678`，token 直连 `ridetrack_v2` / `myRideInfo` / `analyse`）**：
+
+| 数据源 | 2026-06 | 2026-07-01 | 2026-07-02 | 2026-07-03 起 |
+|---|---|---|---|---|
+| ridetrack 逐趟 `brakesTimes` | 169 趟中 153 趟 > 0 | 合计 67 | 合计 116 | 全 0 |
+| ridetrack 逐趟 `bendingTimes` | 全 0 | 0 | 0 | 全 0 |
+| `cyclingEventStatisticFlag` | null | null | null | null |
+| myRideInfo `brakesTimesDay` | 73 / 46 / 37 / 39 … | 67 | 116 | 0 |
+| myRideInfo `bendingTimesTotal` | "0" | "0" | "0" | "0" |
+| analyse `brakesTimes` | 1814 | — | — | 7 月合计 202 |
+| analyse `bendingTimes` | 0 | — | — | 0 |
+
+**病根**：v5.2.2 的 `serverManaged(node, "bendingTimes", "brakesTimes")` 把两个计数
+放进同一个「云端在统计」判定。AE5i Pro 在 2026-07-02 及之前急刹有真值 ⇒ 判定为
+true ⇒ 整趟跳过：既不回填 `bendingTimes`，也不进 day store（连带 myRideInfo /
+analyse 的月度压弯都没有数据源）。2026-07-03 起急刹也变 0，门控才放行，所以
+「7 月 2 日前的压弯永远是 0」。
+
+**修复**：`serverManaged` 拆成 `eventManaged(node, countKey)`，逐事件调用。
+
+| 事件 | 保持服务端值（不回填） | 允许回填 |
+|---|---|---|
+| 压弯 | flag=true，或 `bendingTimes` / `bendingTimesTotal` / 月 `bendingTimes` > 0 | 否则一律回填（云端从未下发过） |
+| 急刹 | flag=true，或计数 > 0，**或日期 ≤ 2026.07.02** | 其余（2026-07-03 起） |
+
+- 日期兜底只作用于急刹的 0 值：2026-07-02 前某趟恰好 0 次急刹是**真 0**，不能被
+  GPS 估算改成正数。常量 `RideFill.SERVER_BRAKES_LAST_DAY = "2026.07.02"`。
+- ridetrack 只要**任一**事件归我们就进 day store（`!brakesManaged || !bendsManaged`），
+  两项都归云端（AE7 形态）才跳过 —— 这是 7 月 2 日前压弯能进月度汇总的前提。
+- myRideInfo：压弯用响应级 `bendingTimesTotal`；急刹逐日判 + 日期兜底（响应里
+  没有 `brakesTimesTotal` 字段）。急刹还额外受**车型级信号**保护：`bendsManaged`
+  （`bendingTimesTotal > 0`，AE7=1376）为 true 时急刹一律不动，否则 AE7 那些
+  真 0 的天会被 GPS 估算注入假急刹。
+- analyse：`brakesTimes` / `bendingTimes` 各自判，不再合并；同样用 `bendsManaged`
+  兜住急刹的车型级判定。
+
+**离线预估**（用 `tools/ride/eval_traj.py` 复刻 Java 参数跑真实轨迹）：
+2026-06 可回填压弯 **534 次 / 29 天**；2026-07 可回填 **287 次 / 21 天**
+（其中 7/1–7/2 共 50 次）。修前这些天全部为 0。
+
 ### 边界与已知取舍
 
 - 服务端在统计的车型（AE7 类），其个别 0 值趟/月份会被我们的 GPS 估算回填
