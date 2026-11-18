@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  日志区底色：刻意比页面底色深一档（#EFE7E7 vs 页面 #FFF8F7），
-  纯白底 + 11sp 深灰字在这台 ROM 上几乎看不出边界，
-  而日志是「要看清内容」的地方，底色必须能界定范围。
+  日志区底色：M3 tonal 阶梯 colorSurfaceContainerHigh（比页面 surface 高一档），
+  浅色 = 微灰、深色 = 微亮，夜间模式自动跟随（原先硬编码 #EFE7E7 在夜间刺眼）。
+  日志文字用 ?attr/colorOnSurface（原先硬编码 #1A1111）。
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#EFE7E7" />
+    <solid android:color="?attr/colorSurfaceContainerHigh" />
     <corners android:radius="18dp" />
 </shape>

@@ -117,7 +117,10 @@ public final class LogPane {
                     ViewGroup.LayoutParams.WRAP_CONTENT));
             tv.setTypeface(android.graphics.Typeface.MONOSPACE);
             tv.setTextSize(11);
-            tv.setTextColor(Color.parseColor("#1A1111"));
+            // 主题感知：底色是 tonal 容器（bg_log_pane → colorSurfaceContainerHigh），
+            // 文字走 colorOnSurface，夜间模式自动反白（原先硬编码 #1A1111）。
+            tv.setTextColor(com.google.android.material.color.MaterialColors.getColor(
+                    tv, com.google.android.material.R.attr.colorOnSurface, Color.BLACK));
             // 长行不换行会丢信息：横向滚动保留整行
             tv.setSingleLine(false);
             tv.setHorizontalFadingEdgeEnabled(true);

@@ -313,7 +313,7 @@
                         android:scrollbarStyle="insideOverlay"
                         android:scrollbars="vertical"
                         android:fadeScrollbars="false"
-                        android:textColor="#1A1111"
+                        android:textColor="?attr/colorOnSurface"
                         android:textSize="10sp"
                         android:text="（还没有判定日志）" />
                 </LinearLayout>

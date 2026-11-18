@@ -1,3 +1,52 @@
+## 5.1.0 (vc146) — 2026-11-18
+
+### 骑行算法多样本定参 + 车型门控回填
+
+**参数**（依据 `docs/features/ride-calibration.md` §10，权威评估器
+`tools/ride/eval_traj.py` 在 5 趟 ≥3 km 长骑上总误差最小）：
+
+| 参数 | 旧 | 新 |
+|---|---|---|
+| `DEF_BEND_CUM_MIN` | 60 | **50** |
+| `DEF_BEND_MIN_KM` | 2.0 | **3.0** |
+| `BRAKE_A_MIN` | 1.04 | **1.20** |
+| `DEF_BEND_V_MIN` | 20 | 20（不变） |
+
+- 旧参数只精确命中其标定样本（47.2 km 趟 5/13），其余长骑系统性少算压弯
+  （26.3 km 趟 13→5）、多算急刹（26.3 km 趟 5→10）。新参数 5 趟压弯
+  总 |err| 23→15、急刹 9→5。
+- ⚠️ **升级后请在「压弯标定」页重置参数**：旧版本滑块落盘值会遮蔽新默认值
+  （`RemoteSettings` 存量优先）；随后「清空 day store 再回填」重算汇总。
+
+**车型门控**（车主令：服务器报文不存在急刹/压弯统计的车才主动回填）：
+
+- `RideFill.fill()` 在 `NetPatch.walk` 改写能力位之前读原始
+  `cyclingEventStatisticFlag`；为 true（AE7 类，服务端写真值）时
+  **不再回填** brakesTimes/bendingTimes（ridetrack / myRideInfo / analyse /
+  day store 四处全部门控），flag 缺失时按 `VehicleModel.isAe7()` 兜底。
+- AE5i 类（flag=false，字段恒 0）行为不变：照常回填。
+- 里程/极速的 isZero 补零不受门控影响。
+
+iOS 端 `ZeehoRideFill.js` 同步（参数 + 门控 + 桩测期望 2/17，见
+`SpeedHunter-iOS/docs/changelog.md`）。
+
+### Material You 视觉整改
+
+Android 12+ 继续走系统 Monet 动态取色（`DynamicColors` 已在位）；本版补齐
+静态兜底主题的夜间模式与残余硬编码色：
+
+- **夜间模式（-night）**：新增 `values-night/styles.xml`（深色玫瑰 tonal 兜底
+  主题：surface #1A1112 / primary #FFB3B4 等）与 `values-night/colors.xml`
+  （warn 系列夜间色）。此前 DayNight 主题只覆写浅色值，夜间呈「半明半暗」。
+- **warn 横幅语义色**：`values/colors.xml` 新增 warn_container/warn_stroke/
+  warn_icon/warn_title/warn_body；`bg_warn` 与 OTA 页三处琥珀文字改引语义色。
+- **tonal 容器底**：`bg_log_pane`/`bg_chip`/`bg_inspect` 改为
+  colorSurfaceContainer(High) 角色，随主题换色。
+- **硬编码色清零**：布局/菜单 8 处（5×#1A1111 文字、3×OTA 琥珀）与 2 处
+  Java（`LogPane` 日志文字、`RideFragment` chip 文字）全部改主题属性
+  取色；chip 文字改按三态跟随 colorOn{Primary,Secondary,Error}，修复夜间
+  白字亮底不可读问题。grep 校验 layout/menu 已无硬编码 hex。
+
 ## 5.0.1 (vc145) — 2026-11-18
 
 ### 引导登录根治：`Authorization` 缺 `Bearer ` 前缀

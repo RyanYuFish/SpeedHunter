@@ -307,7 +307,7 @@
                     android:fontFamily="monospace"
                     android:padding="12dp"
                     android:text="暂无结果(读版本/读 DTC/写里程后显示)"
-                    android:textColor="#1A1111"
+                    android:textColor="?attr/colorOnSurface"
                     android:textIsSelectable="true"
                     android:textSize="11sp" />
             </ScrollView>
@@ -369,7 +369,7 @@
                     android:fontFamily="monospace"
                     android:padding="12dp"
                     android:text="等待操作…"
-                    android:textColor="#1A1111"
+                    android:textColor="?attr/colorOnSurface"
                     android:textSize="11sp" />
             </ScrollView>
         </LinearLayout>

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 
 import com.github.speedhunter.core.HookLog;
+import com.github.speedhunter.net.VehicleModel;
 import com.github.speedhunter.ride.RideDayStore.Day;
 
 /**
@@ -46,6 +47,15 @@ import com.github.speedhunter.ride.RideDayStore.Day;
  *
  * <p><b>红线</b>：只补 0 值 —— 服务端给的真值一律不动（服务端比我们准）。
  * 整个类静默失败：任何异常都不许冒泡到 {@code net.NetPatch}。</p>
+ *
+ * <h3>车型门控（2026-11-18 车主令）</h3>
+ * <p>急刹 / 压弯回填<b>只对「服务器不统计这两项」的车型生效</b>（如 AE5i Pro，
+ * {@code cyclingEventStatisticFlag=false}）。AE7 类车型服务端自己算真值，
+ * 我们 GPS 近似值只会覆盖真值 ⇒ 三处 handler 全部跳过 b/d 写入与 day store
+ * 记账（里程 / 极速 / 时长的「只补 0 值」不受影响）。判据：当前响应树里的
+ * <b>原始</b> {@code cyclingEventStatisticFlag}（本方法在 {@code NetPatch.walk}
+ * 改写之前运行，读到的一定是服务端原值）；响应里没有该字段时退回
+ * {@link VehicleModel#isAe7()} 的跨响应车型缓存。</p>
  */
 public final class RideFill {
 
@@ -87,11 +97,18 @@ public final class RideFill {
         Result out = new Result();
         try {
             Object d = root.opt("data");
+            // ★ 车型门控：服务器原生统计 brake/bend 的车型（AE7 类）不回填这两项。
+            //   必须在这里读 —— NetPatch.walk 的能力位改写在本方法之后执行，
+            //   此刻树里的 cyclingEventStatisticFlag 还是服务端原值。
+            Boolean flag = scanStatsFlag(root);
+            boolean nativeStats = flag != null ? flag : VehicleModel.isAe7();
             logOnce("fill <- " + shortUrl(url)
-                    + "  data=" + (d instanceof JSONArray ? "array" : d instanceof JSONObject ? "object" : "?"));
+                    + "  data=" + (d instanceof JSONArray ? "array" : d instanceof JSONObject ? "object" : "?")
+                    + "  nativeStats=" + nativeStats + (flag == null ? "(model)" : "(flag)"));
+            boolean fillEvents = !nativeStats;
             if (d instanceof JSONArray && url != null && url.contains("ridetrack_v2")) {
                 // ★ ridetrack_v2 的 data 是数组（按天分组），必须先判 array
-                fillRidetrack((JSONArray) d, out);
+                fillRidetrack((JSONArray) d, out, fillEvents);
                 return out;
             }
             if (!(d instanceof JSONObject)) {
@@ -102,10 +119,10 @@ public final class RideFill {
                 return out;
             }
             if (url.contains("myRideInfo") && data.has("rideRecordList")) {
-                fillMyRideInfo(data, out);
+                fillMyRideInfo(data, out, fillEvents);
             }
             if (url.contains("analyse") && data.has("rideMonth")) {
-                fillAnalyse(data, out);
+                fillAnalyse(data, out, fillEvents);
             }
             if (url.contains("homeRideInfo")) {
                 fillHomeRideInfo(data, out);
@@ -114,6 +131,41 @@ public final class RideFill {
             log("handler error: " + t);
         }
         return out;
+    }
+
+    /**
+     * 深度扫描响应树里的原始 {@code cyclingEventStatisticFlag}。
+     *
+     * @return {@code Boolean.TRUE/FALSE} = 响应里带该字段（服务端明示）；
+     *         {@code null} = 本响应没带（myRideInfo / analyse / homeRideInfo 通常没有）
+     */
+    private static Boolean scanStatsFlag(Object node) {
+        try {
+            if (node instanceof JSONObject) {
+                JSONObject obj = (JSONObject) node;
+                Object flag = obj.opt("cyclingEventStatisticFlag");
+                if (flag instanceof Boolean) {
+                    return (Boolean) flag;
+                }
+                java.util.Iterator<String> keys = obj.keys();
+                while (keys.hasNext()) {
+                    Boolean hit = scanStatsFlag(obj.opt(keys.next()));
+                    if (hit != null) {
+                        return hit;
+                    }
+                }
+            } else if (node instanceof JSONArray) {
+                JSONArray array = (JSONArray) node;
+                for (int i = 0; i < array.length(); i++) {
+                    Boolean hit = scanStatsFlag(array.opt(i));
+                    if (hit != null) {
+                        return hit;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     // ==================== 1. ridetrack_v2（唯一轨迹源） ====================
@@ -180,7 +232,7 @@ public final class RideFill {
         }
     }
 
-    private static void fillRidetrack(JSONArray days, Result out) {
+    private static void fillRidetrack(JSONArray days, Result out, boolean fillEvents) {
         int filled = 0;
         int noTraj = 0;
         int tooShort = 0;
@@ -234,8 +286,16 @@ public final class RideFill {
                     shortRides++;
                 }
 
-                put(r, "brakesTimes", b);
-                put(r, "bendingTimes", bd);
+                // ★ 车型门控：服务器原生统计的车型（AE7 类）不写 b/d、不进 day store
+                //   —— 我们的 GPS 近似值只会覆盖车机 IMU 真值。里程/极速照常只补 0 值。
+                if (fillEvents) {
+                    put(r, "brakesTimes", b);
+                    put(r, "bendingTimes", bd);
+                    filled += 2;
+                    dayFilled += 2;
+                    dayB += b;
+                    dayD += bd;
+                }
                 // 基础指标同样只补 0 值（服务端这两页多数是真值，但 7 月 2 日之后有 0）
                 if (m != null) {
                     if (isZero(r.opt("rideMileage")) && m.distanceKm > 0) {
@@ -246,10 +306,6 @@ public final class RideFill {
                     }
                 }
                 String rideId = rideIdOf(r);
-                filled += 2;
-                dayFilled += 2;
-                dayB += b;
-                dayD += bd;
 
                 String own = r.optString("dayTime", "");
                 String dayStr = normDay(own.isEmpty() ? dayTime : own);
@@ -263,7 +319,7 @@ public final class RideFill {
                     log("BENDS " + BendDetector.explain(pts, rideId));
                     log("BRAKES " + BrakeDetector.explain(pts, rideId));
                 }
-                if (dayStr != null && m != null) {
+                if (fillEvents && dayStr != null && m != null) {
                     RideDayStore.accum(dayStr, rideId, b, bd,
                             m.distanceKm, m.durationMin, m.maxSpeed);
                     // ★ 这一天灌过了，从「待重灌」清单里销账（清空后手工重灌的进度反馈）
@@ -284,6 +340,7 @@ public final class RideFill {
         out.changed = filled > 0;
         out.fields = filled;
         log("ridetrack_v2: days=" + dayCount + " rides=" + out.rides
+                + (fillEvents ? "" : " nativeStats=skip-b/d")
                 + " noTraj=" + noTraj + " shortTraj=" + tooShort
                 + " shortRides(<" + RideConfig.bendMinKm() + "km)=" + shortRides
                 + " dayStore=" + dayTouched + " " + (System.currentTimeMillis() - t0) + "ms |"
@@ -358,7 +415,7 @@ public final class RideFill {
 
     // ==================== 3. myRideInfo ====================
 
-    private static void fillMyRideInfo(JSONObject data, Result out) {
+    private static void fillMyRideInfo(JSONObject data, Result out, boolean fillEvents) {
         JSONArray list = data.optJSONArray("rideRecordList");
         if (list == null) {
             return;
@@ -390,13 +447,15 @@ public final class RideFill {
             //   就会遇到「服务端给了个脏非 0（如上个月的残留）→ 补不掉」的死角。
             //   服务端<b>真</b>值（10/3 的 bendingTimesDay=2）本来就该被我们的 6 覆盖，
             //   因为服务端那个 2 是它自己按残缺数据算的，比我们少。
-            if (st.b >= 0) {
-                put(rec, "brakesTimesDay", String.valueOf(st.b));
-                filled++;
-            }
-            if (st.d >= 0) {
-                put(rec, "bendingTimesDay", String.valueOf(st.d));
-                filled++;
+            if (fillEvents) {
+                if (st.b >= 0) {
+                    put(rec, "brakesTimesDay", String.valueOf(st.b));
+                    filled++;
+                }
+                if (st.d >= 0) {
+                    put(rec, "bendingTimesDay", String.valueOf(st.d));
+                    filled++;
+                }
             }
             // 基础指标：里程 / 极速同样以账本为准
             if (isZero(rec.opt("rideMileage"))) {
@@ -441,7 +500,7 @@ public final class RideFill {
 
     // ==================== 4. analyse ====================
 
-    private static void fillAnalyse(JSONObject data, Result out) {
+    private static void fillAnalyse(JSONObject data, Result out, boolean fillEvents) {
         String prefix = monthPrefix(data.optString("rideMonth", ""));
         if (prefix == null) {
             return;
@@ -474,13 +533,15 @@ public final class RideFill {
         //   （实测 AE5i 7/8/9 月全 0、10 月只有 10/3 那天给了个残缺的 2）。
         //   如果套 isZero，服务端哪天给个脏非 0 我们就永远补不上，
         //   而月度汇总的正确来源只有一个 —— 那 31 天的账本。
-        if (sumB > 0) {
-            put(data, "brakesTimes", String.valueOf(sumB));
-            fixed++;
-        }
-        if (sumD > 0) {
-            put(data, "bendingTimes", String.valueOf(sumD));
-            fixed++;
+        if (fillEvents) {
+            if (sumB > 0) {
+                put(data, "brakesTimes", String.valueOf(sumB));
+                fixed++;
+            }
+            if (sumD > 0) {
+                put(data, "bendingTimes", String.valueOf(sumD));
+                fixed++;
+            }
         }
         // 基础指标：月度里程 / 时长 / 极速。服务端这几个是真值（10 月 ridingTime=71 对得上），
         // 所以保持「只补 0 值」—— 这是 iOS 侧没有、但本项目实测需要的一条。

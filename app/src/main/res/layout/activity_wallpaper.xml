@@ -377,7 +377,7 @@
                 android:scrollbarStyle="insideOverlay"
                 android:scrollbars="vertical"
                 android:text="等待操作…"
-                android:textColor="#1A1111"
+                android:textColor="?attr/colorOnSurface"
                 android:textSize="11sp" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

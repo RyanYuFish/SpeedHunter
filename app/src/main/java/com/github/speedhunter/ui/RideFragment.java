@@ -462,23 +462,27 @@ public final class RideFragment extends BaseTabFragment {
 
         // 三态全部走 Material You tonal spot 取色：同一套 Tonal Spot 方案的容器色角色，
         // 不混用硬编码色。已激活=primary 容器、未修改=secondary 容器、未挂载=error 容器。
-        int bgAttr, fgAttr, chipTintAttr;
+        int bgAttr, fgAttr, chipTintAttr, chipOnAttr;
         if (!mounted) {
             bgAttr = com.google.android.material.R.attr.colorErrorContainer;
             fgAttr = com.google.android.material.R.attr.colorOnErrorContainer;
             chipTintAttr = com.google.android.material.R.attr.colorError;
+            chipOnAttr = com.google.android.material.R.attr.colorOnError;
         } else if (active) {
             bgAttr = com.google.android.material.R.attr.colorPrimaryContainer;
             fgAttr = com.google.android.material.R.attr.colorOnPrimaryContainer;
             chipTintAttr = com.google.android.material.R.attr.colorPrimary;
+            chipOnAttr = com.google.android.material.R.attr.colorOnPrimary;
         } else {
             bgAttr = com.google.android.material.R.attr.colorSecondaryContainer;
             fgAttr = com.google.android.material.R.attr.colorOnSecondaryContainer;
             chipTintAttr = com.google.android.material.R.attr.colorSecondary;
+            chipOnAttr = com.google.android.material.R.attr.colorOnSecondary;
         }
         int bg = com.google.android.material.color.MaterialColors.getColor(cardStatus, bgAttr, Color.WHITE);
         int fg = com.google.android.material.color.MaterialColors.getColor(cardStatus, fgAttr, Color.BLACK);
         int chipTint = com.google.android.material.color.MaterialColors.getColor(cardStatus, chipTintAttr, Color.BLACK);
+        int chipOn = com.google.android.material.color.MaterialColors.getColor(cardStatus, chipOnAttr, Color.WHITE);
         cardStatus.setCardBackgroundColor(bg);
         tvStatusTitle.setTextColor(fg);
         tvStatusDetail.setTextColor(fg);
@@ -493,9 +497,10 @@ public final class RideFragment extends BaseTabFragment {
             icStatus.setImageResource(R.drawable.ic_error);
         }
 
-        // chip 徽章：跟随当前 tone（不再是写死的 chip_active / chip_off）
+        // chip 徽章：底色跟随当前 tone，文字用配套 on-色
+        // （夜间模式 primary 是亮粉，写死 Color.WHITE 会变成白字白底不可读）
         tvModeChip.getBackground().mutate().setTint(chipTint);
-        tvModeChip.setTextColor(Color.WHITE);
+        tvModeChip.setTextColor(chipOn);
 
         // G1/G2 依赖网络层，关掉网络层时置灰
         boolean gatesEnabled = web;

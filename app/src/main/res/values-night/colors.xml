@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 夜间模式的警告横幅语义色：深橄榄底 + 提亮琥珀文字（对照度 ≥ 4.5:1） -->
+    <color name="warn_container">#3F300E</color>
+    <color name="warn_stroke">#9E8433</color>
+    <color name="warn_icon">#FFC94D</color>
+    <color name="warn_title">#FFD149</color>
+    <color name="warn_body">#E9CD7E</color>
+</resources>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      ★ 夜间模式静态兜底（2026-11-18 Material You 整改）。
+
+      之前 values/styles.xml 只覆写了浅色玫瑰调，DayNight 主题在夜间会带着
+      浅色 surface / 深色文字运行（windowBackground 也是亮色）—— 半明半暗。
+      Android 12+ 有 Monet 动态取色时本文件不生效（DynamicColors 全量覆盖）；
+      它只服务「低版本 / 用户关闭动态取色」的深色模式。
+
+      色值：同一玫瑰种子（#8C4A4E）的 M3 深色调 —— primary 提亮到 80 色调、
+      容器降到 30 色调、surface 变成带玫瑰灰的近黑。
+    -->
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#FFB3B4</item>
+        <item name="colorOnPrimary">#5F191E</item>
+        <item name="colorPrimaryContainer">#7A2F34</item>
+        <item name="colorOnPrimaryContainer">#FFDAD9</item>
+        <item name="colorSecondaryContainer">#514142</item>
+        <item name="colorOnSecondaryContainer">#FFDAD9</item>
+        <item name="colorSurface">#1A1112</item>
+        <item name="colorOnSurface">#F1DEDE</item>
+        <item name="colorOnSurfaceVariant">#D7C1C0</item>
+        <item name="colorOutline">#9F8C8B</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

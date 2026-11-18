@@ -20,4 +20,15 @@
     <color name="ic_launcher_background">#37474F</color>
     <color name="chip_active">#8C4A4E</color>
     <color name="chip_off">#857372</color>
+
+    <!--
+      ★ 刷写风险警告横幅的语义色（2026-11-18 Material You 整改）。
+      浅色值 = 原先散在 bg_warn / activity_ota 里的硬编码琥珀色系（观感不变）；
+      values-night/colors.xml 提供深色变体 —— 夜间模式不再出现亮黄横幅刺眼。
+    -->
+    <color name="warn_container">#FFF6E5</color>
+    <color name="warn_stroke">#F0B429</color>
+    <color name="warn_icon">#B7791F</color>
+    <color name="warn_title">#8A5A00</color>
+    <color name="warn_body">#7A5B00</color>
 </resources>

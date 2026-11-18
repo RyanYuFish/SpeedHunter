@@ -88,7 +88,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="⚠"
-                    android:textColor="#B7791F"
+                    android:textColor="@color/warn_icon"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -102,7 +102,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="刷写有变砖风险，且不可逆"
-                        android:textColor="#8A5A00"
+                        android:textColor="@color/warn_title"
                         android:textSize="15sp"
                         android:textStyle="bold" />
 
@@ -112,7 +112,7 @@
                         android:layout_marginTop="4dp"
                         android:lineSpacingMultiplier="1.25"
                         android:text="① 请确认仪表已经进入 OTA Update（否则写不进去）\n② 升级包直接推给仪表并触发底层刷写。包不自洽会在刷到一半时中断，导致主机起不来、整块仪表报废\n③ 请确认电量 ≥25%、车辆已停车、升级包来源可靠，且传输全程供电稳定"
-                        android:textColor="#7A5B00"
+                        android:textColor="@color/warn_body"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
