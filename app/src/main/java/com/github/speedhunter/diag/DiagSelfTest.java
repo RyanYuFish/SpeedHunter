@@ -287,6 +287,31 @@ public final class DiagSelfTest {
             sb.append("[FAIL] 读版本常量: ").append(t.getMessage()).append('\n'); fail++;
         }
 
+        // 17) CfStream 流式增量解码(BLE 透传链路核心:任意分片/粘包/夹垃圾重同步)
+        try {
+            byte[] f1 = Rs485.encode(0x59, Hex.parse("01 02 03 A5"));
+            byte[] f2 = Rs485.encode(0xFC, Hex.parse("50 00"));
+            // 拼一条「垃圾3B + f1整帧 + f2整帧」流,再切成「垃圾+f1前4字节 | 其余」,模拟 BLE 分片+噪声
+            java.io.ByteArrayOutputStream all = new java.io.ByteArrayOutputStream();
+            all.write(new byte[]{(byte) 0xAA, (byte) 0xBB, (byte) 0xCC});
+            all.write(f1, 0, f1.length);
+            all.write(f2, 0, f2.length);
+            byte[] blob = all.toByteArray();
+            int split = 3 + 4; // 垃圾 + f1 前半
+            CfStream st = new CfStream();
+            List<byte[]> out1 = st.feed(java.util.Arrays.copyOf(blob, split), split); // 垃圾+半帧 → 无完整帧
+            List<byte[]> out2 = st.feed(java.util.Arrays.copyOfRange(blob, split, blob.length), blob.length - split); // 补完 f1 + 整帧 f2
+            boolean ok = out1.isEmpty() && out2.size() == 2
+                    && java.util.Arrays.equals(out2.get(0), f1)
+                    && java.util.Arrays.equals(out2.get(1), f2);
+            if (ok) {
+                sb.append("[PASS] CfStream 流式解码：垃圾重同步 + 跨块半帧拼接,2 帧完整还原\n");
+                pass++;
+            } else { sb.append("[FAIL] CfStream：分片还原不符\n"); fail++; }
+        } catch (Throwable t) {
+            sb.append("[FAIL] CfStream: ").append(t.getMessage()).append('\n'); fail++;
+        }
+
         sb.append("----------------------------------------\n");
         sb.append("结果：").append(pass).append(" 通过 / ").append(fail).append(" 失败\n");
         if (fail == 0) sb.append("协议内核就绪，可接入传输层。\n");

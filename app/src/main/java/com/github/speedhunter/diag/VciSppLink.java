@@ -27,7 +27,7 @@ import java.util.UUID;
  * L2 握手按需以实抓常量重放(台架验证通过后再固化)。
  * 权限:API31+ 需 BLUETOOTH_CONNECT(已在 Manifest 声明)。
  */
-public final class VciSppLink {
+public final class VciSppLink implements DiagLink {
     public static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
     public static final String DEFAULT_VCI_MAC = "DC:0D:30:81:F1:E9";
 
@@ -47,15 +47,9 @@ public final class VciSppLink {
     /** FFB2 许可(86B,内含 ASCII "CFMOTO"+"hello";首连发送)。 */
     public static final byte[] L2_FFB2_LICENSE = hex("55aa0004004dffb201004a60d80000000000001c8043464d4f544ff61cfa7a57ff2026072068656c6f7249f4e748ac5972b95e72da6c8c186cf6e67d80ea50516f529ef17bde5f65651c087f17440f2920795da5d39b");
 
-    public interface Listener {
-        void onConnected(String device);
-        void onHandshake(String mode, String detail);
-        void onL2(byte[] frame);
-        void onFrame(VciLink.DataFrame frame, List<byte[]> cfFrames);
-        void onRaw(byte[] chunk, int len);
-        void onError(String message);
-        void onDisconnected();
-    }
+    /** @deprecated 2026-11-18 起统一用 {@link DiagLink.Listener}（双传输）；本嵌套接口仅保兼容，等价于父接口。 */
+    @Deprecated
+    public interface Listener extends DiagLink.Listener { }
 
     private volatile boolean sawL2Reply = false;
     private volatile boolean sawDataReply = false;
@@ -111,15 +105,20 @@ public final class VciSppLink {
         return out;
     }
 
-    private final Listener listener;
+    private final DiagLink.Listener listener;
     private BluetoothSocket socket;
     private OutputStream out;
     private Thread rxThread;
     private volatile boolean running;
     private int nextSeq = 0;
 
-    public VciSppLink(Listener listener) {
+    public VciSppLink(DiagLink.Listener listener) {
         this.listener = listener;
+    }
+
+    @Override
+    public boolean supportsVciKey() {
+        return true; // ABS fff9/fff7 key 由 VCI 内部计算
     }
 
     /** 组 L3 发送帧(委托 VciLink.buildFrame,纯逻辑可 JVM 测试)。 */

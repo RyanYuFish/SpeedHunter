@@ -22,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.github.speedhunter.R;
+import com.github.speedhunter.diag.BleRs485Link;
+import com.github.speedhunter.diag.DiagLink;
 import com.github.speedhunter.diag.DiagLogger;
 import com.github.speedhunter.diag.DeleteCardResponses;
 import com.github.speedhunter.diag.DiagSelfTest;
@@ -80,7 +82,28 @@ public final class DiagFragment extends BaseTabFragment {
         return sb.length() > 0 ? sb.toString() : "(空应答)";
     }
 
-    private VciSppLink link;
+    private DiagLink link;
+    // ===== 蓝牙模块选择(2026-11-18):官方 VCI(SPP) 之外新增 BLE-RS485 透传(TD5322A 等) =====
+    private static final String KIND_VCI = "vci";
+    private static final String KIND_BLE = "ble";
+    private static final String PREFS_DIAG = "diag_transport";
+    private static final String PREF_KIND = "kind";
+    private static final String PREF_MAC = "mac";
+    private static final String PREF_NAME = "name";
+    private static final String PREF_SVC_UUID = "svc_uuid";
+    private static final String PREF_WR_UUID = "wr_uuid";
+    private static final String PREF_ND_UUID = "nd_uuid";
+    /** BLE 扫描运行时权限请求码(31+ SCAN / 30- 定位)。 */
+    private static final int REQUEST_BT_SCAN = 402;
+    /** 串口透传模块常见命名关键字(命中加 ★ 提示)。 */
+    private static final java.util.regex.Pattern BLE_NAME_HINT = java.util.regex.Pattern.compile(
+            "TD|5322|485|RS.?485|BLE|JDY|HM-|UART|串口", java.util.regex.Pattern.CASE_INSENSITIVE);
+    /** 当前传输类型;picker/SharedPreferences 可改,连接工厂 createLink() 消费。 */
+    private String linkKind = KIND_VCI;
+    private android.bluetooth.le.BluetoothLeScanner bleScanner;
+    private android.bluetooth.le.ScanCallback bleScanCb;
+    private final java.util.LinkedHashMap<String, android.bluetooth.BluetoothDevice> scanFound = new java.util.LinkedHashMap<>();
+    private final java.util.LinkedHashMap<String, String> scanNames = new java.util.LinkedHashMap<>();
     private final DiagLogger logger = new DiagLogger();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private TextView logView;
@@ -151,7 +174,17 @@ public final class DiagFragment extends BaseTabFragment {
         });
         root.findViewById(R.id.btn_diag_result_clear).setOnClickListener(v ->
                 resultView.setText("暂无结果(读版本/读 DTC/写里程后显示)"));
+        // 恢复上次选择的传输/地址/UUID 覆盖(2026-11-18 双传输)
+        android.content.SharedPreferences sp = requireContext().getSharedPreferences(PREFS_DIAG, Context.MODE_PRIVATE);
+        linkKind = sp.getString(PREF_KIND, KIND_VCI);
+        String savedMac = sp.getString(PREF_MAC, null);
+        if (savedMac != null && !savedMac.isEmpty()) {
+            EditText macInit = root.findViewById(R.id.et_diag_mac);
+            macInit.setText(savedMac);
+        }
+        applyUuidOverridesFromPrefs(sp);
         root.findViewById(R.id.btn_diag_connect).setOnClickListener(v -> connectVci());
+        root.findViewById(R.id.btn_diag_pick).setOnClickListener(v -> showModulePicker());
         root.findViewById(R.id.btn_diag_disconnect).setOnClickListener(v -> closeLink());
         root.findViewById(R.id.btn_diag_nfc_on).setOnClickListener(v -> runWithLink("学卡", this::nfcStudyOfficialFlow));
         root.findViewById(R.id.btn_diag_nfc_done).setOnClickListener(v ->
@@ -161,7 +194,10 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_dtc_read).setOnClickListener(v -> runWithLink("读DTC", this::beginDtcRead));
         root.findViewById(R.id.btn_diag_dtc_clear).setOnClickListener(v -> runWithLink("清DTC", this::beginDtcClear));
         root.findViewById(R.id.btn_diag_ext).setOnClickListener(v -> runWithLink("扩展读取", this::beginExtendedRead));
-        root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> runWithLink("ABS排气", this::beginAbsBleed));
+        root.findViewById(R.id.btn_diag_abs).setOnClickListener(v -> {
+            if (!requireVciForKeyOps("ABS 排气")) return;
+            runWithLink("ABS排气", this::beginAbsBleed);
+        });
         root.findViewById(R.id.btn_diag_restore).setOnClickListener(v -> runWithLink("恢复主机", this::beginRestoreMaster));
         root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("写里程", () -> writeMileage()));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
@@ -217,31 +253,34 @@ public final class DiagFragment extends BaseTabFragment {
         EditText macEdit = requireView().findViewById(R.id.et_diag_mac);
         String mac = macEdit.getText().toString().trim().toUpperCase();
         if (!mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) { toast("MAC 格式不对"); return; }
-        if (connecting) { toast("正在连接 VCI,请稍候"); return; }
+        final boolean ble = KIND_BLE.equals(linkKind);
+        if (connecting) { toast(ble ? "正在连接 BLE 模块,请稍候" : "正在连接 VCI,请稍候"); return; }
         if (link != null) closeLink();
         pendingOpAfterConnect = onReady;
         connectAborted = false;
         android.widget.TextView stage = new android.widget.TextView(requireContext());
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
         stage.setPadding(pad, pad, pad, pad);
-        stage.setText("① 停官方 App / 建立 SPP 连接…(每通道 8s 超时)");
+        stage.setText(ble ? "① 连接 BLE 透传模块(GATT,最长 15s)…" : "① 停官方 App / 建立 SPP 连接…(每通道 8s 超时)");
         connectStageView = stage;
         final android.app.Dialog[] dlg = new android.app.Dialog[1];
         dlg[0] = new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
-                .setTitle(opName == null ? "连接 VCI" : "连接 VCI(完成后自动「" + opName + "」)")
+                .setTitle(opName == null ? (ble ? "连接 BLE 模块" : "连接 VCI") : (ble ? "连接 BLE 模块(完成后自动「" + opName + "」)" : "连接 VCI(完成后自动「" + opName + "」)"))
                 .setView(stage)
                 .setCancelable(false)
                 .setNegativeButton("取消", (d, w) -> abortConnect())
                 .show();
         connecting = true;
-        logger.startSession("SpeedHunter diag | VCI " + mac + (opName != null ? " | auto:" + opName : ""));
+        logger.startSession("SpeedHunter diag | " + (ble ? "BLE " : "VCI ") + mac + (opName != null ? " | auto:" + opName : ""));
         setState("连接中 " + mac);
         new Thread(() -> {
             String fail = null;
             try {
                 createLink();
                 link.connectAndHandshake(requireContext(), mac, true);
-                if (!link.isDataReady()) fail = "L3 数据通道无应答(VCI 已连接,但车辆数据未建立;可重试)";
+                if (!link.isDataReady()) fail = ble
+                        ? "总线探针无应答(模块已连接,但 RS485 总线无数据;检查车辆上电/模块 A-B 是否接总线)"
+                        : "L3 数据通道无应答(VCI 已连接,但车辆数据未建立;可重试)";
             } catch (Exception e) {
                 fail = e.getMessage();
             }
@@ -257,8 +296,8 @@ public final class DiagFragment extends BaseTabFragment {
                     return;
                 }
                 if (err == null) {
-                    link.startPolling(); // 持续 69 轮询保活 VCI L3 转发(2026-11-15 修复)
-                    log("OP", "L3 通道已验证(前导有应答),已启动持续轮询");
+                    link.startPolling(); // VCI:持续 69 轮询保活 L3 转发(2026-11-15 修复);BLE:无操作
+                    log("OP", ble ? "透传通道已就绪(总线探针有应答)" : "L3 通道已验证(前导有应答),已启动持续轮询");
                     setState("已连接 " + mac);
                     Runnable op = pendingOpAfterConnect;
                     pendingOpAfterConnect = null;
@@ -274,7 +313,9 @@ public final class DiagFragment extends BaseTabFragment {
                 if (!isAdded()) return;
                 new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
                         .setTitle("连接失败")
-                        .setMessage(err + "\n\n常见原因:官方 ZSCAN App 正占用 VCI(请先手动彻底关闭它) / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。\n本次已自动重试一次。")
+                        .setMessage(err + "\n\n常见原因:" + (KIND_BLE.equals(linkKind)
+                                ? "模块未上电 / 距离过远 / 已被其他手机占用(BLE 透传模块通常只允许一个主机) / RS485 未接车辆总线。\n本次已自动重试一次。"
+                                : "官方 ZSCAN App 正占用 VCI(请先手动彻底关闭它) / VCI 已休眠(按键唤醒后再试) / 距离过远 / VCI 需断电重上电。\n本次已自动重试一次。"))
                         .setPositiveButton("重试", (d, w) -> connectWithDialog(opName, onReady))
                         .setNegativeButton("取消", null)
                         .show();
@@ -291,19 +332,19 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     private void createLink() {
-        link = new VciSppLink(new VciSppLink.Listener() {
+        final DiagLink.Listener listener = new DiagLink.Listener() {
             @Override public void onConnected(String device) {
                 ui.post(() -> {
                     setState("已连接 " + device + ",握手中");
                     log("LINK", "connected " + device);
-                    if (connectStageView != null) connectStageView.setText("① SPP 已连接 " + device + ",开始 L2/L3 握手…");
+                    if (connectStageView != null) connectStageView.setText("① 蓝牙已连接 " + device + (KIND_BLE.equals(linkKind) ? ",发现服务/订阅通知中…" : ",开始 L2/L3 握手…"));
                 });
             }
             @Override public void onHandshake(String mode, String detail) {
                 ui.post(() -> {
                     log("HS", "[" + mode + "] " + detail);
                     setState("已连接(" + mode + " 握手)");
-                    if (connectStageView != null) connectStageView.setText("② 官方握手: [" + mode + "] " + detail);
+                    if (connectStageView != null) connectStageView.setText("② 握手: [" + mode + "] " + detail);
                 });
             }
             @Override public void onL2(byte[] frame) {
@@ -338,16 +379,267 @@ public final class DiagFragment extends BaseTabFragment {
             @Override public void onDisconnected() {
                 ui.post(() -> { setState("已断开"); log("LINK", "disconnected"); });
             }
-        });
+        };
+        // 2026-11-18 双传输:官方 VCI(SPP) 或 BLE-RS485 透传模块(TD5322A 等);监听器同一套
+        link = KIND_BLE.equals(linkKind) ? new BleRs485Link(listener) : new VciSppLink(listener);
     }
 
     private void closeLink() {
         if (link != null) {
             link.close();
             link = null;
-            log("LINK", "已断开(释放 VCI)");
+            log("LINK", "已断开(释放链路)");
         }
         setState("未连接");
+    }
+
+    /** ABS 排气等依赖 VCI 计算 L2 key 的操作,透传模块做不到 → 明确拒绝。 */
+    private boolean requireVciForKeyOps(String op) {
+        if (KIND_BLE.equals(linkKind)) {
+            toast(op + " 需官方 VCI:ABS 安全 key 由 VCI 内部计算,BLE 透传模块无法提供");
+            return false;
+        }
+        return true;
+    }
+
+    /** picker 扫描前置权限:CONNECT 必需;31+ 还要 SCAN,30- 要定位(仅 BLE 列表需要)。 */
+    private boolean pickerPermsReady(boolean needScan) {
+        if (!btReady()) return false;
+        if (!needScan) return true;
+        java.util.List<String> want = new ArrayList<>();
+        if (Build.VERSION.SDK_INT >= 31) want.add(Manifest.permission.BLUETOOTH_SCAN);
+        else want.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        for (String p : want) {
+            if (ContextCompat.checkSelfPermission(requireContext(), p) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(want.toArray(new String[0]), REQUEST_BT_SCAN);
+                toast("需要蓝牙扫描权限,授权后再点一次扫描");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 4-hex 短 UUID(如 FFE0)→ 标准 128 位;空/非法返回 null。 */
+    private static java.util.UUID expandUuid(String s) {
+        if (s == null) return null;
+        s = s.trim();
+        if (s.isEmpty()) return null;
+        if (s.matches("(?i)^[0-9a-f]{4}$")) {
+            return java.util.UUID.fromString("0000" + s.toLowerCase() + "-0000-1000-8000-00805f9b34fb");
+        }
+        try { return java.util.UUID.fromString(s); } catch (IllegalArgumentException e) { return null; }
+    }
+
+    private void applyUuidOverridesFromPrefs(android.content.SharedPreferences sp) {
+        BleRs485Link.overrideService = expandUuid(sp.getString(PREF_SVC_UUID, null));
+        BleRs485Link.overrideWrite = expandUuid(sp.getString(PREF_WR_UUID, null));
+        BleRs485Link.overrideNotify = expandUuid(sp.getString(PREF_ND_UUID, null));
+    }
+
+    /** 蓝牙模块选择器:传输切换 + 设备列表(SPP 已配对 / BLE 扫描) + 高级 UUID 覆盖。 */
+    private void showModulePicker() {
+        final Context ctx = requireContext();
+        final android.content.SharedPreferences sp = ctx.getSharedPreferences(PREFS_DIAG, Context.MODE_PRIVATE);
+        final String[] kind = {sp.getString(PREF_KIND, KIND_VCI)};
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(ctx);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding(pad, pad / 2, pad, 0);
+
+        // 传输切换
+        com.google.android.material.button.MaterialButtonToggleGroup tg =
+                new com.google.android.material.button.MaterialButtonToggleGroup(ctx);
+        tg.setSingleSelection(true);
+        tg.setSelectionRequired(true);
+        final com.google.android.material.button.MaterialButton btnVci =
+                new com.google.android.material.button.MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        btnVci.setText("官方 VCI(SPP)");
+        final com.google.android.material.button.MaterialButton btnBle =
+                new com.google.android.material.button.MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        btnBle.setText("BLE 透传(TD5322A 等)");
+        tg.addView(btnVci);
+        tg.addView(btnBle);
+        (KIND_BLE.equals(kind[0]) ? btnBle : btnVci).setChecked(true);
+        box.addView(tg);
+
+        final TextView status = new TextView(ctx);
+        status.setPadding(0, pad / 2, 0, pad / 2);
+        box.addView(status);
+
+        final android.widget.ListView list = new android.widget.ListView(ctx);
+        final java.util.List<android.bluetooth.BluetoothDevice> devices = new ArrayList<>();
+        final android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(ctx, android.R.layout.simple_list_item_1);
+        list.setAdapter(adapter);
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, (int) (240 * getResources().getDisplayMetrics().density));
+        list.setLayoutParams(lp);
+        box.addView(list);
+
+        final com.google.android.material.button.MaterialButton action =
+                new com.google.android.material.button.MaterialButton(ctx, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        box.addView(action);
+
+        // 高级 UUID 覆盖(BLE;留空=自动 profile/自动发现)
+        final TextView advLabel = new TextView(ctx);
+        advLabel.setPadding(0, pad / 2, 0, 0);
+        advLabel.setText("高级:自定义 service / write / notify UUID(留空自动识别)");
+        box.addView(advLabel);
+        android.widget.LinearLayout row1 = new android.widget.LinearLayout(ctx);
+        row1.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        final EditText svcEdit = new EditText(ctx);
+        svcEdit.setHint("service(如 FFE0)");
+        svcEdit.setText(sp.getString(PREF_SVC_UUID, ""));
+        svcEdit.setSingleLine();
+        svcEdit.setLayoutParams(new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        final EditText wrEdit = new EditText(ctx);
+        wrEdit.setHint("write(如 FFE1)");
+        wrEdit.setText(sp.getString(PREF_WR_UUID, ""));
+        wrEdit.setSingleLine();
+        wrEdit.setLayoutParams(new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row1.addView(svcEdit); row1.addView(wrEdit);
+        box.addView(row1);
+        final EditText ndEdit = new EditText(ctx);
+        ndEdit.setHint("notify(如 FFE1,可与 write 相同)");
+        ndEdit.setText(sp.getString(PREF_ND_UUID, ""));
+        ndEdit.setSingleLine();
+        box.addView(ndEdit);
+
+        // 状态刷新 + 列表加载
+        final Runnable[] reload = new Runnable[1];
+        reload[0] = () -> {
+            boolean ble = KIND_BLE.equals(kind[0]);
+            adapter.clear();
+            devices.clear();
+            action.setText(ble ? "扫描 BLE 设备(12 秒)" : "刷新已配对设备");
+            advLabel.setVisibility(ble ? View.VISIBLE : View.GONE);
+            svcEdit.setVisibility(ble ? View.VISIBLE : View.GONE);
+            wrEdit.setVisibility(ble ? View.VISIBLE : View.GONE);
+            ndEdit.setVisibility(ble ? View.VISIBLE : View.GONE);
+            if (ble) {
+                status.setText("点「扫描」搜索附近的 BLE 透传模块;★=疑似串口透传模块");
+            } else {
+                BluetoothAdapter bt = btAdapter();
+                if (bt == null) { status.setText("蓝牙不可用"); return; }
+                java.util.Set<android.bluetooth.BluetoothDevice> bonded = bt.getBondedDevices();
+                if (bonded == null || bonded.isEmpty()) { status.setText("无已配对设备;先用系统蓝牙设置配对 VCI,或直接手输 MAC"); return; }
+                status.setText("已配对设备(" + bonded.size() + ");点选一行回填地址");
+                java.util.List<android.bluetooth.BluetoothDevice> sorted = new ArrayList<>(bonded);
+                java.util.Collections.sort(sorted, (a, b) -> safeName(a).compareToIgnoreCase(safeName(b)));
+                for (android.bluetooth.BluetoothDevice d : sorted) {
+                    devices.add(d);
+                    adapter.add(safeName(d) + "\n" + d.getAddress());
+                }
+            }
+        };
+        tg.addOnButtonCheckedListener((group, id, checked) -> {
+            if (!checked) return;
+            kind[0] = id == btnVci.getId() ? KIND_VCI : KIND_BLE;
+            reload[0].run();
+        });
+        reload[0].run();
+
+        final android.app.Dialog[] dlg = new android.app.Dialog[1];
+        action.setOnClickListener(v -> {
+            if (KIND_BLE.equals(kind[0])) {
+                if (!pickerPermsReady(true)) return;
+                BluetoothAdapter bt = btAdapter();
+                bleScanner = bt == null ? null : bt.getBluetoothLeScanner();
+                if (bleScanner == null) { toast("BLE 扫描不可用(蓝牙未开启?)"); return; }
+                scanFound.clear();
+                scanNames.clear();
+                adapter.clear();
+                devices.clear();
+                status.setText("扫描中…(12 秒;★=疑似串口透传模块)");
+                bleScanCb = new android.bluetooth.le.ScanCallback() {
+                    @Override public void onScanResult(int callbackType, android.bluetooth.le.ScanResult r) {
+                        android.bluetooth.BluetoothDevice d = r.getDevice();
+                        String name = safeName(d);
+                        String mac = d.getAddress();
+                        boolean isNew = !scanFound.containsKey(mac);
+                        scanFound.put(mac, d);
+                        scanNames.put(mac, name);
+                        if (isNew) {
+                            devices.add(d);
+                            ui.post(() -> adapter.add((BLE_NAME_HINT.matcher(name + " " + mac).find() ? "★ " : "")
+                                    + (name.isEmpty() ? "(无名)" : name) + "\n" + mac + "  " + r.getRssi() + "dBm"));
+                        }
+                    }
+                    @Override public void onScanFailed(int errorCode) {
+                        ui.post(() -> status.setText("扫描失败 code=" + errorCode + "(检查定位/扫描权限)"));
+                    }
+                };
+                try {
+                    bleScanner.startScan(bleScanCb);
+                } catch (SecurityException | IllegalStateException se) {
+                    status.setText("无法启动扫描:" + se.getMessage());
+                    return;
+                }
+                ui.postDelayed(() -> stopBleScan(status, scanFound.size()), 12000);
+            } else {
+                reload[0].run();
+            }
+        });
+
+        list.setOnItemClickListener((parent, view, position, id2) -> {
+            if (position < 0 || position >= devices.size()) return;
+            android.bluetooth.BluetoothDevice d = devices.get(position);
+            String mac = d.getAddress();
+            String name = KIND_BLE.equals(kind[0]) ? scanNames.getOrDefault(mac, safeName(d)) : safeName(d);
+            sp.edit().putString(PREF_KIND, kind[0]).putString(PREF_MAC, mac).putString(PREF_NAME, name).apply();
+            linkKind = kind[0];
+            applyUuidOverrides(svcEdit, wrEdit, ndEdit, sp);
+            EditText macEdit = requireView().findViewById(R.id.et_diag_mac);
+            macEdit.setText(mac);
+            stopBleScan(null, 0);
+            toast("已选择 " + (name.isEmpty() ? mac : name) + "(" + (KIND_BLE.equals(kind[0]) ? "BLE 透传" : "官方 VCI") + ")");
+            if (dlg[0] != null) dlg[0].dismiss();
+        });
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(ctx);
+        scroll.addView(box);
+        dlg[0] = new com.google.android.material.dialog.MaterialAlertDialogBuilder(ctx)
+                .setTitle("选择蓝牙模块")
+                .setView(scroll)
+                .setPositiveButton("完成", (d, w) -> {
+                    sp.edit().putString(PREF_KIND, kind[0]).apply();
+                    linkKind = kind[0];
+                    applyUuidOverrides(svcEdit, wrEdit, ndEdit, sp);
+                    stopBleScan(null, 0);
+                })
+                .setOnDismissListener(d -> stopBleScan(null, 0))
+                .show();
+    }
+
+    private void applyUuidOverrides(EditText svcEdit, EditText wrEdit, EditText ndEdit, android.content.SharedPreferences sp) {
+        java.util.UUID s = expandUuid(svcEdit.getText().toString());
+        java.util.UUID w = expandUuid(wrEdit.getText().toString());
+        java.util.UUID n = expandUuid(ndEdit.getText().toString());
+        BleRs485Link.overrideService = s;
+        BleRs485Link.overrideWrite = w;
+        BleRs485Link.overrideNotify = n;
+        sp.edit().putString(PREF_SVC_UUID, svcEdit.getText().toString().trim())
+                .putString(PREF_WR_UUID, wrEdit.getText().toString().trim())
+                .putString(PREF_ND_UUID, ndEdit.getText().toString().trim())
+                .apply();
+    }
+
+    private void stopBleScan(TextView status, int found) {
+        try {
+            if (bleScanner != null && bleScanCb != null) bleScanner.stopScan(bleScanCb);
+        } catch (SecurityException | IllegalStateException ignored) { }
+        bleScanner = null;
+        bleScanCb = null;
+        if (status != null) status.setText(found > 0 ? ("扫描结束,发现 " + found + " 台;点选一行回填") : "扫描结束,未发现设备(确认模块上电)");
+    }
+
+    private static String safeName(android.bluetooth.BluetoothDevice d) {
+        try { return d.getName() == null ? "" : d.getName(); } catch (SecurityException e) { return ""; }
+    }
+
+    private BluetoothAdapter btAdapter() {
+        BluetoothManager bm = (BluetoothManager) requireContext().getSystemService(Context.BLUETOOTH_SERVICE);
+        return bm == null ? null : bm.getAdapter();
     }
 
     private static final class Rs485View {
@@ -376,10 +668,12 @@ public final class DiagFragment extends BaseTabFragment {
 
     private boolean opGate(String op) {
         if (!requireLink()) return false;
-        if (!link.isDataReady()) { toast("L3 通道未验证,先重新连接 VCI"); return false; }
+        if (!link.isDataReady()) { toast(KIND_BLE.equals(linkKind) ? "总线通道未就绪,先重新连接模块" : "L3 通道未验证,先重新连接 VCI"); return false; }
         if (flowBusy) { toast("有流程进行中"); return false; }
-        long age = link.lastDataRxAgeMs();
-        if (age > 5000) log("WARN", "L3 通道疑似失活(最后数据 " + (age / 1000) + "s 前);若操作无应答请断开重连 VCI");
+        if (!KIND_BLE.equals(linkKind)) {
+            long age = link.lastDataRxAgeMs();
+            if (age > 5000) log("WARN", "L3 通道疑似失活(最后数据 " + (age / 1000) + "s 前);若操作无应答请断开重连 VCI");
+        }
         flowBusy = true;
         log("OP", op + ":流程开始(按官方流程)");
         return true;
@@ -391,7 +685,7 @@ public final class DiagFragment extends BaseTabFragment {
     private interface DiagStep { void run() throws Exception; }
 
     /** 官方主从切换;切换后弹确认,通过后回调 onSwitched(后台线程执行)。 */
-    private void officialMasterSlave(VciSppLink active, String op, DiagStep onSwitched) {
+    private void officialMasterSlave(DiagLink active, String op, DiagStep onSwitched) {
         new Thread(() -> {
             try {
                 stageOpen(active, op + " 切换开道");
@@ -466,7 +760,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 发送官方退出帧 0x71(byte6=0x40,删卡会话 16:20:13.918 实证)并恢复心跳/轮询(失败不打断流程)。 */
-    private void exitMasterSlaveQuiet(VciSppLink active) {
+    private void exitMasterSlaveQuiet(DiagLink active) {
         try {
             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
             active.sendRs485(ZeehoRs485Ops.MASTER_SLAVE_EXIT_71);
@@ -480,7 +774,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 被动探测总线车流(等待期零 TX):统计 mark 后来自车辆方向的帧数;>0 = 主机广播在线。 */
-    private int probeBusTraffic(VciSppLink active, long ms) {
+    private int probeBusTraffic(DiagLink active, long ms) {
         int mark;
         synchronized (responseLock) { mark = pendingResponses.size(); }
         long deadline = android.os.SystemClock.elapsedRealtime() + ms;
@@ -501,7 +795,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("发送官方退出帧 0x71(byte6=0x40)并用 0x80→0x88(VIN)验证主机寻址是否恢复。" + "\n\n" + "从机模式下长时间不写入,仪表也会超时自动恢复(约1分钟,期间可能黑屏)。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     new Thread(() -> {
                         long t0 = android.os.SystemClock.elapsedRealtime();
                         try {
@@ -557,7 +851,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 发送 L3 会话前导(60×3 + 69×3,帧间隔 15ms)。 */
-    private void sendPreamble(VciSppLink active) throws java.io.IOException {
+    private void sendPreamble(DiagLink active) throws java.io.IOException {
         for (byte[] cmd : ZeehoRs485Ops.sessionSetupCommands()) {
             active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
             sleepMs(15);
@@ -566,7 +860,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     /** 官方阶段开道:FFA×2(递增 L2 seq)→ 45ms → 前导 60×3+69×3。
      *  官方在 0x89 突发、0x71、0x80、每节点版本/DID 查询、退出前都重复整套开道。 */
-    private void stageOpen(VciSppLink active, String label) throws java.io.IOException {
+    private void stageOpen(DiagLink active, String label) throws java.io.IOException {
         active.sendFfaPair();
         sleepMs(45);
         sendPreamble(active);
@@ -575,7 +869,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     /** 被动等待指定节点 CF 应答(黄金抓取实证:VCI 主动推送全部应答,官方等待期零 TX;我方等待期轮询与官方零 TX 行为不符,实车曾致总线静默)。
      *  应答节点 = 查询节点|0x80(如 0x14→0x94)。prefix 可选 payload 前缀;命中返回 payload hex,超时 null。 */
-    private String pollAwaitNode(VciSppLink active, int node, int[] payloadPrefix, long timeoutMs) {
+    private String pollAwaitNode(DiagLink active, int node, int[] payloadPrefix, long timeoutMs) {
         int mark;
         synchronized (responseLock) { mark = pendingResponses.size(); }
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
@@ -646,7 +940,7 @@ public final class DiagFragment extends BaseTabFragment {
      * 帧①(challenge=1,proof=0x7E7)→ 等 FC 81 00 <车辆挑战4B> → 帧②(回传挑战+challenge×2023)→ 等 FC 82。
      * 2.5s 内无 FC 81 挑战则回退官方静态对(E33A…/AFC0…,删卡会话逐字节,两步挑战互不联动)。
      */
-    private void authorizeEol(VciSppLink active) throws Exception {
+    private void authorizeEol(DiagLink active) throws Exception {
         // 黄金删卡会话实证:官方直接发静态对(F4 09 01 E33A…/F4 09 02 AFC0…),车辆均回 FC 81/82;
         // FC 81 内 4B 挑战是随机值(实见 2f985e45),与静态对无关,仅记录不参与计算。
         int mark;
@@ -695,7 +989,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 先标记后发送再等待(消除 pollAndSend→pollAwaitNode 两步间的应答竞态)。超时返回 null。 */
-    private String pollSendAwait(VciSppLink active, String title, byte[] cf, int node, int[] payloadPrefix, long timeoutMs) {
+    private String pollSendAwait(DiagLink active, String title, byte[] cf, int node, int[] payloadPrefix, long timeoutMs) {
         int mark;
         synchronized (responseLock) { mark = pendingResponses.size(); }
         pollAndSend(active, title, cf);
@@ -717,12 +1011,12 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("主从切换(进入从机模式;超时未写入会自动恢复)→ EOL 授权 → 节点 0x14 DID 全表(F187/F18A/F197/F193/F195/0203/0309/0312)→ F4 50 电池电压 / F4 3D 保养里程 / F4 6F 状态位图 0-2 页。\n全部只读;帧式按文档【汇】,子码后 00 填充为【推】。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     officialMasterSlave(active, "扩展读取", () -> extendedReadRun(active));
                 }).show();
     }
 
-    private void extendedReadRun(VciSppLink active) {
+    private void extendedReadRun(DiagLink active) {
         try {
             authorizeEol(active);
             byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
@@ -771,7 +1065,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** EOL 单条只读:F4 子命令 → 等 0xFC 应答,返回展示行(原始 hex,格式未在文档定义)。 */
-    private String readEolLine(VciSppLink active, String title, byte[] cf) {
+    private String readEolLine(DiagLink active, String title, byte[] cf) {
         String resp = pollSendAwait(active, title, cf, 0xFC, null, 2500);
         return title + ": " + (resp != null ? resp : "无应答");
     }
@@ -791,11 +1085,11 @@ public final class DiagFragment extends BaseTabFragment {
                 .show();
     }
 
-    private void startDeleteFlow(VciSppLink active, int deleteType) {
+    private void startDeleteFlow(DiagLink active, int deleteType) {
         officialMasterSlave(active, "删卡", () -> authorizeDelete(active, deleteType));
     }
 
-    private void authorizeDelete(VciSppLink active, int deleteType) throws Exception {
+    private void authorizeDelete(DiagLink active, int deleteType) throws Exception {
         authorizeEol(active);
         log("OP", "删卡授权完成");
         ui.post(() -> {
@@ -808,7 +1102,7 @@ public final class DiagFragment extends BaseTabFragment {
         });
     }
 
-    private void executeDelete(VciSppLink active, int deleteType) {
+    private void executeDelete(DiagLink active, int deleteType) {
         try {
             byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
             active.send(cfg[1] & 0xFF, java.util.Arrays.copyOfRange(cfg, 2, cfg.length));
@@ -845,7 +1139,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .show();
     }
 
-    private void startStudyFlow(VciSppLink active, int cardType) {
+    private void startStudyFlow(DiagLink active, int cardType) {
         officialMasterSlave(active, "学卡", () -> {
             sendCfTo(active, "学卡·开关ON(39 0" + cardType + ")", ZeehoRs485Ops.nfcLearnSwitch(cardType));
                         ui.post(() -> {
@@ -859,7 +1153,7 @@ public final class DiagFragment extends BaseTabFragment {
                     });
     }
 
-    private void studyAuth(VciSppLink active, int studyCardType) {
+    private void studyAuth(DiagLink active, int studyCardType) {
         try {
             authorizeEol(active);
             byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
@@ -885,7 +1179,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("官方流程为总线寻址扫描:0x89 寻址载荷×5(1107ms 均匀节奏)→ 0x71(04) → 0x80 读 VIN(节点 0x88),再逐节点读 22F193/F195(重试×3)。\n本流程不做主从切换、仪表不重启;结果显示在本页「诊断结果」区。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     new Thread(() -> {
                         long t0 = android.os.SystemClock.elapsedRealtime();
                         try {
@@ -967,7 +1261,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 读版本单 DID 查询:poll+22F1xx,被动等 62F1xx(应答节点=查询节点|0x80),最多 3 次尝试(官方对静默节点也重试×3)。 */
-    private String versionQueryDid(VciSppLink active, int node, int did) throws java.io.IOException {
+    private String versionQueryDid(DiagLink active, int node, int did) throws java.io.IOException {
         int[] prefix = {0x62, (did >> 8) & 0xFF, did & 0xFF};
         for (int attempt = 1; attempt <= 3; attempt++) {
             pollAndSend(active, "版本 node " + Integer.toHexString(node) + " 22F1" + Integer.toHexString(did & 0xFF),
@@ -993,7 +1287,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("主从切换(进入从机模式)→ EOL 授权 → F4 51 00。\n协议总汇:F4 51 = 读 46B 诊断状态;33/36/38 = 写 NVM18/19/20(DTC_0/1/2,20/10/10B),故 46B 推断为 6B 状态头 + 20+10+10 三块。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     officialMasterSlave(active, "读DTC", () -> {
                         authorizeEol(active);
                         log("OP", "读DTC: EOL 授权完成");
@@ -1051,7 +1345,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("主从切换后执行 EOL 授权 + 33/36/38 写零三块。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     officialMasterSlave(active, "清DTC", () -> {
                         authorizeEol(active);
                         byte[] cfg = ZeehoRs485Ops.sessionTimeoutRaise();
@@ -1088,7 +1382,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("协议总汇 §3.2.2 流程:\n①主从切换(进入从机模式,约8-20s+确认;从机下超过约1分钟不写入会超时自动恢复——确认框请尽快点)→ ②EOL 授权(官方静态对,≤6s)→ ③07D0+写前回读(≤3s)→ ④0x4F mode0 写入 " + raw + " km(小端,km×10,≤3s)→ ⑤写后回读(≤3s)→ ⑥退出。\n全程典型 15-30s,每阶段有进度框与已用秒数;结束弹成功与否确认。\n建议先 ±几 km 小步实测(§十.3),断电回读确认不回跳后再写真实值。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     showFlowProgress("写里程 " + raw + " km", "①/③ 主从切换准备(开道+挂起心跳)…");
                     officialMasterSlave(active, "写里程", () -> {
                         long t0 = android.os.SystemClock.elapsedRealtime();
@@ -1144,7 +1438,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setMessage("按官方流程连接 ABS 模块:双通道配置 → 扩展会话 → 安全访问(key 由 VCI 计算)→ 60 轮泵阀循环(约 66s)→ 清码 + ECU 复位。\n请按官方提示操作刹车油壶/卡钳。")
                 .setNegativeButton("取消", (d, w) -> releaseGate())
                 .setPositiveButton("开始", (d, w) -> {
-                    final VciSppLink active = link;
+                    final DiagLink active = link;
                     new Thread(() -> {
                         try {
                             active.sendFfaPair(); // 阶段开道;心跳保持(官方 ABS 期间 FFA ~1/s 连续)
@@ -1163,7 +1457,7 @@ public final class DiagFragment extends BaseTabFragment {
                 }).show();
     }
 
-    private void absStage2Dialog(VciSppLink active) {
+    private void absStage2Dialog(DiagLink active) {
         if (!isAdded()) { releaseGate(); return; }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("进入诊断会话")
                 .setMessage("配置完成。继续进入 ABS 扩展会话(10 03)?")
@@ -1184,7 +1478,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setCancelable(false).show();
     }
 
-    private void absStage3Dialog(VciSppLink active) {
+    private void absStage3Dialog(DiagLink active) {
         if (!isAdded()) { releaseGate(); return; }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext()).setTitle("开始排气动作")
                 .setMessage("会话已请求。继续将执行安全访问(27 01/27 02)并开始 60 轮泵阀循环。\n循环期间勿断开蓝牙。")
@@ -1193,7 +1487,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setCancelable(false).show();
     }
 
-    private void absBleedRun(VciSppLink active) {
+    private void absBleedRun(DiagLink active) {
         try {
             active.sendBus(ZeehoRs485Ops.absSeedRequest());
             byte[] seed = awaitAbsSeed(active, 3000);
@@ -1256,7 +1550,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 被动等待 ABS 27 01 种子(数据帧含 07E9 08 06 67 01 <seed4B>;VCI 主动推送,等待期不轮询)。 */
-    private byte[] awaitAbsSeed(VciSppLink active, long timeoutMs) {
+    private byte[] awaitAbsSeed(DiagLink active, long timeoutMs) {
         int mark;
         synchronized (responseLock) { mark = pendingResponses.size(); }
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
@@ -1298,7 +1592,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     // ===== 底层发送/等待 =====
 
-    private void sendCfTo(VciSppLink active, String title, byte[] cf) {
+    private void sendCfTo(DiagLink active, String title, byte[] cf) {
         log("TX", title + " CF " + Hex.format(cf).replace(" ", ""));
         try {
             active.sendRs485(cf);
@@ -1308,7 +1602,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** 官方节奏:每帧 CF 写前先发 69 0101 轮询。 */
-    private void pollAndSend(VciSppLink active, String title, byte[] cf) {
+    private void pollAndSend(DiagLink active, String title, byte[] cf) {
         try {
             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
         } catch (Exception e) {
@@ -1319,7 +1613,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     /** 官方请求-应答:poll+CF 写入,然后被动等节点 0xFC 指定应答码
      *  (黄金抓取:FC 81/82/BA 均由 VCI 主动推送,写入后 30-60ms 到达,等待期零 TX)。超时抛异常。 */
-    private void requestResponse(VciSppLink active, byte[] cf, int response) throws Exception {
+    private void requestResponse(DiagLink active, byte[] cf, int response) throws Exception {
         int mark;
         int seq;
         synchronized (responseLock) {
@@ -1344,7 +1638,7 @@ public final class DiagFragment extends BaseTabFragment {
     }
 
     /** DID 0309 读里程(22 03 09 → 节点 0x94 应答 62 03 09 + 3B 大端 0.1km;150ms 轮询拉取)。超时返回 null。 */
-    private String readOdoViaDid(VciSppLink active) {
+    private String readOdoViaDid(DiagLink active) {
         int mark;
         synchronized (responseLock) {
             mark = pendingResponses.size();
