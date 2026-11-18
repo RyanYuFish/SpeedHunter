@@ -1,3 +1,158 @@
+## 5.2.4 (vc151) — 2026-11-18
+
+### 总压弯改为本车全生命周期口径（17:27 车主令）
+
+**口径**：对照 AE7 官方显示逻辑，「我的骑行」顶部总里程旁的压弯次数 =
+**本车记录的总压弯次数**，而不是当前响应（当月）的累加 —— 换月查看时
+单月和会把总数缩回去。
+
+**实现**：
+
+- `RideDayStore` 新增 `totals()`：遍历 day store 目录全部 `*.json`，
+  返回 `[急刹总和, 压弯总和]`。
+- `RideFill.fillMyRideInfo`：写 `bendingTimesTotal` 时用
+  `max(dayStore 全店压弯和, 响应当月和)` —— store 有账本就是全生命周期
+  值；store 空（未建账）时退回当月和。门控 guard 不变：
+  `!serverManaged && 值>0 && 与服务端不同才写`。
+- iOS `ZeehoRideFill.js` 同步：新增 `totalBendsAllTime()`，
+  `$persistentStore.allKeys` 可用时枚举 `zeeho_day_*` 键累加 `st.d`；
+  无 `allKeys` 的环境返回 null 退回当月和。日志输出
+  `bendingTimesTotal=N (all-time, month sum=M)`。
+
+**验证**：iOS 桩测 PASS（brake=2 bend=17，参数 A_MIN=1.2/BEND_CUM_MIN=50/
+BEND_MIN_KM=3 不变）；Android 构建 v5.2.4 成功。换月查看不再缩数：
+total 取的是持久化 day store 全量，与响应月份无关。
+
+## 5.2.3 (vc150) — 2026-11-18
+
+### 根因修复：爱加密壳导致业务 hook 全哑，改延迟安装（16:48 车主令，真机取证）
+
+**现象**：v5.2.0~v5.2.2 三轮门控改完后，AE5i Pro 依然不回填 —— 真机日志
+取证发现三轮代码**根本没执行过**。
+
+**根因**：ZEEHO App 3.1.0 是爱加密加固壳：base.apk 的 classes.dex 只有
+13KB（stub），真实 11 个 dex 运行时才解密。`handleLoadPackage` 期对业务类
+（okhttp3 等）做 `Class.forName` 必然 ClassNotFound，`hookIfExists` 记
+skip 后**永不重试** ⇒ NetPatch/RideFetch/OTA/Mqtt/车漆 hook 全部没挂上，
+`tapi.zeehoev.com` 业务响应从未被拦截。唯一例外的 AccountSession 早就
+注释过它延迟到首个 `Activity.onResume` 才挂 —— 这就是铁证。
+
+**修复**（`MainHook.deferUntilRealDexReady(what, install)`）：hook 框架类
+`android.app.Activity#onResume`（爱加密不搬框架类），首个 com.cfmoto
+Activity 出现时一次性触发安装；框架 hook 装不上则兜底立即执行。
+RideFetch / NetPatch / ArtColor / Mqtt / Ota 五个依赖真实 dex 的安装改为
+延迟；纯框架类的 hook（RideHooks/BleHooks/CustomKeyForce/OtaSocketTrace）
+保持 attach 期。
+
+**真机验证**（Lenovo L78011，车主账号，AE5i Pro 当前车）：
+
+- 日志出现 `[Init] real-dex ready -> install NetPatch @ SplashActivity`、
+  `[Net] hooked okhttp3.Response$Builder#build` —— 响应 hook 首次真正挂上。
+- 历史轨迹 tab → ridetrack_v2（pageSize=200 生效）：`days=16 rides=85
+  dayStore=16`，85 趟全部回填（如 11.02 b11/d20、11.04 b7/d30），
+  `[Net] patched … fill{rides=85 days=16} (1,010,443 B)`。
+- 冷启动重开「我的骑行」：`myRideInfo done: filled 33 over 18 records,
+  total: bendingTimesTotal=170`，页面实际显示 **压弯 170 次**、
+  总里程 222 km（服务端真值未动）。
+- 重入现象（良性）：App 侧对 patched 响应再 build 会再次进 hook，此时
+  数据已带我们写的值 ⇒ `serverManaged` 判定成立、跳过重填，值保持。
+
+**体验说明**：day store 持久化在 `speedhunter_days/`。装新版本后**首次**
+打开统计页时若本会话还没拉过历史轨迹，页面可能先显示 0；进一次
+「历史轨迹」tab（或下次冷启动）即完成建账并持久生效。
+
+5.2.2 (vc149) — 2026-11-18
+
+### 回填门控第三次修订：按车型隔离，删光全局状态（16:26 车主令）
+
+**背景**：车主账号**同时拥有 AE7 Pro（云端有压弯数据）与 AE5i Pro（云端
+恒 0）**。v5.2.1 的跨响应记忆 `sCloudNativeStats` 是账号级/进程级信号 ——
+AE7 的 flag/总数把全局信号置成「云端在统计」后，切到 AE5i Pro 仍不回填。
+v5.2.0 的 `scanStatsFlag` 全树扫描与上午版 `VehicleModel` 车型兜底同理：
+多车型账号里任何账号级信号都会被 AE7 毒化。
+
+**v5.2.2 修复**（`RideFill.serverManaged`，车主令「彻底修复」）：
+
+- **删除跨响应记忆与全树扫描**，零全局状态，不看任何非目标响应。
+- **逐 fill 点、只看当前响应自己的数据**：ridetrack_v2 / myRideInfo /
+  analyse 都是按当前车辆查询的接口，响应天然单车，其它车型结构上混不进来。
+- 判据：节点 `cyclingEventStatisticFlag=true` 或计数 **>0**（ridetrack
+  逐趟 `bendingTimes/brakesTimes`；myRideInfo `bendingTimesTotal/…Total`；
+  analyse 周期值）⇒ 云端在统计**这辆车**，事件字段保服务端值（含不进
+  day store）；全 0 / 缺失（AE5i Pro 实测形态）⇒ 回填。
+- 决策表用实车抓包核验：AE5i Pro ridetrack 6 趟全 unmanaged ⇒ 填；AE7
+  形态（计数>0 / flag=true）⇒ 保服务端值。详见
+  `docs/features/ride-calibration.md` §11（已重写）。
+- 取舍（车主令取向）：AE7 个别 0 值趟/月份会被 GPS 估算回填 ——「0 分不清
+  没统计还是真 0」，宁可回填。AE7 的趟不进 day store ⇒ 不经账本污染
+  AE5i 的日/月汇总。
+
+iOS 本轮无改动：16:01 已整体撤回门控（一律回填），多车型账号不受影响。
+
+## 5.2.1 (vc148) — 2026-11-18
+
+### 回填门控重设计：按云端是否下发总压弯次数（16:01 车主令）
+
+**背景**：v5.2.0 实机反馈 AE5i Pro 无法回填急刹/压弯 —— ride 类响应
+（ridetrack/myRideInfo/analyse）不带 `cyclingEventStatisticFlag`，门控落到
+`!VehicleModel.isAe5i()` 兜底，而实机车型缓存未解析为 AE5I ⇒ 判成原生统计。
+
+**新判据**（`RideFill.scanCloudBendTotal`）：不看车型、不看 flag ——
+
+- `fill()` 入口（一切写入之前，纯服务端原始值）深度扫描响应树，精确匹配
+  `bendingTimesTotal`（myRideInfo 全量）/ `bendingTimes`（analyse 周期），
+  出现 **>0 真值 ⇒ 云端在统计 ⇒ 不回填**；字段在但全 0（AE5i Pro 抓包实测
+  形态，`capture/web/`）⇒ 回填；本响应无这两字段 ⇒ 沿用跨响应记忆
+  `sCloudNativeStats`，无记忆时默认回填。
+- `cyclingEventStatisticFlag` 降级为日志参考；`VehicleModel` 兜底移出回填门控
+  （里程/极速 isZero 补零、能力位改写等既有用途不受影响）。
+- 门控作用面不变：ridetrack b/d、myRideInfo 日汇总、analyse 月汇总、
+  day store 记账；细节与边界见 `docs/features/ride-calibration.md` §11。
+
+## 5.2.0 (vc147) — 2026-11-18
+
+### 回填门控收紧 + 诊断页 BLE 透传模块适配（TD5322A 等）
+
+**① 回填门控收紧**（车主 14:16 令：只对官方不提供该数据的车 型主动回填）：
+
+- `RideFill.fill()` 兜底从 `VehicleModel.isAe7()` 改为 **`!VehicleModel.isAe5i()`**：
+  `cyclingEventStatisticFlag` 缺失时，仅确认 AE5i（含 AE5i Pro，VIN 前缀
+  `3581225`）才回填急刹/压弯；**未知车型默认不回填**（宁缺勿错）。
+- 服务器明示 flag（true/false）仍最优先，AE7 类照旧不回填，AE5i 照旧回填。
+
+**② 诊断页双传输**（TD5322A 等 BLE-RS485 透传模块）：
+
+- 新增 `diag/DiagLink.java` 传输抽象（Listener 七回调 + 发送/生命周期 API），
+  `VciSppLink`（官方 ZSCAN VCI SPP）实现之；`DiagFragment` 全部操作改走接口。
+- 新增 `diag/BleRs485Link.java`（~600 行）：BLE GATT 透传 → RS485 总线。
+  - **UUID 无公开资料**（TD5322A 查无文档）：内置四档识别 —— 手填覆盖 >
+    NUS(6E400001/02/03) > FFE0 服务 FFE1 单特征双用(HM-10 式) > FFF0 族 >
+    自动发现（恰好一服务一写一通知，允许同一特征既写又通知 —— 补齐
+    obd-diag Kotlin 参考实现的缺口）；「选择…」对话框高级区可手填
+    service/write/notify UUID（支持 4 位短 UUID 如 `FFE0`）。
+  - 连接链：connectGatt(TRANSPORT_LE) → MTU 185 → 服务发现 → CCCD 订阅
+    （INDICATE 属性优先，API33+ 新签名）= 通道就绪；总超时 15 s。
+  - 就绪探针：`eolBatteryVoltage()`（F4 50 只读）等 1.8 s 任意 RX ——
+    探到车才报「已连接」，不探到则提示检查车辆上电/A-B 接线。
+  - 接收：`CfStream` 流式增量解码（任意分片/粘包/夹垃圾重同步，缓冲上限
+    4 KB）→ 合成 DataFrame 喂既有 `pendingResponses` 等待机制，所有既有
+    诊断操作（学卡/删卡/读版本/读 DTC/清码/写里程…）无需改动。
+  - 发送：64 深队列 + 单 writer 串行；按 MTU-3 分片；NO_RESPONSE 15 ms
+    间隔 / DEFAULT 等 ACK（1.5 s 超时）。`cmd68` 剥 VCI 三字节通道前缀后
+    直写 RS485 帧；FFA/心跳/轮询/VCI 会话配置全部 no-op（**故意无自动
+    轮询**：F4 探针会打乱写里程等 F4 节点多帧序列）。
+  - `supportsVciKey()=false`：**ABS 排气按钮在 BLE 模式下明确拒绝**
+    （L2 fff9/fff7 安全 key 由 VCI 内部计算，透传做不到），提示需官方 VCI。
+- 新增 `diag/CfStream.java` + 自检 #17（垃圾 3B + 跨块半帧 → 2 帧还原）；
+  协议自检 **17/17 通过**（host javac+java 实跑验证，非仅编译）。
+- **模块选择器**：MAC 框旁「选择…」按钮 → Material 对话框：传输切换
+  （官方 VCI SPP / BLE 透传）+ 设备列表（SPP=已配对；BLE=扫描 12 s，
+  名称含 TD/5322/485/BLE/JDY/HM/UART 加 ★）+ 高级 UUID 手填；选择结果
+  SharedPreferences 持久化，重启自动恢复。BLE 扫描权限运行时请求
+  （31+ BLUETOOTH_SCAN / 30- ACCESS_FINE_LOCATION，码 402；manifest 早已声明）。
+- ⚠️ **TD5322A 实机未验证**：无公开 UUID 资料，多 profile + 自动发现 +
+  手填三重兜底；官方 VCI 路径行为不变（同一 Listener，无回归面）。
+
 ## 5.1.0 (vc146) — 2026-11-18
 
 ### 骑行算法多样本定参 + 车型门控回填

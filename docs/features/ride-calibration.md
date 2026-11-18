@@ -231,21 +231,93 @@ cum≤40 才能逼近（GPS 连续 S 弯欠采样），47.2 km 趟 cum=60 才精
 `test_ride_calibration.js` 的 47.2 km 期望从 5/13 改为 **brake=2 / bend=17**
 （该样本让位于 5 趟总误差最小）；用途是锁两端实现一致，不是锁真值命中。
 
-## 11. 车型门控：原生统计车型不回填（2026-11-18）
+## 11. 回填门控：按车型隔离，逐响应判定（2026-11-18，三次修订定稿）
 
-> 触发：车主令「压弯、急刹回填按车型使能：服务器报文不存在这几项的
->（比如 AE5i Pro）才主动回填」。
+> 触发一（上午）：车主令「压弯、急刹回填按车型使能：服务器报文不存在这几项的
+>（比如 AE5i Pro）才主动回填」。触发二（16:01）：v5.2.0 实机 AE5i Pro
+> 回填失效，车主令「按云端是否下发总压弯次数决定是否回填，撤回 iOS 门控」。
+> 触发三（16:26）：车主账号**同时拥有 AE7 Pro（云端有压弯数据）与 AE5i Pro
+>（云端恒 0）**，v5.2.1 仍不回填 —— 任何账号级信号都会被 AE7 毒化。车主令
+> 「不要让云端已有数据的车型影响无急刹/压弯数据的车辆回填功能，彻底修复」。
 
-§2 的机理直接推出门控判据：`cyclingEventStatisticFlag=true` 的车（AE7 类，
-`vehicleKinds=3`）服务端写 brake/bend 真值，GPS 近似值只会**覆盖**真值；
-`flag=false` 的车（AE5i 类）字段恒 0，才需要回填。
+### 病根：账号级信号在多车型账号必然被毒化
 
-实现（两端对称）：
+- v5.2.0 `scanStatsFlag` / v5.2.1 `scanCloudBendTotal` 都是**全树扫描 +
+  跨响应记忆**：首页/车型列表等响应里混着两辆车的 flag/总数，先扫到 AE7 的
+  真值就把全局信号置成「云端在统计」，切到 AE5i Pro 后仍不回填。
+- 上午版 `VehicleModel` 车型兜底同理：共享车型列表里 AE7 的特征先命中缓存。
 
-| 端 | 门控点 |
-|---|---|
-| Android `RideFill` | `fill()` 在 `NetPatch.walk` 改写能力位**之前**深度扫描响应里的原始 `cyclingEventStatisticFlag`；`fillEvents = !(flag ?? VehicleModel.isAe7())`，ridetrack b/d 写入、myRideInfo 日汇总、analyse 月汇总、day store 累计全部门控。里程/极速的 isZero 补零**不受门控**（那是缺失字段补齐，不是统计覆盖） |
-| iOS `ZeehoRideFill.js` | `detectNativeStats()`：当前响应原始 flag > URL 里 VIN 前缀（`LCETHGD`=AE7 /`3581225`=AE5i）> `$persistentStore` 记忆值（`zeeho_native_stats`）> 默认回填；在 `patchGate` 改写之前执行 |
+### v5.2.2 判据（`RideFill.serverManaged`，定稿）
 
-判据优先级里保留 VIN/记忆兜底的原因：不是每条响应都带 flag 字段
-（首页/分析页响应就没有），兜底保证门控在任意响应序次下不失效。
+- **零全局状态**：删除跨响应记忆与全树扫描，不看任何非目标响应。
+- **逐 fill 点、只看当前响应自己的数据**：ridetrack_v2 / myRideInfo /
+  analyse 都是按当前车辆查询的接口，响应天然单车 —— 用它自己的数据判定，
+  其它车型的影响在结构上不可能混进来。
+- 判定条件（满足任一 ⇒ 云端在统计**这辆车**，事件字段保持服务端值）：
+  - 节点自带 `cyclingEventStatisticFlag=true`（ridetrack 逐趟条目自带，
+    恰好是那一趟所属车型的开关；AE5i Pro 实测为 null/0）；
+  - 计数 **>0** 真值：ridetrack 逐趟 `bendingTimes/brakesTimes`，myRideInfo
+    `bendingTimesTotal/brakesTimesTotal`，analyse 周期 `bendingTimes/brakesTimes`。
+    「字段在」不代表「云端在统计」—— AE5i Pro 这些字段在但恒 0。
+- 全 0 / 缺失 ⇒ 回填（AE5i Pro 形态）。门控作用面：ridetrack b/d 写入、
+  myRideInfo 日汇总与总量覆盖、analyse 月汇总、day store 累计（按趟跳过）；
+  里程/极速的 isZero 补零不受门控。
+- 决策表已用实车抓包核验：AE5i Pro ridetrack 6 趟全 unmanaged ⇒ 填；
+  AE7 形态（计数>0 / flag=true）⇒ 保服务端值。
+
+### iOS：门控整体撤回（2026-11-18 16:01 车主令，维持）
+
+`ZeehoRideFill.js` 删除 `detectNativeStats`/`scanStatsFlag`，`fillEvents`
+恒 `true`：急刹/压弯一律回填。`$persistentStore` 的 `zeeho_native_stats`
+遗留键不再读写。
+
+### 边界与已知取舍
+
+- 服务端在统计的车型（AE7 类），其个别 0 值趟/月份会被我们的 GPS 估算回填
+  ——「0 分不清是没统计还是真 0」，车主指令明确取「宁可回填」一侧。
+- day store 按天聚合，不按车辆分键：服务端在统计的趟在新门控下**不进 store**
+  （按趟跳过），因此 AE7 数据不会经 store 污染 AE5i 的日汇总/月汇总；仅当
+  AE7 出现 0 值趟时才会以 GPS 估算入账（同上一条取舍）。
+- AE5i Pro 若哪天服务端开始真发总数（>0），该响应自动切到「保服务端值」，
+  无需升级模块。
+
+## 12. 真机根因补充：爱加密壳与 hook 延迟安装（2026-11-18 v5.2.3）
+
+§11 定稿后真机仍显示 0。取证结论：**三轮门控代码在真机上从未执行** ——
+ZEEHO App 3.1.0 为爱加密加固壳，`handleLoadPackage` 期业务类未解密，
+attach 期安装的 NetPatch/RideFetch 等 hook 全部 ClassNotFound 后永不重试。
+
+修复：`MainHook.deferUntilRealDexReady()` 以 `Activity#onResume`（框架类，
+壳不搬）为锚，首个 com.cfmoto Activity 出现时一次性安装全部依赖真实 dex
+的 hook（RideFetch/NetPatch/ArtColor/Mqtt/Ota）。
+
+真机端到端验证（AE5i Pro 当前车）：
+
+- ridetrack_v2：85 趟 / 16 天，全部回填进 day store（持久化
+  `speedhunter_days/`），patched 响应 1,010,443 B 交付 App。
+- myRideInfo：`filled 33 over 18 records, total: bendingTimesTotal=170`；
+  页面实际显示 **压弯 170 次**，总里程 222 km 服务端真值保持。
+- 重入（App 对 patched 响应再 build 再进 hook）触发 `serverManaged`
+  跳过重填，值保持，属良性。
+
+首次建账时序：统计页先拉 myRideInfo、后（进历史轨迹 tab 才）拉
+ridetrack_v2，故装新版后第一次进统计页可能先显示 0；进一次历史轨迹
+或下次冷启动即持久生效。
+
+## 13. 总压弯口径：本车全生命周期（2026-11-18 v5.2.4）
+
+17:27 车主令：总里程旁的压弯 = **本车记录总共的压弯次数**（对照 AE7
+官方显示逻辑），不能只加当前响应（当月）—— 换月查看时单月和会把总数
+缩回。
+
+- `RideDayStore.totals()`：遍历 day store 目录全部 `*.json`，返回
+  `[急刹总和, 压弯总和]`。
+- `RideFill.fillMyRideInfo`：`bendingTimesTotal` 写
+  `max(dayStore 全店压弯和, 响应当月和)` —— store 有账本即全生命周期
+  值，store 空（未建账）退回当月和；guard 不变（`!serverManaged &&
+  值>0 && 与服务端不同才写`）。
+- iOS 同步：`totalBendsAllTime()` 枚举 `$persistentStore` 的
+  `zeeho_day_*` 键累加 `st.d`；无 `allKeys` 的环境退回当月和（边界：
+  需逐月重刷后全量才准）。
+- 真机效果：v5.2.3 验证时的 170 次即来自 day store 汇总路径；v5.2.4
+  起换月查看不再缩数。
