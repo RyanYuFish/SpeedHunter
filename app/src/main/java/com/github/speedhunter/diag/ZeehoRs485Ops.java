@@ -268,6 +268,37 @@ public final class ZeehoRs485Ops {
     public static final int ABS_LOOP_ITERATIONS = 60;
     public static final long ABS_LOOP_PERIOD_MS = 1100;
 
+    // ===== AE7 Pro CAN 通道(仪表 ECU 0x714/0x794;官方 2026-11-19 20:37 / 11-20 21:54 会话逐字节) =====
+
+    public static final int CAN_TX_ID = 0x714;
+    public static final int CAN_RX_ID = 0x794;
+
+    /** AE7 CAN 配置: 60×4(RX 滤镜 0x794;区别于 ABS 的 07E9)+ 68 82 01/82 00。 */
+    public static List<byte[]> ae7CanSetupCommands() {
+        List<byte[]> out = new ArrayList<>();
+        out.add(l3(VciLink.CMD_CONFIG, hex("01246E0C020800")));
+        out.add(l3(VciLink.CMD_CONFIG, hex("02246E0007A120000801")));
+        out.add(l3(VciLink.CMD_CONFIG, hex("03000000C8009600000BB8")));
+        out.add(l3(VciLink.CMD_CONFIG, hex("0801000007940000FFFF")));
+        out.add(l3(VciLink.CMD_RS485_WRITE, hex("8201")));
+        out.add(l3(VciLink.CMD_RS485_WRITE, hex("8200")));
+        return out;
+    }
+
+    /** CAN 单帧写: 01 00 96 + id(2B BE) + dlc 08 + data(不足 8B 补零;官方常规写前缀)。 */
+    public static byte[] canWrite(int id, String udsHex) {
+        StringBuilder d = new StringBuilder(udsHex);
+        while (d.length() < 16) d.append('0');
+        return busWrite(BUS_CH_A, String.format("%02X%02X08", (id >> 8) & 0xFF, id & 0xFF) + d);
+    }
+
+    public static byte[] canUds(String udsHex) { return canWrite(CAN_TX_ID, udsHex); }
+
+    /** ISO-TP 流控(官方: 01 00 00 前缀 + 0714 08 30 08 14 00…,块大小 8,ST=20ms)。 */
+    public static byte[] canFlowControl() {
+        return concat(new byte[]{0x01, 0x00, 0x00}, hex("0714083008140000000000"));
+    }
+
     // ===== 兼容别名(DiagSelfTest 引用) =====
     public static List<byte[]> nfcStudySequence(int mode) {
         List<byte[]> out = new ArrayList<>();

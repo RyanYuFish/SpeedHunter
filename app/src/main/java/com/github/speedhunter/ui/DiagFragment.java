@@ -200,6 +200,8 @@ public final class DiagFragment extends BaseTabFragment {
         });
         root.findViewById(R.id.btn_diag_restore).setOnClickListener(v -> runWithLink("恢复主机", this::beginRestoreMaster));
         root.findViewById(R.id.btn_diag_odo_eol).setOnClickListener(v -> runWithLink("写里程", () -> writeMileage()));
+        root.findViewById(R.id.btn_diag_can_version).setOnClickListener(v -> runWithLink("CAN读版本", this::beginAe7CanVersion));
+        root.findViewById(R.id.btn_diag_can_odo).setOnClickListener(v -> runWithLink("CAN写里程", this::beginAe7CanMileage));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
         root.findViewById(R.id.btn_diag_clear).setOnClickListener(v -> {
             logger.clearUi();
@@ -1427,6 +1429,265 @@ public final class DiagFragment extends BaseTabFragment {
                                     .setPositiveButton("知道了", null).show();
                         });
                     });
+                }).show();
+    }
+
+    // ===== AE7 Pro CAN(仪表 0x714/0x794;11-19/11-20 官方会话逐字节;27 密钥算法=Uds.keyLevel1 实证) =====
+
+    /** 在 L3 数据帧里定位 CAN RX 头(07 94 08),返回其后数据起始偏移;无则 -1。 */
+    private static int canRxOffset(byte[] d) {
+        for (int j = 0; j + 3 <= d.length; j++) {
+            if ((d[j] & 0xFF) == 0x07 && (d[j + 1] & 0xFF) == 0x94 && (d[j + 2] & 0xFF) == 0x08) return j + 3;
+        }
+        return -1;
+    }
+
+    /**
+     * CAN UDS 交换: 发单帧请求,等待并重组 ISO-TP 应答(SF 直取;FF→发一次流控(官方 01 00 00 前缀)→收 CF)。
+     * 返回完整 UDS 应答载荷(含服务字节,如 50 03 … / 62 F1 90 … / 7F …);7F 78 挂起顺延等待;超时 null。
+     * 等待期零额外 TX(仅 FF 时发一次流控,与官方一致)。
+     */
+    private byte[] canExchange(DiagLink active, String udsHex, long timeoutMs) throws Exception {
+        int scanFrom;
+        synchronized (responseLock) { scanFrom = pendingResponses.size(); }
+        active.sendBus(ZeehoRs485Ops.canUds(udsHex));
+        long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
+        byte[] ffHead = null;
+        int total = 0;
+        java.util.List<byte[]> cfs = new java.util.ArrayList<>();
+        boolean fcSent = false;
+        while (active.isConnected() && android.os.SystemClock.elapsedRealtime() < deadline) {
+            synchronized (responseLock) {
+                for (int i = scanFrom; i < pendingResponses.size(); i++) {
+                    byte[] d = pendingResponses.get(i).data;
+                    int off = canRxOffset(d);
+                    if (off < 0 || off >= d.length) continue;
+                    int b0 = d[off] & 0xFF;
+                    if (ffHead == null && (b0 & 0xF0) == 0x10 && off + 1 < d.length) {
+                        total = ((b0 & 0x0F) << 8) | (d[off + 1] & 0xFF);
+                        int avail = Math.min(6, d.length - off - 2);
+                        if (avail > 0) ffHead = java.util.Arrays.copyOfRange(d, off + 2, off + 2 + avail);
+                    } else if (ffHead == null && b0 > 0 && (b0 & 0xF0) == 0x00) {
+                        int len = b0 & 0x0F;
+                        if (off + 1 + len <= d.length) {
+                            byte[] sf = java.util.Arrays.copyOfRange(d, off + 1, off + 1 + len);
+                            if (sf.length >= 3 && (sf[0] & 0xFF) == 0x7F && (sf[2] & 0xFF) == 0x78) {
+                                deadline = android.os.SystemClock.elapsedRealtime() + 800; // pending 顺延
+                                continue;
+                            }
+                            return sf;
+                        }
+                    } else if (ffHead != null && b0 >= 0x20 && b0 <= 0x2F && off + 1 < d.length) {
+                        int avail = Math.min(7, d.length - off - 1);
+                        cfs.add(java.util.Arrays.copyOfRange(d, off + 1, off + 1 + avail));
+                    }
+                }
+                scanFrom = pendingResponses.size();
+            }
+            if (ffHead != null && !fcSent) {
+                active.sendBus(ZeehoRs485Ops.canFlowControl());
+                fcSent = true;
+            }
+            if (ffHead != null && total > 0) {
+                int got = ffHead.length;
+                for (byte[] c : cfs) got += c.length;
+                if (got >= total) {
+                    byte[] outp = new byte[total];
+                    System.arraycopy(ffHead, 0, outp, 0, ffHead.length);
+                    int pos = ffHead.length;
+                    for (byte[] c : cfs) {
+                        int n = Math.min(c.length, total - pos);
+                        System.arraycopy(c, 0, outp, pos, n);
+                        pos += n;
+                    }
+                    return outp;
+                }
+            }
+            sleepMs(80);
+        }
+        return null;
+    }
+
+    /** NRC 负应答 7F <sid> <code> 转人话;非 7F 返回十六进制。 */
+    private static String nrcText(byte[] r) {
+        if (r == null) return "无应答";
+        if (r.length < 3 || (r[0] & 0xFF) != 0x7F) return Hex.format(r);
+        int sid = r[1] & 0xFF, code = r[2] & 0xFF;
+        String c;
+        switch (code) {
+            case 0x22: c = "0x22 条件不满足(F2xx 工厂通道防篡改:里程>49km 拒写;0309 出现则重开 10 03+27 再试)"; break;
+            case 0x31: c = "0x31 请求超范围(DID/值非法)"; break;
+            case 0x33: c = "0x33 安全访问拒绝"; break;
+            case 0x35: c = "0x35 密钥无效"; break;
+            case 0x36: c = "0x36 超过尝试次数(错 4 次锁,首次约 10s)"; break;
+            case 0x72: c = "0x72 编程失败"; break;
+            default: c = String.format("0x%02X", code);
+        }
+        return String.format("7F %02X %s", sid, c);
+    }
+
+    /** 62 <did…> 正应答转 ASCII(从 offset 起);非 62 或空返回 null。 */
+    private static String canAscii(byte[] r, int off) {
+        if (r == null || r.length <= off || (r[0] & 0xFF) != 0x62) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = off; i < r.length; i++) {
+            int ch = r[i] & 0xFF;
+            if (ch < 0x20 || ch > 0x7E) break;
+            sb.append((char) ch);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    /** 62 03 09 + 3B BE(0.1km)→ "x.x";非正应答 null。 */
+    private static String canOdo(byte[] r) {
+        if (r == null || r.length < 6 || (r[0] & 0xFF) != 0x62) return null;
+        int raw = ((r[3] & 0xFF) << 16) | ((r[4] & 0xFF) << 8) | (r[5] & 0xFF);
+        return String.format(java.util.Locale.US, "%.1f", raw / 10.0);
+    }
+
+    /** CAN 读版本(AE7):配置→10 03→22 F190/F193/F195/0309;官方 CAN 流程无主从切换。 */
+    private void beginAe7CanVersion() {
+        if (!opGate("CAN读版本")) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle("CAN 读版本(AE7)")
+                .setMessage("CAN 通道(仪表 0x714/0x794,官方滤镜配置)读取 VIN / F193 硬件 / F195 软件 / 0309 当前里程。\n官方 CAN 流程无主从切换帧,仪表不重启。")
+                .setNegativeButton("取消", (d, w) -> releaseGate())
+                .setPositiveButton("开始", (d, w) -> {
+                    final DiagLink active = link;
+                    showFlowProgress("CAN 读版本", "① CAN 配置(60×4 + 82 01/82 00)…");
+                    new Thread(() -> {
+                        try {
+                            active.sendFfaPair();
+                            sleepMs(45);
+                            for (byte[] cmd : ZeehoRs485Ops.ae7CanSetupCommands()) {
+                                active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
+                                sleepMs(25);
+                            }
+                            active.sendBus(Hex.parse("1001"));
+                            sleepMs(30);
+                            flowStage("② 10 03 扩展会话");
+                            byte[] ses = canExchange(active, "1003", 2000);
+                            if (ses == null || (ses[0] & 0xFF) != 0x50)
+                                throw new java.io.IOException("10 03 " + (ses == null ? "无应答(检查 VCI→车辆 CAN/点火)" : nrcText(ses)));
+                            flowStage("③ 读 VIN / F193 / F195 / 里程");
+                            byte[] vinR = canExchange(active, "22F190", 3000);
+                            byte[] hwR = canExchange(active, "22F193", 2500);
+                            byte[] swR = canExchange(active, "22F195", 2500);
+                            byte[] odoR = canExchange(active, "220309", 2500);
+                            active.sendBus(ZeehoRs485Ops.canUds("1001"));
+                            final String v = canAscii(vinR, 3), h = canAscii(hwR, 3), s = canAscii(swR, 3), o = canOdo(odoR);
+                            log("OP", "CAN 读版本完成 VIN=" + v + " HW=" + h + " SW=" + s + " 里程=" + o);
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (!isAdded()) { releaseGate(); return; }
+                                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("CAN 读版本结果")
+                                        .setMessage("VIN " + (v != null ? v : "无应答")
+                                                + "\n硬件 F193 " + (h != null ? h : "无应答")
+                                                + "\n软件 F195 " + (s != null ? s : "无应答")
+                                                + "\n里程 0309 " + (o != null ? o + " km" : "无应答"))
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } catch (Exception e) {
+                            log("ERR", "CAN 读版本中止: " + e.getMessage());
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (isAdded()) new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("CAN 读版本失败").setMessage(String.valueOf(e.getMessage()))
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } finally {
+                            releaseGate();
+                        }
+                    }, "diag-ae7ver").start();
+                }).show();
+    }
+
+    /** CAN 写里程(AE7):0309 路径(AE7-25款 实车验证;zscan 走 F2xx 工厂通道被 NRC22 防篡改拒)。 */
+    private void beginAe7CanMileage() {
+        EditText kmEdit = requireView().findViewById(R.id.et_diag_km);
+        String raw = kmEdit.getText().toString().trim();
+        if (raw.isEmpty()) { toast("输入里程"); return; }
+        double km;
+        try { km = Double.parseDouble(raw); } catch (NumberFormatException e) { toast("里程格式不对"); return; }
+        if (km < 0 || km > 999999) { toast("里程 0–999999 km"); return; }
+        final int tenth = (int) Math.round(km * 10);
+        final String th = String.format("%06X", tenth);
+        if (!opGate("CAN写里程")) return;
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle("CAN 写里程(AE7,2E 03 09)")
+                .setMessage("AE7-25款线束UDS协议(实车验证)路径:\n①CAN 配置 → ②10 03 扩展会话 → ③读 VIN+写前里程 → ④27 01/27 02 安全访问(L1 算法,已对官方三组种子实证) → ⑤2E 03 09 写入(3B 大端,0.1km) → ⑥22 03 09 回读核对 → ⑦回默认会话。\n无需主从切换(官方 CAN 流程无切换帧,仪表不重启)。\n注意:zscan 原生写里程走 F2xx 工厂通道,里程>49km 时被防篡改 NRC22 拒绝——本流程走 0309 不受该限。\n写后请断电重上电回读,数值不回跳才算持久化。")
+                .setNegativeButton("取消", (d, w) -> releaseGate())
+                .setPositiveButton("开始", (d, w) -> {
+                    final DiagLink active = link;
+                    showFlowProgress("CAN 写里程 " + raw + " km", "① CAN 配置(60×4 + 82 01/82 00)…");
+                    new Thread(() -> {
+                        try {
+                            active.sendFfaPair();
+                            sleepMs(45);
+                            for (byte[] cmd : ZeehoRs485Ops.ae7CanSetupCommands()) {
+                                active.send(cmd[1] & 0xFF, java.util.Arrays.copyOfRange(cmd, 2, cmd.length));
+                                sleepMs(25);
+                            }
+                            active.sendBus(Hex.parse("1001"));
+                            sleepMs(30);
+                            flowStage("② 10 03 扩展会话");
+                            byte[] ses = canExchange(active, "1003", 2000);
+                            if (ses == null || (ses[0] & 0xFF) != 0x50)
+                                throw new java.io.IOException("10 03 " + (ses == null ? "无应答" : nrcText(ses)));
+                            flowStage("③ VIN + 写前里程");
+                            byte[] vinR = canExchange(active, "22F190", 3000);
+                            final String vin = canAscii(vinR, 3);
+                            byte[] beforeR = canExchange(active, "220309", 2500);
+                            final String before = canOdo(beforeR);
+                            log("OP", "CAN 写里程: VIN=" + vin + " 写前=" + before);
+                            flowStage("④ 安全访问 27 01 → 27 02");
+                            byte[] seedR = canExchange(active, "2701", 2500);
+                            if (seedR == null || (seedR[0] & 0xFF) != 0x67 || seedR.length < 6)
+                                throw new java.io.IOException("27 01 " + nrcText(seedR));
+                            int seed = ((seedR[2] & 0xFF) << 24) | ((seedR[3] & 0xFF) << 16) | ((seedR[4] & 0xFF) << 8) | (seedR[5] & 0xFF);
+                            int key = com.github.speedhunter.diag.Uds.keyLevel1(seed);
+                            final String keyHex = String.format("%08X", key);
+                            log("OP", "CAN seed=" + String.format("%08X", seed) + " key=" + keyHex + "(L1)");
+                            byte[] keyR = canExchange(active, "2702" + keyHex, 2500);
+                            if (keyR == null || keyR.length < 2 || (keyR[0] & 0xFF) != 0x67 || (keyR[1] & 0xFF) != 0x02)
+                                throw new java.io.IOException("27 02 " + nrcText(keyR));
+                            flowStage("⑤ 2E 03 09 写入 " + raw + " km");
+                            byte[] wr = canExchange(active, "2E0309" + th, 3000);
+                            if (wr == null) throw new java.io.IOException("2E 03 09 无应答");
+                            if ((wr[0] & 0xFF) == 0x7F) throw new java.io.IOException("2E 03 09 " + nrcText(wr));
+                            final String ack = Hex.format(wr);
+                            flowStage("⑥ 回读核对");
+                            byte[] afterR = canExchange(active, "220309", 2500);
+                            final String after = canOdo(afterR);
+                            active.sendBus(ZeehoRs485Ops.canUds("1001"));
+                            boolean ok = after != null && (int) Math.round(Double.parseDouble(after) * 10) == tenth;
+                            final String verdict = ok ? "成功" : (after == null ? "已写入,回读无应答" : "已写入,回读不符");
+                            log("OP", "CAN 写里程 " + verdict + " ack=" + ack + " 回读=" + after);
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (!isAdded()) { releaseGate(); return; }
+                                new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("CAN 写里程:" + verdict)
+                                        .setMessage("目标 " + raw + " km\nVIN " + (vin != null ? vin : "无应答")
+                                                + "\n写前 " + (before != null ? before : "无应答")
+                                                + "\n应答 " + ack
+                                                + "\n回读 " + (after != null ? after + " km" : "无应答")
+                                                + "\n\n持久化验证:断电重上电后再回读,数值不回跳才算成功。")
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } catch (Exception e) {
+                            log("ERR", "CAN 写里程中止: " + e.getMessage());
+                            ui.post(() -> {
+                                dismissFlowProgress();
+                                if (isAdded()) new com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                                        .setTitle("CAN 写里程失败").setMessage(String.valueOf(e.getMessage()))
+                                        .setPositiveButton("知道了", null).show();
+                            });
+                        } finally {
+                            releaseGate();
+                        }
+                    }, "diag-ae7odo").start();
                 }).show();
     }
 

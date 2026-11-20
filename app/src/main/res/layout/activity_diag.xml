@@ -259,6 +259,22 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_diag_can_version"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="CAN 读版本(AE7,0x714/0x794)"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_diag_can_odo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="CAN 写里程(AE7,2E 03 09,共用上方目标值)"
+            android:textSize="13sp" />
+
         <TextView
             android:id="@+id/tv_diag_link_state"
             android:layout_width="match_parent"
