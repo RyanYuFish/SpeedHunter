@@ -151,15 +151,6 @@
                 android:textSize="13sp" />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_diag_nfc_done"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:text="学卡·退出"
-                android:textSize="13sp" />
-
-            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_diag_nfc_del"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
