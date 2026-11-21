@@ -107,8 +107,12 @@ public final class OtaSocketPusher {
     private static final String VERSION = "1.0.1";
 
     /**
-     * 本次目标版本（{@code versionCode} 里的数字段）。10/06 实测车机为 {@code SW.1.01.15AE5I}。
-     * 车机版本 &gt; 本值时按「降级」拒绝，避免把新仪表刷回旧固件。
+     * 降级判定的<b>兜底</b>目标版本（AE5i {@code SW.1.01.15}）。
+     *
+     * <p>★ 2026-11-22 起，推送时的降级基准<b>优先取包内目标版本</b>
+     * （{@code version_info} 分区的 {@code CustomerVersion} 末段，如 AE7 1.00.48 包 → 48），
+     * 解析不出才退回本常量。车机版本高于目标时按「降级」拒绝，
+     * 避免把新仪表刷回旧固件 —— 除非显式 {@link PushOptions#allowDowngrade}。</p>
      */
     private static final int TARGET_SW = 15;
 
@@ -194,6 +198,10 @@ public final class OtaSocketPusher {
         public Grade grade = Grade.UNSAFE;
         /** 与之匹配到的原版基线名（MATCHES_FACTORY 时有值，仅提示用）。 */
         public String matchedBaseline = "";
+        /** version_info 分区的 CustomerVersion（如 {@code SW.1.00.48}）；解析不出为空。 */
+        public String packVersion = "";
+        /** 包内目标版本号（如 48）；解析不出为 -1 —— 降级判定优先用它，而非全局 {@link #TARGET_SW}。 */
+        public int targetSw = -1;
         /** 结构化六项检查的完整结论；未跑成功时为 null。 */
         public OtaPackVerify.Result verify;
         public String note = "";
@@ -279,6 +287,8 @@ public final class OtaSocketPusher {
             info.verify = OtaPackVerify.verifyZip(f, stage);
             info.packSize = info.verify.packSize;
             info.packMd5 = info.verify.packMd5;
+            info.packVersion = info.verify.packVersion;
+            info.targetSw = info.verify.targetSw;
         } catch (Exception e) {
             info.note = "包解析失败：" + e;
             return info;
@@ -329,9 +339,9 @@ public final class OtaSocketPusher {
                     + "VIN  : " + nz(vin);
         }
 
-        /** 是否已经是目标版本或更新（再刷就是降级）。 */
-        public boolean isNewerThanTarget() {
-            return sw > TARGET_SW;
+        /** 是否已经达到指定目标版本（再刷就是降级）。 */
+        public boolean isNewerThan(int target) {
+            return sw > target;
         }
 
         private static String nz(String s) {
@@ -1507,14 +1517,20 @@ public final class OtaSocketPusher {
                     + "车机多半不在 OTA 状态（OTA Update 浮窗 / 电量 / 10950 是否已被网络切换拆掉）。");
             return;
         }
-        if (car.isNewerThanTarget() && !opt.allowDowngrade) {
-            cb.onLog("✖ 车机版本 SW." + car.sw + " 已高于包内目标 v" + TARGET_SW
+        // ★ 降级基准优先用「包内目标版本」（version_info 的 CustomerVersion 末段），
+        //   解析不出才退回全局 TARGET_SW。2026-11-22：AE7 1.00.48 原厂包走这条路 ——
+        //   车机版本高于 48 时按降级对待，必须显式打开「允许降级推送」才放行。
+        int target = info != null && info.targetSw > 0 ? info.targetSw : TARGET_SW;
+        if (car.isNewerThan(target) && !opt.allowDowngrade) {
+            cb.onLog("✖ 车机版本 SW." + car.sw + " 已高于包内目标 v" + target
                     + " —— 这是降级推送，已拒绝。");
-            cb.onDone(false, "拒绝降级：车机 v" + car.sw + " > 目标 v" + TARGET_SW);
+            cb.onDone(false, "拒绝降级：车机 v" + car.sw + " > 包目标 v" + target
+                    + "（确认要降级请打开「允许降级推送」再试）");
             return;
         }
-        if (car.isNewerThanTarget()) {
-            cb.onLog("⚠ 已显式允许降级：车机 v" + car.sw + " → 目标 v" + TARGET_SW);
+        if (car.isNewerThan(target)) {
+            cb.onLog("⚠ 已显式允许降级：车机 v" + car.sw + " → 包目标 v" + target
+                    + (info != null && !info.packVersion.isEmpty() ? "（" + info.packVersion + "）" : ""));
         }
 
         // ③ OTA 启动：车机据此 fopen64("/media/flash/userdata/update.zip","wb")

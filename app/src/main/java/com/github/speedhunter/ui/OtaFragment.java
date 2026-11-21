@@ -80,6 +80,8 @@ public final class OtaFragment extends BaseTabFragment
     private LinearLayout boxPeers, boxCarInfo;
     private com.google.android.material.tabs.TabLayout tabLink;
     private com.google.android.material.materialswitch.MaterialSwitch swAutoflash;
+    /** 允许降级推送（socket_l 通道降级门放行开关；p2pTool 通道无此门）。 */
+    private com.google.android.material.materialswitch.MaterialSwitch swDowngrade;
 
     private CarP2p carP2p;
     private P2pAccess p2pAccess;
@@ -138,6 +140,7 @@ public final class OtaFragment extends BaseTabFragment
         boxCarInfo = root.findViewById(R.id.box_carinfo);
         tabLink = root.findViewById(R.id.tab_link);
         swAutoflash = root.findViewById(R.id.sw_autoflash);
+        swDowngrade = root.findViewById(R.id.sw_downgrade);
 
         probeActive = OtaPushService.isProbeRunning();
         if (probeActive) {
@@ -1158,7 +1161,13 @@ public final class OtaFragment extends BaseTabFragment
         boolean flash = swAutoflash.isChecked();
         sb.append("自动刷写：").append(flash ? "★ 开（推送并刷写）" : "关（仅推送 OTA 包）")
                 .append('\n');
+        sb.append("允许降级：").append(swDowngrade.isChecked()
+                ? "★ 开（车机版本高于包内版本也推送）" : "关（车机高于包内版本时拒推）")
+                .append('\n');
         sb.append("\n⚠ 推送后不可逆。刷写中断会导致仪表报废。\n");
+        if (swDowngrade.isChecked()) {
+            sb.append("★ 降级已显式允许：刷完即回退到包内版本，AE5i 高版本功能会一并回退。\n");
+        }
         if (!flash) {
             sb.append("★ 这次开关是关的：包会落到 userdata 就停，车机停在 OTA Update 等确认。\n");
         }
@@ -1205,8 +1214,8 @@ public final class OtaFragment extends BaseTabFragment
         tvProgress.setText("0%");
         setBusy(true);
         OtaPushService.setSink(this);
-        OtaPushService.startWatchPush(requireContext(), pkg.getAbsolutePath(), false,
-                swAutoflash.isChecked());
+        OtaPushService.startWatchPush(requireContext(), pkg.getAbsolutePath(),
+                swDowngrade.isChecked(), swAutoflash.isChecked());
         // 守候期间同样自动接手建 P2P（用户退出投屏后不必碰 Wi-Fi 设置）
         probeActive = true;
         startAutoP2pWatch();
@@ -1222,7 +1231,8 @@ public final class OtaFragment extends BaseTabFragment
         tvProgress.setText("0%");
         setBusy(true);
         OtaPushService.setSink(this);
-        OtaPushService.start(requireContext(), pkg.getAbsolutePath(), swAutoflash.isChecked());
+        OtaPushService.start(requireContext(), pkg.getAbsolutePath(),
+                swDowngrade.isChecked(), swAutoflash.isChecked());
     }
 
     /** 旧入口（远程驱动 / 兼容），走直接推送。 */

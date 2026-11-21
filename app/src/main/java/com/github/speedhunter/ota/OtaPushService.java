@@ -82,11 +82,16 @@ public final class OtaPushService extends android.app.Service {
         return sProbeRunning;
     }
 
-    /** 启动前台服务并开始推送。 */
-    public static void start(Context ctx, String filePath, boolean autoFlash) {
+    /**
+     * 启动前台服务并开始推送。
+     *
+     * @param allowDowngrade 车机版本高于包内目标时仍放行（AE7 Pro → 1.00.48 降级场景）
+     */
+    public static void start(Context ctx, String filePath, boolean allowDowngrade, boolean autoFlash) {
         Intent i = new Intent(ctx, OtaPushService.class);
         i.setAction(ACTION_START);
         i.putExtra(EXTRA_FILE, filePath);
+        i.putExtra(EXTRA_ALLOW_DOWNGRADE, allowDowngrade);
         i.putExtra(EXTRA_AUTO_FLASH, autoFlash);
         ctx.startForegroundService(i);
     }

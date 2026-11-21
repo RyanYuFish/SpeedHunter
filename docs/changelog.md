@@ -1,3 +1,27 @@
+## 5.2.10 (vc157) — 2026-11-22
+
+### OTA 推送：放行 AE7 车系原厂包（为 AE7 Pro 降级仪表固件）
+
+- **背景**：车主令 —— 让 OTA 推送能正常通过 1.00.48 版 AE7 车系原版 OTA 包
+  （`dist/ota_dl/B459C02AE0714789B13EE1A74F7A64BF.zip`，云端推送 MD5 426d9688… 已核对），
+  用于把 AE7 Pro 仪表降级到 SW.1.00.48。此前被两个 AE5i 硬编码常量拦住。
+- **`OtaPackVerify` 结构档案化**：删 `EXPECT_PACK_SIZE/EXPECT_PARTITIONS/EXPECT_MD5_POINTS`
+  三常量，改 `KNOWN_PACK_PROFILES` 按内层包大小建档：128,094,208 B→19 分区/74 校验点
+  （AE5i 档，行为不变）、132,042,752 B→19/75（**AE7 1.00.48 原厂包实测档**）。
+  大小不在档案仍判负（宁拦不误放，确认合法新版本后加档）。
+- **新增包内版本解析**：`version_info` 分区 `CustomerVersion`（如 `SW.1.00.48`）进
+  `Result.packVersion/targetSw`；六项检查摘要新增「结构档案/包内版本」两行。
+- **降级门改包内目标**（`OtaSocketPusher` 10950 通道）：基准从全局 `TARGET_SW=15`
+  改为优先包内 `targetSw`（解析不出才回退常量）；车机版本高于包目标时默认仍拒推，
+  文案带双方版本。p2pTool(10086) 主通道本就无降级门，只需六项检查过。
+- **UI 新增「允许降级推送」开关**（`sw_downgrade`，默认关）：socket_l 通道守候即推/直接推送
+  都接入；确认弹窗显示降级状态并追加回退警示。`OtaPushService.start` 增加
+  `allowDowngrade` 参数（服务端本就读该 extra）。
+- **验证**：`OtaPackVerify` 无 Android 依赖，抽出后与交付字节一同在 host JVM 直跑 ——
+  AE7 1.00.48 包 6/6 全过（pushable=true，档案/包内版本正确显示）；
+  AE5i 原厂 `OTA_zip_ORIG.zip` 6/6 全过（回归无损）。装机 bb7a6a9b（vc157/5.2.10）。
+  真机对 AE7 Pro 推送降级由车主实车验证。
+
 ## 5.2.9 (vc156) — 2026-11-22
 
 ### 车辆诊断:修复 CAN 写里程 10 03 无应答 + 官方 VCI 密钥通道 + 日志导出 .log

@@ -534,6 +534,47 @@
                         android:layout_marginStart="10dp" />
                 </LinearLayout>
 
+                <!-- 「允许降级推送」开关：默认关。socket_l 通道里车机版本高于包内目标时拒推，
+                     打开后才放行（如 AE7 Pro 高版本 → SW.1.00.48 原厂包降级） -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_inspect"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="允许降级推送"
+                            android:textColor="?attr/colorOnSurface"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="车机版本高于包内版本时仍推送（如 AE7 Pro → 1.00.48）"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/sw_downgrade"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp" />
+                </LinearLayout>
+
                 <!-- p2pTool 通道：OTA Update 模式下真正能写包，已是主通道 -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_p2ptool_watch"

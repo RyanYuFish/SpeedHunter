@@ -66,20 +66,64 @@ public final class OtaPackVerify {
     private static final String SCRIPT_NAME = "main update script";
     private static final String EMPTY_MD5 = "d41d8cd98f00b204e9800998ecf8427e";
 
-    /** 整车包标称大小（10/06、10/08、10/17 三次实测一致）。 */
-    public static final long EXPECT_PACK_SIZE = 128094208L;
+    /**
+     * 已知<b>整车包档案</b>：按「内层 GEMINI_PACK.BIN 大小」键控的结构参数。
+     *
+     * <p>★ 护栏哲学不变：宁可拦住，不误放（docs/54 §3）。大小不在档案里的包
+     * 直接判「不是已知整车包」；分区数 / 脚本校验点数随档案走。
+     * 确认合法新版本后，在 {@link #KNOWN_PACK_PROFILES} 加一行档案即可。</p>
+     *
+     * <p>2026-11-22 建表背景：AE7 车系原厂包（132,042,752 B / 75 校验点）
+     * 被旧的 AE5i 单档常量（128,094,208 B / 74 校验点）整包拦下，
+     * 但其六项检查实测全过 —— 是合法整车包，只是结构参数不同。</p>
+     */
+    public static final class PackProfile {
+        /** 内层 GEMINI_PACK.BIN 的标称字节数。 */
+        public final long packSize;
+        /** 期望识别到的分区表项数（③）。 */
+        public final int partitions;
+        /** 期望识别到的脚本内 MD5 校验点数（④）。 */
+        public final int md5Points;
+        /** 人读标签（进日志/弹窗）。 */
+        public final String label;
+
+        PackProfile(long packSize, int partitions, int md5Points, String label) {
+            this.packSize = packSize;
+            this.partitions = partitions;
+            this.md5Points = md5Points;
+            this.label = label;
+        }
+    }
+
+    /** 已建档的整车包。AE5i 档（10/06、10/08、10/17 三次实测一致）+ AE7 档（2026-11-22 实测）。 */
+    private static final PackProfile[] KNOWN_PACK_PROFILES = {
+            new PackProfile(128094208L, 19, 74, "AE5i 整车包（SW.1.00.56 / 1.01.15 档）"),
+            new PackProfile(132042752L, 19, 75, "AE7 整车包（SW.1.00.48 原厂实测档）"),
+    };
+
+    /** 按内层大小查档案；查不到返回 null（调用方据此拦截）。 */
+    public static PackProfile profileForSize(long size) {
+        for (PackProfile p : KNOWN_PACK_PROFILES) {
+            if (p.packSize == size) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /** 档案里所有已知大小的逗号列表（错误提示用）。 */
+    private static String knownProfileSizes() {
+        StringBuilder sb = new StringBuilder();
+        for (PackProfile p : KNOWN_PACK_PROFILES) {
+            if (sb.length() > 0) {
+                sb.append(" / ");
+            }
+            sb.append(p.packSize);
+        }
+        return sb.toString();
+    }
 
     /**
-     * 期望识别到的<b>分区表项数</b>与<b>脚本内 MD5 校验点数</b>。
-     *
-     * <p>★ 这两个数字是<b>护栏，不是参考</b>。docs/54 开头就警告：
-     * 「19 分区、74 脚本校验点等数量不应直接套用于其他版本」——
-     * 也就是说，数量对不上有可能是<b>换版本了</b>，也有可能是<b>包本身残缺</b>。
-     * 本实现的取舍是<b>宁可拦住，不误放</b>：数量不符即判负并提示「包结构与已知版本不符，
-     * 不能按本规则判定」，让人去用 Mac 侧工具逐项看，而不是放一个说不清来源的包上车。
-     * 确认是合法新版本后，把常量改掉即可。</p>
-     */
-/**
      * SquashFS {@code flags} 位掩码。
      *
      * <p>★ 注意：{@code squashfs_fs.h} 里这些常量写的是<b>位序号</b>（0、1、2…），
@@ -90,9 +134,6 @@ public final class OtaPackVerify {
     private static final int SQUASHFS_EXPORTABLE = 0x0100;       // bit 8
     private static final int SQUASHFS_NO_XATTRS = 0x0400;         // bit 10
     private static final int SQUASHFS_UNCOMPRESSED_IDS = 0x1000; // bit 12
-
-    private static final int EXPECT_PARTITIONS = 19;
-    private static final int EXPECT_MD5_POINTS = 74;
 
     private OtaPackVerify() {
     }
@@ -116,6 +157,12 @@ public final class OtaPackVerify {
     public static final class Result {
         public String packMd5 = "";
         public long packSize;
+        /** 命中的整车包档案标签（如「AE7 整车包（SW.1.00.48 原厂实测档）」）。 */
+        public String profileLabel = "";
+        /** version_info 分区的 CustomerVersion（如 {@code SW.1.00.48}）；读不到为空。 */
+        public String packVersion = "";
+        /** {@link #packVersion} 末段数字（48）——降级判定用包内目标而非全局常量；解析不出为 -1。 */
+        public int targetSw = -1;
         public final List<Check> checks = new ArrayList<>();
         /** 结论要点（中文，可直接进日志/弹窗）。 */
         public final List<String> notes = new ArrayList<>();
@@ -154,6 +201,12 @@ public final class OtaPackVerify {
         public String summary() {
             StringBuilder sb = new StringBuilder();
             sb.append("内层 GEMINI_PACK.BIN  ").append(packSize).append(" 字节\n");
+            if (!profileLabel.isEmpty()) {
+                sb.append("结构档案  ").append(profileLabel).append('\n');
+            }
+            if (!packVersion.isEmpty()) {
+                sb.append("包内版本  ").append(packVersion).append('\n');
+            }
             sb.append("内层 MD5  ").append(packMd5).append('\n');
             for (Check c : checks) {
                 sb.append(c.line()).append('\n');
@@ -245,9 +298,11 @@ public final class OtaPackVerify {
             if (fileEntries != 1) {
                 throw new IllegalArgumentException("zip 必须只有一个文件条目，实际 " + fileEntries + " 个");
             }
-            if (pack.getSize() != EXPECT_PACK_SIZE) {
+            if (profileForSize(pack.getSize()) == null) {
                 throw new IllegalArgumentException("内层 GEMINI_PACK.BIN 是 " + pack.getSize()
-                        + " 字节，期望 " + EXPECT_PACK_SIZE + " —— 包被截断或不是整车包");
+                        + " 字节，不在已知整车包档案（" + knownProfileSizes()
+                        + "）—— 包被截断/拼接，或是未建档的新版本；"
+                        + "确认合法后请在 KNOWN_PACK_PROFILES 加档");
             }
             File out = File.createTempFile("ota_pack_", ".bin");
             InputStream in = zf.getInputStream(pack);
@@ -280,6 +335,15 @@ public final class OtaPackVerify {
     public static Result verifyPack(File pack, Progress progress) throws Exception {
         Result r = new Result();
         r.packSize = pack.length();
+        // ★ 大小不在档案 ⇒ 数量护栏无从谈起，直接判「不是已知整车包」（宁可拦住）。
+        PackProfile profile = profileForSize(r.packSize);
+        if (profile == null) {
+            throw new IllegalArgumentException("内层 GEMINI_PACK.BIN 是 " + r.packSize
+                    + " 字节，不在已知整车包档案（" + knownProfileSizes()
+                    + "）—— 包被截断/拼接，或是未建档的新版本；"
+                    + "确认合法后请在 KNOWN_PACK_PROFILES 加档");
+        }
+        r.profileLabel = profile.label;
         java.io.RandomAccessFile f = new java.io.RandomAccessFile(pack, "r");
         try {
             // ---- 头部基本检查 ----
@@ -353,16 +417,17 @@ public final class OtaPackVerify {
             TableResult t3 = checkPartitionTable(f, r.packSize);
             // ★ 数量不符必须判负：docs/54 §3 明确要求「核对识别数量为 19 项」。
             //   曾经这里把 "19" 写成字面量，于是解析只认出 12 项且全对也会显示「19 项全对」并放行。
-            boolean countOk = t3.total == EXPECT_PARTITIONS;
+            boolean countOk = t3.total == profile.partitions;
             boolean rangeOk = t3.oob == 0;
             c3.ok = t3.bad == 0 && countOk && rangeOk;
             StringBuilder d3 = new StringBuilder();
             d3.append(t3.bad == 0 ? "已识别 " + t3.total + " 项，MD5 全对"
                     : t3.bad + " / " + t3.total + " 项 MD5 不符");
             if (!countOk) {
-                d3.append("；★ 识别数应为 ").append(EXPECT_PARTITIONS)
+                d3.append("；★ 识别数应为 ").append(profile.partitions)
                         .append("，实际 ").append(t3.total)
-                        .append(" —— 包结构与已知版本不符，不能按本规则判定");
+                        .append(" —— 包结构与档案（").append(profile.label)
+                        .append("）不符，不能按本规则判定");
             }
             if (!rangeOk) {
                 d3.append("；").append(t3.oob).append(" 项区间越界");
@@ -380,7 +445,7 @@ public final class OtaPackVerify {
                 c4.detail = "跳过（找不到脚本）";
             } else {
                 ScriptResult t4 = checkScriptMd5s(f, script[1], script[2]);
-                boolean c4count = t4.total == EXPECT_MD5_POINTS;
+                boolean c4count = t4.total == profile.md5Points;
                 c4.ok = t4.bad == 0 && t4.oob == 0 && c4count;
                 StringBuilder d4 = new StringBuilder();
                 d4.append(t4.bad == 0 ? "已识别 " + t4.total + " 项，全对"
@@ -389,7 +454,7 @@ public final class OtaPackVerify {
                     d4.append("；").append(t4.oob).append(" 项区间越界");
                 }
                 if (!c4count) {
-                    d4.append("；★ 校验点应为 ").append(EXPECT_MD5_POINTS)
+                    d4.append("；★ 校验点应为 ").append(profile.md5Points)
                             .append("，实际 ").append(t4.total)
                             .append(" —— 脚本结构可能已变，配对关系需重新分析");
                 }
@@ -402,6 +467,9 @@ public final class OtaPackVerify {
 
             // ---- ⑤⑥ SPAPP superblock / GD32 S-record ----
             checkPayloads(r, f, progress);
+
+            // ---- 附加信息：version_info 分区里的包内目标版本 ----
+            readPackVersion(r, f);
         } finally {
             try {
                 f.close();
@@ -529,6 +597,38 @@ public final class OtaPackVerify {
             c6.ok = false;
             c6.detail = "读取失败：" + e;
         }
+    }
+
+    /** 从 version_info 分区读 {@code CustomerVersion}（如 {@code SW.1.00.48}）填进 Result。 */
+    private static void readPackVersion(Result r, java.io.RandomAccessFile f) {
+        try {
+            long off = findPartitionOffset(f, "version_info");
+            if (off < 0) {
+                return;
+            }
+            f.seek(IMAGE_SKIP + off);
+            byte[] buf = new byte[512];
+            f.readFully(buf);
+            String s = new String(buf, java.nio.charset.StandardCharsets.ISO_8859_1);
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("CustomerVersion=\"([^\"]+)\"").matcher(s);
+            if (m.find()) {
+                r.packVersion = m.group(1);
+                r.targetSw = parseTargetSw(r.packVersion);
+            }
+        } catch (Exception ignored) {
+            // 版本只是附加信息：读不到不影响六项检查结论
+        }
+    }
+
+    /** {@code SW.1.00.48} → 48；解析不出返回 -1。 */
+    private static int parseTargetSw(String v) {
+        if (v == null) {
+            return -1;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^SW\\.[0-9]+\\.[0-9]+\\.([0-9]+)").matcher(v);
+        return m.find() ? Integer.parseInt(m.group(1)) : -1;
     }
 
     /** 在分区表里按名字找槽位偏移（不是镜像偏移）。找不到返回 -1。 */
