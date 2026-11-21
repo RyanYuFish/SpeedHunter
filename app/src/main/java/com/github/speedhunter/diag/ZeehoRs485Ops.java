@@ -285,10 +285,19 @@ public final class ZeehoRs485Ops {
         return out;
     }
 
-    /** CAN 单帧写: 01 00 96 + id(2B BE) + dlc 08 + data(不足 8B 补零;官方常规写前缀)。 */
+    /**
+     * CAN 单帧写(ISO-TP): 01 00 96 + id(2B BE) + dlc 08 + [SF PCI 0N] + UDS 载荷 + 补零。
+     * 2026-11-22 修复:此前漏发 ISO-TP PCI 字节(裸 10 03 …被仪表当 FF 帧丢弃 ⇒ "10 03 无应答")。
+     * 官方向量(11-22 会话): 10 03→02 10 03…、22 F1 90→03 22 F1 90…、27 02+key→06 27 02…。
+     */
     public static byte[] canWrite(int id, String udsHex) {
-        StringBuilder d = new StringBuilder(udsHex);
-        while (d.length() < 16) d.append('0');
+        String clean = udsHex.replace(" ", "").replace(":", "").toUpperCase(java.util.Locale.US);
+        if (clean.length() % 2 != 0) throw new IllegalArgumentException("CAN UDS 半字节: " + udsHex);
+        int n = clean.length() / 2;
+        if (n < 1 || n > 7) throw new IllegalArgumentException("CAN SF 仅支持 1-7 字节(需 FF 分段请联系维护): " + udsHex);
+        StringBuilder d = new StringBuilder(18);
+        d.append(String.format("%02X", n)).append(clean); // SF PCI: 0<len><payload>
+        while (d.length() < 16) d.append('0');            // 经典 CAN 8B 补零
         return busWrite(BUS_CH_A, String.format("%02X%02X08", (id >> 8) & 0xFF, id & 0xFF) + d);
     }
 

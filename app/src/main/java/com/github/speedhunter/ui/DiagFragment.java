@@ -201,6 +201,7 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_can_version).setOnClickListener(v -> runWithLink("CAN读版本", this::beginAe7CanVersion));
         root.findViewById(R.id.btn_diag_can_odo).setOnClickListener(v -> runWithLink("CAN写里程", this::beginAe7CanMileage));
         root.findViewById(R.id.btn_diag_share).setOnClickListener(v -> shareLog());
+        root.findViewById(R.id.btn_diag_export).setOnClickListener(v -> exportLog());
         root.findViewById(R.id.btn_diag_clear).setOnClickListener(v -> {
             logger.clearUi();
             logView.setText("等待操作…");
@@ -1644,9 +1645,26 @@ public final class DiagFragment extends BaseTabFragment {
                             if (seedR == null || (seedR[0] & 0xFF) != 0x67 || seedR.length < 6)
                                 throw new java.io.IOException("27 01 " + nrcText(seedR));
                             int seed = ((seedR[2] & 0xFF) << 24) | ((seedR[3] & 0xFF) << 16) | ((seedR[4] & 0xFF) << 8) | (seedR[5] & 0xFF);
-                            int key = com.github.speedhunter.diag.Uds.keyLevel1(seed);
-                            final String keyHex = String.format("%08X", key);
-                            log("OP", "CAN seed=" + String.format("%08X", seed) + " key=" + keyHex + "(L1)");
+                            byte[] seedBytes = java.util.Arrays.copyOfRange(seedR, 2, 6);
+                            // 官方顺序:27 01 种子 → L2 fff9 请 VCI 算 key → fff7 回 4B key → fff1 回执 → 27 02;
+                            // 本地 L1 算法已对官方 5 组种子-密钥实证一致(11-22 两对再验证),作 fff7 超时回退。
+                            String keyHex;
+                            if (active.supportsVciKey()) {
+                                lastFff7Key = null;
+                                active.sendRaw(ZeehoRs485Ops.L2_FFF9_KEY_QUERY);
+                                byte[] vkey = awaitFff7Key(3000);
+                                if (vkey == null) {
+                                    keyHex = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed));
+                                    log("OP", "CAN seed=" + Hex.format(seedBytes) + " fff7 超时,回退本地 L1 key=" + keyHex);
+                                } else {
+                                    keyHex = Hex.format(vkey);
+                                    active.sendRaw(ZeehoRs485Ops.l2Fff1Ack(seedBytes));
+                                    log("OP", "CAN seed=" + Hex.format(seedBytes) + " VCI fff7 key=" + keyHex);
+                                }
+                            } else {
+                                keyHex = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed));
+                                log("OP", "CAN seed=" + Hex.format(seedBytes) + " 本地 L1 key=" + keyHex);
+                            }
                             byte[] keyR = canExchange(active, "2702" + keyHex, 2500);
                             if (keyR == null || keyR.length < 2 || (keyR[0] & 0xFF) != 0x67 || (keyR[1] & 0xFF) != 0x02)
                                 throw new java.io.IOException("27 02 " + nrcText(keyR));
@@ -1959,6 +1977,28 @@ public final class DiagFragment extends BaseTabFragment {
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** 导出完整日志为 .log 文件(API≥29 入公共 Download/SpeedHunter;旧版回退 app 外部目录),并弹分享。 */
+    private void exportLog() {
+        android.net.Uri uri = logger.exportLogFile(requireContext());
+        if (uri == null) {
+            toast("导出失败(日志为空或存储不可用)");
+            log("LOG", "导出失败");
+            return;
+        }
+        String shown = uri.getPath() != null ? uri.getPath() : uri.toString();
+        log("LOG", "已导出 .log: " + shown);
+        android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+        send.setType("text/plain");
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            send.putExtra(android.content.Intent.EXTRA_STREAM, uri);
+            send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } else {
+            send.putExtra(android.content.Intent.EXTRA_TEXT, logger.dump());
+        }
+        startActivity(android.content.Intent.createChooser(send, "诊断日志 .log"));
+        toast("日志已导出:\n" + shown);
     }
 
     private void shareLog() {

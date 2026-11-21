@@ -312,7 +312,7 @@ public final class DiagSelfTest {
             sb.append("[FAIL] CfStream: ").append(t.getMessage()).append('\n'); fail++;
         }
 
-        // 18) AE7 CAN 通道(滤镜 0x794 配置 + 01 00 96 单帧写 + 01 00 00 流控;官方 11-19/11-20 会话)
+        // 18) AE7 CAN 通道(滤镜 0x794 配置 + ISO-TP 单帧写 + 01 00 00 流控;官方 11-22 会话逐字节)
         try {
             List<byte[]> setup = ZeehoRs485Ops.ae7CanSetupCommands();
             byte[] f3 = java.util.Arrays.copyOfRange(setup.get(3), 2, setup.get(3).length);
@@ -320,14 +320,21 @@ public final class DiagSelfTest {
             boolean okSetup = setup.size() == 6
                     && java.util.Arrays.equals(f3, Hex.parse("0801000007940000FFFF"))
                     && f4.length == 2 && (f4[0] & 0xFF) == 0x82 && (f4[1] & 0xFF) == 0x01;
-            byte[] wr = ZeehoRs485Ops.canUds("22F190");
-            boolean okWrite = java.util.Arrays.equals(wr, Hex.parse("010096" + "071408" + "22F190" + "0000000000"));
+            // 官方 11-22 会话逐字节向量:10 03=02 10 03+补零、27 02 key=06 27 02…、22 F1 90=03 22 F1 90…
+            byte[] wSes = ZeehoRs485Ops.canUds("1003");
+            boolean okSes = java.util.Arrays.equals(wSes, Hex.parse("010096" + "071408" + "021003" + "0000000000"));
+            byte[] wKey = ZeehoRs485Ops.canUds("2702B0A60AC0");
+            boolean okKey = java.util.Arrays.equals(wKey, Hex.parse("010096" + "071408" + "062702B0A60AC0" + "00"));
+            byte[] wDid = ZeehoRs485Ops.canUds("22F190");
+            boolean okDid = java.util.Arrays.equals(wDid, Hex.parse("010096" + "071408" + "0322F190" + "00000000"));
+            byte[] wOdo = ZeehoRs485Ops.canUds("2E0309002710");
+            boolean okOdo = java.util.Arrays.equals(wOdo, Hex.parse("010096" + "071408" + "062E0309002710" + "00"));
             byte[] fc = ZeehoRs485Ops.canFlowControl();
             boolean okFc = java.util.Arrays.equals(fc, Hex.parse("010000" + "071408" + "300814" + "0000000000"));
-            if (okSetup && okWrite && okFc) {
-                sb.append("[PASS] AE7 CAN 通道:滤镜 0794 配置 + 01 00 96 单帧写 + 01 00 00 流控逐字节\n");
+            if (okSetup && okSes && okKey && okDid && okOdo && okFc) {
+                sb.append("[PASS] AE7 CAN 通道:滤镜 0794 + ISO-TP 单帧(02/03/06 PCI)+流控逐字节\n");
                 pass++;
-            } else { sb.append("[FAIL] AE7 CAN 通道:setup=").append(okSetup).append(" write=").append(okWrite).append(" fc=").append(okFc).append('\n'); fail++; }
+            } else { sb.append("[FAIL] AE7 CAN 通道:setup=").append(okSetup).append(" ses=").append(okSes).append(" key=").append(okKey).append(" did=").append(okDid).append(" odo=").append(okOdo).append(" fc=").append(okFc).append('\n'); fail++; }
         } catch (Throwable t) {
             sb.append("[FAIL] AE7 CAN: ").append(t.getMessage()).append('\n'); fail++;
         }

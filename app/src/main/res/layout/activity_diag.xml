@@ -35,6 +35,13 @@
                 android:src="@drawable/ic_share" />
 
             <ImageButton
+                android:id="@+id/btn_diag_export"
+                style="@style/TopIconButton"
+                android:layout_marginStart="2dp"
+                android:contentDescription="导出日志为.log文件"
+                android:src="@drawable/ic_file_open" />
+
+            <ImageButton
                 android:id="@+id/btn_diag_clear"
                 style="@style/TopIconButton"
                 android:layout_marginStart="2dp"
