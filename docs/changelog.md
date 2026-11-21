@@ -1,3 +1,19 @@
+## 5.2.11 (vc158) — 2026-11-22
+
+### 车辆诊断:修复长会话应答匹配漂移(10 03 假超时)+ 日志仅保留本次会话
+
+- **根因修复(应答环形缓冲游标漂移)**:`pendingResponses` 环形上限 256 帧,溢出 `remove(0)` 后全列表下移,
+  而各等待/扫描点的 mark 仍指向旧下标 ⇒ 长会话(连接 ~30s 后)应答帧落在扫描起点之前被漏看。
+  11-22 实测:CAN 读版本(连接 6s)成功,CAN 写里程(连接 29s)`50 03` 应答已到却报「10 03 无应答」;
+  此前 AE5i 主从切换 awaitNode(0x79) 间歇失败(11-20)同源(旧归因「从机残留态」不成立)。
+  修复:引入单调虚拟游标 `pendingTotal`(所有 mark/scanFrom 存总数,`pendingIdx()` 换算真实下标),
+  覆盖 probeBusTraffic/pollAwaitNode/scanNodeSince(+Debug)/authorizeEol/pollSendAwait/读版本 VIN/canExchange/
+  awaitAbsSeed/requestResponse/readOdoViaDid 全部 14 处。
+- **日志仅本次会话**:`DiagLogger.startSession` 记录文件偏移并清内存缓冲;导出(.log)只取会话头起的尾段;
+  界面日志在每次连接时清空(文件仍全量落盘备查);分享=本次会话内存缓冲。
+- 5.2.9 的 ISO-TP PCI 修复经实车验证有效(CAN 读版本已读到 VIN/HW)。
+- 注:5.2.10(vc157) 为并行 OTA 会话的版本号(AE7 原厂包放行),本诊断修复顺延 5.2.11/vc158。
+
 ## 5.2.10 (vc157) — 2026-11-22
 
 ### OTA 推送：放行 AE7 车系原厂包（为 AE7 Pro 降级仪表固件）
