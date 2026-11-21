@@ -312,6 +312,26 @@ public final class DiagSelfTest {
             sb.append("[FAIL] CfStream: ").append(t.getMessage()).append('\n'); fail++;
         }
 
+        // 18) AE7 CAN 通道(滤镜 0x794 配置 + 01 00 96 单帧写 + 01 00 00 流控;官方 11-19/11-20 会话)
+        try {
+            List<byte[]> setup = ZeehoRs485Ops.ae7CanSetupCommands();
+            byte[] f3 = java.util.Arrays.copyOfRange(setup.get(3), 2, setup.get(3).length);
+            byte[] f4 = java.util.Arrays.copyOfRange(setup.get(4), 2, setup.get(4).length);
+            boolean okSetup = setup.size() == 6
+                    && java.util.Arrays.equals(f3, Hex.parse("0801000007940000FFFF"))
+                    && f4.length == 2 && (f4[0] & 0xFF) == 0x82 && (f4[1] & 0xFF) == 0x01;
+            byte[] wr = ZeehoRs485Ops.canUds("22F190");
+            boolean okWrite = java.util.Arrays.equals(wr, Hex.parse("010096" + "071408" + "22F190" + "0000000000"));
+            byte[] fc = ZeehoRs485Ops.canFlowControl();
+            boolean okFc = java.util.Arrays.equals(fc, Hex.parse("010000" + "071408" + "300814" + "0000000000"));
+            if (okSetup && okWrite && okFc) {
+                sb.append("[PASS] AE7 CAN 通道:滤镜 0794 配置 + 01 00 96 单帧写 + 01 00 00 流控逐字节\n");
+                pass++;
+            } else { sb.append("[FAIL] AE7 CAN 通道:setup=").append(okSetup).append(" write=").append(okWrite).append(" fc=").append(okFc).append('\n'); fail++; }
+        } catch (Throwable t) {
+            sb.append("[FAIL] AE7 CAN: ").append(t.getMessage()).append('\n'); fail++;
+        }
+
         sb.append("----------------------------------------\n");
         sb.append("结果：").append(pass).append(" 通过 / ").append(fail).append(" 失败\n");
         if (fail == 0) sb.append("协议内核就绪，可接入传输层。\n");
