@@ -48,10 +48,11 @@ public final class DiagFragment extends BaseTabFragment {
     private void scanNodeSinceDebug(int mark, int node, int[] payloadPrefix) {
         synchronized (responseLock) {
             int size = pendingResponses.size();
-            log("SCANDBG", "want node=" + Integer.toHexString(node) + " mark=" + mark + " size=" + size);
-            if (mark > size) log("SCANDBG", "mark>size:列表被裁剪或重置,mark 已过期");
+            int trimmed = pendingTotal - size;
+            int from = pendingIdx(mark);
+            log("SCANDBG", "want node=" + Integer.toHexString(node) + " mark=" + mark + "(虚拟) size=" + size + " 已裁剪=" + trimmed + " 扫描起点=" + from);
             int shown = 0;
-            for (int i = Math.max(0, mark); i < size && shown < 12; i++) {
+            for (int i = from; i < size && shown < 12; i++) {
                 VciLink.DataFrame f = pendingResponses.get(i);
                 if (!f.fromVehicle) { log("SCANDBG", "#" + i + " cmd=" + Integer.toHexString(f.cmd) + " 本机帧(跳过)"); shown++; continue; }
                 java.util.List<byte[]> cfs = VciLink.extractCfFrames(f);
@@ -116,6 +117,8 @@ public final class DiagFragment extends BaseTabFragment {
     private volatile boolean logAtBottom = true;
     private final Object responseLock = new Object();
     private final List<VciLink.DataFrame> pendingResponses = new ArrayList<>();
+    /** 累计入队总数(单调递增);mark/scanFrom 一律存此虚拟游标,环形 remove(0) 裁剪不再使游标漂移(5.2.10 修复)。 */
+    private int pendingTotal = 0;
     /** L2 fff7(VCI 计算 ABS 安全 key)最近一次结果。 */
     private volatile byte[] lastFff7Key;
     private boolean flowBusy;
@@ -272,6 +275,7 @@ public final class DiagFragment extends BaseTabFragment {
                 .setNegativeButton("取消", (d, w) -> abortConnect())
                 .show();
         connecting = true;
+        if (logView != null) logView.setText(""); // 5.2.10:界面日志同样只保留本次会话
         logger.startSession("SpeedHunter diag | " + (ble ? "BLE " : "VCI ") + mac + (opName != null ? " | auto:" + opName : ""));
         setState("连接中 " + mac);
         new Thread(() -> {
@@ -360,6 +364,7 @@ public final class DiagFragment extends BaseTabFragment {
             @Override public void onFrame(VciLink.DataFrame f, List<byte[]> cf) {
                 synchronized (responseLock) {
                     pendingResponses.add(f);
+                    pendingTotal++;
                     if (pendingResponses.size() > 256) pendingResponses.remove(0);
                     responseLock.notifyAll();
                 }
@@ -774,15 +779,21 @@ public final class DiagFragment extends BaseTabFragment {
         }
     }
 
+    /** 虚拟游标(mark 存 pendingTotal)→ 当前真实下标;被环形裁剪的旧帧不可达则钳 0。须持 responseLock。 */
+    private int pendingIdx(int mark) {
+        int i = mark - (pendingTotal - pendingResponses.size());
+        return i < 0 ? 0 : i;
+    }
+
     /** 被动探测总线车流(等待期零 TX):统计 mark 后来自车辆方向的帧数;>0 = 主机广播在线。 */
     private int probeBusTraffic(DiagLink active, long ms) {
         int mark;
-        synchronized (responseLock) { mark = pendingResponses.size(); }
+        synchronized (responseLock) { mark = pendingTotal; }
         long deadline = android.os.SystemClock.elapsedRealtime() + ms;
         while (android.os.SystemClock.elapsedRealtime() < deadline && active.isConnected()) sleepMs(150);
         synchronized (responseLock) {
             int n = 0;
-            for (int i = mark; i < pendingResponses.size(); i++) {
+            for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                 if (pendingResponses.get(i).fromVehicle) n++;
             }
             return n;
@@ -872,7 +883,7 @@ public final class DiagFragment extends BaseTabFragment {
      *  应答节点 = 查询节点|0x80(如 0x14→0x94)。prefix 可选 payload 前缀;命中返回 payload hex,超时 null。 */
     private String pollAwaitNode(DiagLink active, int node, int[] payloadPrefix, long timeoutMs) {
         int mark;
-        synchronized (responseLock) { mark = pendingResponses.size(); }
+        synchronized (responseLock) { mark = pendingTotal; }
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
         while (active.isConnected()) {
             String hit = scanNodeSince(mark, node, payloadPrefix);
@@ -889,7 +900,7 @@ public final class DiagFragment extends BaseTabFragment {
     /** 扫描 mark 之后来自指定节点(可选 payload 前缀)的 CF payload hex;无命中返回 null。 */
     private String scanNodeSince(int mark, int node, int[] payloadPrefix) {
         synchronized (responseLock) {
-            for (int i = mark; i < pendingResponses.size(); i++) {
+            for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                 VciLink.DataFrame f = pendingResponses.get(i);
                 if (!f.fromVehicle) continue;
                 for (byte[] raw : VciLink.extractCfFrames(f)) {
@@ -945,7 +956,7 @@ public final class DiagFragment extends BaseTabFragment {
         // 黄金删卡会话实证:官方直接发静态对(F4 09 01 E33A…/F4 09 02 AFC0…),车辆均回 FC 81/82;
         // FC 81 内 4B 挑战是随机值(实见 2f985e45),与静态对无关,仅记录不参与计算。
         int mark;
-        synchronized (responseLock) { mark = pendingResponses.size(); }
+        synchronized (responseLock) { mark = pendingTotal; }
         try {
             requestResponse(active, ZeehoRs485Ops.EOL_AUTH_1, 0x81);
             byte[] challenge = scanFcChallengeSince(mark);
@@ -960,7 +971,7 @@ public final class DiagFragment extends BaseTabFragment {
             log("OP", "静态对未获 FC 应答(" + e.getMessage() + "),回退动态挑战授权(跨车型兼容)");
         }
         int mark2;
-        synchronized (responseLock) { mark2 = pendingResponses.size(); }
+        synchronized (responseLock) { mark2 = pendingTotal; }
         requestResponse(active, ZeehoRs485Ops.eolAuth1Dynamic(), 0x81);
         byte[] dynChallenge = scanFcChallengeSince(mark2);
         if (dynChallenge == null) throw new java.io.IOException("动态授权:FC 81 应答未携带 4B 挑战");
@@ -972,7 +983,7 @@ public final class DiagFragment extends BaseTabFragment {
     /** 扫描 mark 后 FC 81 00 <challenge×4> 应答;返回 4B 挑战或 null。 */
     private byte[] scanFcChallengeSince(int mark) {
         synchronized (responseLock) {
-            for (int i = mark; i < pendingResponses.size(); i++) {
+            for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                 VciLink.DataFrame f = pendingResponses.get(i);
                 if (!f.fromVehicle) continue;
                 for (byte[] raw : VciLink.extractCfFrames(f)) {
@@ -992,7 +1003,7 @@ public final class DiagFragment extends BaseTabFragment {
     /** 先标记后发送再等待(消除 pollAndSend→pollAwaitNode 两步间的应答竞态)。超时返回 null。 */
     private String pollSendAwait(DiagLink active, String title, byte[] cf, int node, int[] payloadPrefix, long timeoutMs) {
         int mark;
-        synchronized (responseLock) { mark = pendingResponses.size(); }
+        synchronized (responseLock) { mark = pendingTotal; }
         pollAndSend(active, title, cf);
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
         while (active.isConnected()) {
@@ -1201,7 +1212,7 @@ public final class DiagFragment extends BaseTabFragment {
                             active.sendRs485(ZeehoRs485Ops.VERSION_CONFIRM_71);
                             log("TX", "读版本 确认 0x71(byte6=0x04)");
                             int vinMark;
-                            synchronized (responseLock) { vinMark = pendingResponses.size(); }
+                            synchronized (responseLock) { vinMark = pendingTotal; }
                             flowStage("②/③ 0x80 VIN 查询(官方首批应答延迟可达 ~21s:不阻塞,流程末被动收取)…");
                             pollAndSend(active, "版本 0x80(VIN 查询)", ZeehoRs485Ops.VERSION_QUERY_80);
                             StringBuilder sbNodes = new StringBuilder();
@@ -1448,7 +1459,7 @@ public final class DiagFragment extends BaseTabFragment {
      */
     private byte[] canExchange(DiagLink active, String udsHex, long timeoutMs) throws Exception {
         int scanFrom;
-        synchronized (responseLock) { scanFrom = pendingResponses.size(); }
+        synchronized (responseLock) { scanFrom = pendingTotal; }
         active.sendBus(ZeehoRs485Ops.canUds(udsHex));
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
         byte[] ffHead = null;
@@ -1457,7 +1468,7 @@ public final class DiagFragment extends BaseTabFragment {
         boolean fcSent = false;
         while (active.isConnected() && android.os.SystemClock.elapsedRealtime() < deadline) {
             synchronized (responseLock) {
-                for (int i = scanFrom; i < pendingResponses.size(); i++) {
+                for (int i = pendingIdx(scanFrom); i < pendingResponses.size(); i++) {
                     byte[] d = pendingResponses.get(i).data;
                     int off = canRxOffset(d);
                     if (off < 0 || off >= d.length) continue;
@@ -1481,7 +1492,7 @@ public final class DiagFragment extends BaseTabFragment {
                         cfs.add(java.util.Arrays.copyOfRange(d, off + 1, off + 1 + avail));
                     }
                 }
-                scanFrom = pendingResponses.size();
+                scanFrom = pendingTotal;
             }
             if (ffHead != null && !fcSent) {
                 active.sendBus(ZeehoRs485Ops.canFlowControl());
@@ -1829,7 +1840,7 @@ public final class DiagFragment extends BaseTabFragment {
     /** 被动等待 ABS 27 01 种子(数据帧含 07E9 08 06 67 01 <seed4B>;VCI 主动推送,等待期不轮询)。 */
     private byte[] awaitAbsSeed(DiagLink active, long timeoutMs) {
         int mark;
-        synchronized (responseLock) { mark = pendingResponses.size(); }
+        synchronized (responseLock) { mark = pendingTotal; }
         long deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs;
         while (active.isConnected()) {
             byte[] seed = scanAbsSeedSince(mark);
@@ -1842,7 +1853,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private byte[] scanAbsSeedSince(int mark) {
         synchronized (responseLock) {
-            for (int i = mark; i < pendingResponses.size(); i++) {
+            for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                 byte[] d = pendingResponses.get(i).data;
                 for (int j = 0; j + 9 <= d.length; j++) {
                     if ((d[j] & 0xFF) == 0x07 && (d[j + 1] & 0xFF) == 0xE9 && (d[j + 2] & 0xFF) == 0x08
@@ -1894,7 +1905,7 @@ public final class DiagFragment extends BaseTabFragment {
         int mark;
         int seq;
         synchronized (responseLock) {
-            mark = pendingResponses.size();
+            mark = pendingTotal;
             active.send(VciLink.CMD_POLL, new byte[]{1, 1});
             seq = active.sendWithSeq(VciLink.CMD_RS485_WRITE, ZeehoRs485Ops.wrapRs485ForVci(cf));
         }
@@ -1903,7 +1914,7 @@ public final class DiagFragment extends BaseTabFragment {
         while (active.isConnected()) {
             boolean hit = false;
             synchronized (responseLock) {
-                for (int i = mark; i < pendingResponses.size(); i++) {
+                for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                     if (DeleteCardResponses.matchesAnySeq(pendingResponses.get(i), response)) { hit = true; break; }
                 }
             }
@@ -1918,7 +1929,7 @@ public final class DiagFragment extends BaseTabFragment {
     private String readOdoViaDid(DiagLink active) {
         int mark;
         synchronized (responseLock) {
-            mark = pendingResponses.size();
+            mark = pendingTotal;
             try {
                 active.send(VciLink.CMD_POLL, new byte[]{1, 1});
                 active.sendRs485(Rs485.encode(0x14, new byte[]{0x22, 0x03, 0x09}));
@@ -1939,7 +1950,7 @@ public final class DiagFragment extends BaseTabFragment {
 
     private String scanOdoSince(int mark) {
         synchronized (responseLock) {
-            for (int i = mark; i < pendingResponses.size(); i++) {
+            for (int i = pendingIdx(mark); i < pendingResponses.size(); i++) {
                 VciLink.DataFrame f = pendingResponses.get(i);
                 if (!f.fromVehicle) continue;
                 for (byte[] raw : VciLink.extractCfFrames(f)) {

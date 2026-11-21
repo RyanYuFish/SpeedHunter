@@ -29,9 +29,35 @@ public final class DiagLogger {
         if (ext != null) externalFile = new File(ext, "speedhunter_diag.log");
     }
 
+    private long sessionStartOffset = 0L;
+
+    /** 新会话:记录文件内偏移(导出只取本次会话),清空内存缓冲(界面/分享只见本次会话)。 */
     public void startSession(String info) {
+        sessionStartOffset = fileLength(internalFile);
+        buffer.clear();
         String head = "\n===== DIAG SESSION " + HDR.format(new Date()) + " | " + info + " =====";
         append(head);
+    }
+
+    private static long fileLength(File f) {
+        try { return f != null && f.exists() ? f.length() : 0L; } catch (Exception e) { return 0L; }
+    }
+
+    /** 本次会话内容(会话头起的文件尾段;内部文件不可读时回退内存缓冲)。 */
+    public synchronized byte[] sessionBytes() {
+        try {
+            if (internalFile != null && internalFile.exists()) {
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(internalFile, "r")) {
+                    long len = raf.length();
+                    long off = Math.min(Math.max(sessionStartOffset, 0L), len);
+                    byte[] b = new byte[(int) (len - off)];
+                    raf.seek(off);
+                    raf.readFully(b);
+                    return b;
+                }
+            }
+        } catch (Exception ignored) { }
+        return dump().getBytes();
     }
 
     public synchronized void log(String tag, String message) {
@@ -73,7 +99,7 @@ public final class DiagLogger {
      * 返回可直接告知/分享的 URI 字符串;失败返回 null。
      */
     public android.net.Uri exportLogFile(Context context) {
-        byte[] all = readAll();
+        byte[] all = sessionBytes(); // 5.2.10:仅本次诊断会话(车主令:日志过长,只保留/导出当前会话)
         if (all == null || all.length == 0) return null;
         String name = "speedhunter_diag_"
                 + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".log";
@@ -111,17 +137,7 @@ public final class DiagLogger {
         }
     }
 
-    /** 读取完整落盘日志(优先内部全量文件;缺失时用内存缓冲)。 */
-    private byte[] readAll() {
-        File src = internalFile != null && internalFile.exists() ? internalFile : externalFile;
-        try {
-            if (src != null && src.exists()) {
-                return java.nio.file.Files.readAllBytes(src.toPath());
-            }
-        } catch (Exception ignored) {
-        }
-        return dump().getBytes();
-    }
+
 
     public synchronized void clearUi() {
         buffer.clear();
