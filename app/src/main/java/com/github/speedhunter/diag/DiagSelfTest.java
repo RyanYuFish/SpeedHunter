@@ -339,6 +339,27 @@ public final class DiagSelfTest {
             sb.append("[FAIL] AE7 CAN: ").append(t.getMessage()).append('\n'); fail++;
         }
 
+        // 19) VCI 安全访问 key 链路(官方 11-22 会话逐字节:fff0 帧×2 + fff7 解析×2 + L1 同型验证)
+        try {
+            byte[] q1 = ZeehoRs485Ops.l2Fff0SeedQuery(0x0011, Hex.parse("084CCE34"));
+            byte[] q2 = ZeehoRs485Ops.l2Fff0SeedQuery(0x0015, Hex.parse("0191365F"));
+            boolean okQ1 = java.util.Arrays.equals(q1, Hex.parse("55AA0011" + "000F" + "FFF0" + "01000C60DB80060006" + "084CCE34" + "0101" + "66"));
+            boolean okQ2 = java.util.Arrays.equals(q2, Hex.parse("55AA0015" + "000F" + "FFF0" + "01000C60DB80060006" + "0191365F" + "0101" + "25"));
+            // fff7 官方两种实抓布局
+            byte[] k1 = ZeehoRs485Ops.parseFff7Key(Hex.parse("AA5500110008FFF7" + "01000004" + "B0A60AC0" + "37"));
+            byte[] k2 = ZeehoRs485Ops.parseFff7Key(Hex.parse("AA5500150008FFF7" + "01000004" + "D00B3D58" + "51"));
+            boolean okK1 = k1 != null && Hex.format(k1).replace(" ", "").equals("B0A60AC0");
+            boolean okK2 = k2 != null && Hex.format(k2).replace(" ", "").equals("D00B3D58");
+            // VCI 算出的 key 与本地 L1 完全一致(084CCE34→B0A60AC0、0191365F→D00B3D58)
+            boolean okL1 = Uds.keyLevel1(0x084CCE34) == 0xB0A60AC0 && Uds.keyLevel1(0x0191365F) == 0xD00B3D58;
+            if (okQ1 && okQ2 && okK1 && okK2 && okL1) {
+                sb.append("[PASS] VCI key 链路:fff0(seq 0011/0015 逐字节) + fff7 双布局解析 + VCI key=本地 L1\n");
+                pass++;
+            } else { sb.append("[FAIL] VCI key 链路: q1=").append(okQ1).append(" q2=").append(okQ2).append(" k1=").append(okK1).append(" k2=").append(okK2).append(" l1=").append(okL1).append('\n'); fail++; }
+        } catch (Throwable t) {
+            sb.append("[FAIL] VCI key 链路: ").append(t.getMessage()).append('\n'); fail++;
+        }
+
         sb.append("----------------------------------------\n");
         sb.append("结果：").append(pass).append(" 通过 / ").append(fail).append(" 失败\n");
         if (fail == 0) sb.append("协议内核就绪，可接入传输层。\n");

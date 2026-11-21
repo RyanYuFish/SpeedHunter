@@ -209,30 +209,40 @@ public final class ZeehoRs485Ops {
     /** L2 fff9: 请 VCI 计算 ABS 安全访问 key(官方逐字节重放;VCI 以 fff7 回 4B key)。 */
     public static final byte[] L2_FFF9_KEY_QUERY = hex("55aa000a0006fff901000360fe0069");
 
-    /** 官方收到 seed 后回执的 L2 fff1(含 seed;保持官方流程完整)。 */
-    public static byte[] l2Fff1Ack(byte[] seed4) {
-        byte[] data = concat(hex("01000B60DB80010005"), seed4);
-        byte[] full = new byte[6 + 2 + data.length + 1];
+    /**
+     * L2 fff0:携带 seed 请 VCI 计算安全访问 key(官方 11-22 会话逐字节)。
+     * 帧型 |55aa|seq=000B|len=000F|fff0|01 00 0C 60 DB 80 06 00 06|seed×4|01 01|ck|,
+     * ck = FF ^ XOR(seq..data)。官方 fff9→FFA 应答、fff0→fff7(key) 应答。
+     */
+    public static byte[] l2Fff0SeedQuery(int seq, byte[] seed4) {
+        byte[] data = concat(hex("01000C60DB80060006"), seed4);
+        byte[] full = new byte[6 + 2 + data.length + 3];
         full[0] = 0x55; full[1] = (byte) 0xAA;
-        full[2] = 0x00; full[3] = 0x0B;                       // L2 seq 0x000B
-        full[4] = (byte) ((data.length >> 8) & 0xFF);          // len BE
-        full[5] = (byte) (data.length & 0xFF);
-        full[6] = (byte) 0xFF; full[7] = (byte) 0xF1;          // cmd fff1
+        full[2] = (byte) ((seq >> 8) & 0xFF); full[3] = (byte) (seq & 0xFF);  // L2 seq = fff9 seq+1
+        full[4] = (byte) (((2 + data.length) >> 8) & 0xFF);   // len BE = cmd(2)+data
+        full[5] = (byte) ((2 + data.length) & 0xFF);
+        full[6] = (byte) 0xFF; full[7] = (byte) 0xF0;          // cmd fff0
         System.arraycopy(data, 0, full, 8, data.length);
         int x = 0;
-        for (int i = 2; i < full.length - 1; i++) x ^= full[i] & 0xFF;
-        full[full.length - 1] = (byte) (0xFF ^ x);             // tail = FF^xor(seq..data)
+        for (int i = 2; i < full.length - 3; i++) x ^= full[i] & 0xFF;
+        full[full.length - 3] = 0x01; full[full.length - 2] = 0x01;
+        full[full.length - 1] = (byte) (0xFF ^ x);             // ck = FF^xor(seq..data)
         return full;
     }
 
-    /** 从 L2 fff7 帧(|aa55|seq|len|fff7|01 00 04|key×4|tail|)提取 key;不符返回 null。 */
+    /**
+     * 从 L2 fff7 帧提取 4B key;兼容两种实抓布局:
+     * ① |aa55|seq|len|fff7|01 00 04|key×4|…(11-10 ABS 会话)
+     * ② |aa55|seq|len|fff7|01 00 00 04|key×4|…(11-22 写里程会话,key 在 [12..15])
+     */
     public static byte[] parseFff7Key(byte[] frame) {
         if (frame == null || frame.length < 15) return null;
         if ((frame[0] & 0xFF) != 0xAA || (frame[1] & 0xFF) != 0x55) return null;
-        int len = ((frame[4] & 0xFF) << 8) | (frame[5] & 0xFF);
-        if (len != 8 || (frame[6] & 0xFF) != 0xFF || (frame[7] & 0xFF) != 0xF7) return null;
-        if ((frame[8] & 0xFF) != 0x01 || (frame[9] & 0xFF) != 0x00 || (frame[10] & 0xFF) != 0x04) return null;
-        return java.util.Arrays.copyOfRange(frame, 11, 15);
+        if ((frame[6] & 0xFF) != 0xFF || (frame[7] & 0xFF) != 0xF7) return null;
+        if ((frame[8] & 0xFF) != 0x01 || (frame[9] & 0xFF) != 0x00) return null;
+        if ((frame[10] & 0xFF) == 0x04 && frame.length >= 15) return java.util.Arrays.copyOfRange(frame, 11, 15);
+        if (frame.length >= 16 && (frame[10] & 0xFF) == 0x00 && (frame[11] & 0xFF) == 0x04) return java.util.Arrays.copyOfRange(frame, 12, 16);
+        return null;
     }
 
     // ABS 命令负载(07 e1 08 = 请求头)

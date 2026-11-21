@@ -1657,26 +1657,41 @@ public final class DiagFragment extends BaseTabFragment {
                                 throw new java.io.IOException("27 01 " + nrcText(seedR));
                             int seed = ((seedR[2] & 0xFF) << 24) | ((seedR[3] & 0xFF) << 16) | ((seedR[4] & 0xFF) << 8) | (seedR[5] & 0xFF);
                             byte[] seedBytes = java.util.Arrays.copyOfRange(seedR, 2, 6);
-                            // 官方顺序:27 01 种子 → L2 fff9 请 VCI 算 key → fff7 回 4B key → fff1 回执 → 27 02;
-                            // 本地 L1 算法已对官方 5 组种子-密钥实证一致(11-22 两对再验证),作 fff7 超时回退。
+                            // 官方顺序(11-22 实抓):27 01 种子 → L2 fff9(VCI 回 FFA) → L2 fff0 携 seed
+                            // → VCI 回 fff7(4B key) → 立即 27 02;官方 27 01→27 02 全程仅 84ms。
+                            // VCI key 算法=本地 L1(084CCE34→B0A60AC0/0191365F→D00B3D58 已实证),
+                            // fff7 超时直接本地算,保证 27 02 在 seed 失效窗(~1s)内发出。
                             String keyHex;
                             if (active.supportsVciKey()) {
                                 lastFff7Key = null;
                                 active.sendRaw(ZeehoRs485Ops.L2_FFF9_KEY_QUERY);
-                                byte[] vkey = awaitFff7Key(3000);
-                                if (vkey == null) {
-                                    keyHex = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed));
-                                    log("OP", "CAN seed=" + Hex.format(seedBytes) + " fff7 超时,回退本地 L1 key=" + keyHex);
-                                } else {
+                                sleepMs(40);
+                                active.sendRaw(ZeehoRs485Ops.l2Fff0SeedQuery(0x000B, seedBytes));
+                                byte[] vkey = awaitFff7Key(600);
+                                if (vkey != null) {
                                     keyHex = Hex.format(vkey);
-                                    active.sendRaw(ZeehoRs485Ops.l2Fff1Ack(seedBytes));
                                     log("OP", "CAN seed=" + Hex.format(seedBytes) + " VCI fff7 key=" + keyHex);
+                                } else {
+                                    keyHex = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed));
+                                    log("OP", "CAN seed=" + Hex.format(seedBytes) + " fff7 超时,本地 L1 key=" + keyHex);
                                 }
                             } else {
                                 keyHex = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed));
                                 log("OP", "CAN seed=" + Hex.format(seedBytes) + " 本地 L1 key=" + keyHex);
                             }
-                            byte[] keyR = canExchange(active, "2702" + keyHex, 2500);
+                            byte[] keyR = canExchange(active, "2702" + keyHex, 2000);
+                            if (keyR == null) {
+                                // seed 可能已过失效窗:换新 seed + 本地 key 立即重试一次(官方节奏 <150ms)
+                                log("OP", "27 02 无应答,换新 seed 重试");
+                                sleepMs(200);
+                                byte[] seedR2 = canExchange(active, "2701", 2500);
+                                if (seedR2 != null && (seedR2[0] & 0xFF) == 0x67 && seedR2.length >= 6) {
+                                    int seed2 = ((seedR2[2] & 0xFF) << 24) | ((seedR2[3] & 0xFF) << 16) | ((seedR2[4] & 0xFF) << 8) | (seedR2[5] & 0xFF);
+                                    String keyHex2 = String.format("%08X", com.github.speedhunter.diag.Uds.keyLevel1(seed2));
+                                    log("OP", "CAN seed2=" + String.format("%08X", seed2) + " 本地 L1 key=" + keyHex2);
+                                    keyR = canExchange(active, "2702" + keyHex2, 2000);
+                                }
+                            }
                             if (keyR == null || keyR.length < 2 || (keyR[0] & 0xFF) != 0x67 || (keyR[1] & 0xFF) != 0x02)
                                 throw new java.io.IOException("27 02 " + nrcText(keyR));
                             flowStage("⑤ 2E 03 09 写入 " + raw + " km");
@@ -1781,11 +1796,13 @@ public final class DiagFragment extends BaseTabFragment {
             byte[] seed = awaitAbsSeed(active, 3000);
             if (seed == null) throw new java.io.IOException("未收到 27 01 种子(07e9 08 06 67 01)");
             log("OP", "ABS seed=" + Hex.format(seed));
+            // 5.2.12:官方实为 fff9(VCI 回 FFA)→fff0 携 seed→fff7 回 key;仅发 fff9 永远等不到 fff7
             lastFff7Key = null;
             active.sendRaw(ZeehoRs485Ops.L2_FFF9_KEY_QUERY);
-            byte[] key = awaitFff7Key(3000);
-            if (key == null) throw new java.io.IOException("VCI 未回 fff7 key");
-            active.sendRaw(ZeehoRs485Ops.l2Fff1Ack(seed));
+            sleepMs(40);
+            active.sendRaw(ZeehoRs485Ops.l2Fff0SeedQuery(0x000B, seed));
+            byte[] key = awaitFff7Key(800);
+            if (key == null) throw new java.io.IOException("VCI 未回 fff7 key(fff0 已携 seed 查询)");
             active.sendBus(ZeehoRs485Ops.absSendKey(key));
             log("OP", "ABS 安全访问 key=" + Hex.format(key) + " 已发(27 02)");
             sleepMs(30);
