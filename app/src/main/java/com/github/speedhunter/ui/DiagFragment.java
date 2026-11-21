@@ -187,8 +187,6 @@ public final class DiagFragment extends BaseTabFragment {
         root.findViewById(R.id.btn_diag_pick).setOnClickListener(v -> showModulePicker());
         root.findViewById(R.id.btn_diag_disconnect).setOnClickListener(v -> closeLink());
         root.findViewById(R.id.btn_diag_nfc_on).setOnClickListener(v -> runWithLink("学卡", this::nfcStudyOfficialFlow));
-        root.findViewById(R.id.btn_diag_nfc_done).setOnClickListener(v ->
-                toast("学卡退出包含在各流程末段(39 00 OFF + 0x71 退出),无单独退出按钮"));
         root.findViewById(R.id.btn_diag_nfc_del).setOnClickListener(v -> runWithLink("删卡", this::beginDeleteCard));
         root.findViewById(R.id.btn_diag_version).setOnClickListener(v -> runWithLink("读版本", this::beginVersionRead));
         root.findViewById(R.id.btn_diag_dtc_read).setOnClickListener(v -> runWithLink("读DTC", this::beginDtcRead));
